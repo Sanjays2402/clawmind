@@ -1,0 +1,17 @@
+{
+  "name": "@clawmind/rag",
+  "version": "0.1.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "typecheck": "tsc --noEmit", "build": "echo ok", "test": "vitest run", "lint": "echo ok" },
+  "dependencies": {
+    "@clawmind/types": "workspace:*",
+    "@clawmind/store": "workspace:*",
+    "@clawmind/embed": "workspace:*",
+    "@clawmind/llm": "workspace:*",
+    "@clawmind/config": "workspace:*",
+    "@clawmind/telemetry": "workspace:*"
+  },
+  "devDependencies": { "typescript": "^5.6.3", "vitest": "^2.1.8" }
+}
