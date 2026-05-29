@@ -1,0 +1,18 @@
+{
+  "id": "sess-042",
+  "started_at": "2026-02-12",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Message 0 on 2026-02-12 about snip."
+    },
+    {
+      "role": "assistant",
+      "content": "Message 1 on 2026-02-12 about clawmind."
+    },
+    {
+      "role": "user",
+      "content": "Message 2 on 2026-02-12 about openclaw."
+    }
+  ]
+}

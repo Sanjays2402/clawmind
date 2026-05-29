@@ -1,0 +1,22 @@
+{
+  "id": "sess-051",
+  "started_at": "2026-02-21",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Message 0 on 2026-02-21 about infra."
+    },
+    {
+      "role": "assistant",
+      "content": "Message 1 on 2026-02-21 about hermes."
+    },
+    {
+      "role": "user",
+      "content": "Message 2 on 2026-02-21 about infra."
+    },
+    {
+      "role": "assistant",
+      "content": "Message 3 on 2026-02-21 about infra."
+    }
+  ]
+}

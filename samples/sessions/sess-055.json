@@ -1,0 +1,22 @@
+{
+  "id": "sess-055",
+  "started_at": "2026-02-25",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Message 0 on 2026-02-25 about hermes."
+    },
+    {
+      "role": "assistant",
+      "content": "Message 1 on 2026-02-25 about clawmind."
+    },
+    {
+      "role": "user",
+      "content": "Message 2 on 2026-02-25 about snip."
+    },
+    {
+      "role": "assistant",
+      "content": "Message 3 on 2026-02-25 about clawmind."
+    }
+  ]
+}

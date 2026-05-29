@@ -1,0 +1,18 @@
+{
+  "id": "sess-094",
+  "started_at": "2026-04-05",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Message 0 on 2026-04-05 about openclaw."
+    },
+    {
+      "role": "assistant",
+      "content": "Message 1 on 2026-04-05 about hermes."
+    },
+    {
+      "role": "user",
+      "content": "Message 2 on 2026-04-05 about snip."
+    }
+  ]
+}

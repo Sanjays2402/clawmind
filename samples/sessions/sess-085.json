@@ -1,0 +1,18 @@
+{
+  "id": "sess-085",
+  "started_at": "2026-03-27",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Message 0 on 2026-03-27 about openclaw."
+    },
+    {
+      "role": "assistant",
+      "content": "Message 1 on 2026-03-27 about hermes."
+    },
+    {
+      "role": "user",
+      "content": "Message 2 on 2026-03-27 about clawmind."
+    }
+  ]
+}

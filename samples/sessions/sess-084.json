@@ -1,0 +1,26 @@
+{
+  "id": "sess-084",
+  "started_at": "2026-03-26",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Message 0 on 2026-03-26 about clawmind."
+    },
+    {
+      "role": "assistant",
+      "content": "Message 1 on 2026-03-26 about hermes."
+    },
+    {
+      "role": "user",
+      "content": "Message 2 on 2026-03-26 about infra."
+    },
+    {
+      "role": "assistant",
+      "content": "Message 3 on 2026-03-26 about snip."
+    },
+    {
+      "role": "user",
+      "content": "Message 4 on 2026-03-26 about clawmind."
+    }
+  ]
+}

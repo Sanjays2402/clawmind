@@ -1,0 +1,18 @@
+{
+  "id": "sess-093",
+  "started_at": "2026-04-04",
+  "messages": [
+    {
+      "role": "user",
+      "content": "Message 0 on 2026-04-04 about hermes."
+    },
+    {
+      "role": "assistant",
+      "content": "Message 1 on 2026-04-04 about snip."
+    },
+    {
+      "role": "user",
+      "content": "Message 2 on 2026-04-04 about infra."
+    }
+  ]
+}
