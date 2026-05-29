@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.base.json",
+  "files": [],
+  "references": [
+    { "path": "./packages/types" },
+    { "path": "./packages/config" },
+    { "path": "./packages/telemetry" },
+    { "path": "./packages/embed" },
+    { "path": "./packages/llm" },
+    { "path": "./packages/store" },
+    { "path": "./packages/ingest" },
+    { "path": "./packages/rag" },
+    { "path": "./packages/ui" }
+  ]
+}
