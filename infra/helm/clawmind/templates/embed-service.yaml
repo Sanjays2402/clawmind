@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "clawmind.fullname" . }}-embed
+spec:
+  selector: { app: clawmind-embed }
+  ports: [{ port: {{ .Values.embed.port }}, targetPort: {{ .Values.embed.port }} }]

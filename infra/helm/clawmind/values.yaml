@@ -1,0 +1,31 @@
+image:
+  registry: ghcr.io
+  repository: sanjays2402/clawmind
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+api:
+  replicas: 1
+  port: 7410
+  resources:
+    limits: { cpu: "500m", memory: "512Mi" }
+    requests: { cpu: "100m", memory: "256Mi" }
+
+web:
+  replicas: 1
+  port: 7412
+
+embed:
+  replicas: 1
+  port: 7411
+  model: "mlx-community/bge-small-en-v1.5-4bit"
+
+persistence:
+  enabled: true
+  size: 10Gi
+  storageClass: ""
+
+ingress:
+  enabled: false
+  className: nginx
+  host: clawmind.local

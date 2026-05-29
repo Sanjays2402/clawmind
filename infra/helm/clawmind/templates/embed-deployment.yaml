@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "clawmind.fullname" . }}-embed
+spec:
+  replicas: {{ .Values.embed.replicas }}
+  selector: { matchLabels: { app: clawmind-embed } }
+  template:
+    metadata: { labels: { app: clawmind-embed } }
+    spec:
+      containers:
+        - name: embed
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}-embed:{{ .Values.image.tag }}"
+          ports: [{ containerPort: {{ .Values.embed.port }} }]
+          env:
+            - { name: CLAWMIND_EMBED_MODEL, value: "{{ .Values.embed.model }}" }

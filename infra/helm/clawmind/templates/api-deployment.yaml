@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "clawmind.fullname" . }}-api
+  labels: {{- include "clawmind.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  selector:
+    matchLabels: { app: clawmind-api }
+  template:
+    metadata:
+      labels: { app: clawmind-api }
+    spec:
+      containers:
+        - name: api
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}-api:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports: [{ containerPort: {{ .Values.api.port }} }]
+          env:
+            - { name: CLAWMIND_EMBED_URL, value: "http://{{ include "clawmind.fullname" . }}-embed:{{ .Values.embed.port }}" }
+            - { name: CLAWMIND_DATA_DIR, value: "/var/clawmind" }
+            - { name: CLAWMIND_API_HOST, value: "0.0.0.0" }
+          resources: {{- toYaml .Values.api.resources | nindent 12 }}
+          volumeMounts:
+            - { name: data, mountPath: /var/clawmind }
+          readinessProbe:
+            httpGet: { path: /health, port: {{ .Values.api.port }} }
+            initialDelaySeconds: 8
+      volumes:
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim: { claimName: {{ include "clawmind.fullname" . }}-data }
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

@@ -1,0 +1,39 @@
+version: '3.9'
+services:
+  redis:
+    image: redis:7-alpine
+    ports: ['6379:6379']
+    volumes:
+      - redis-data:/data
+
+  embed:
+    build:
+      context: ../..
+      dockerfile: infra/docker/embed.Dockerfile
+    ports: ['7411:7411']
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      CLAWMIND_DATA_DIR: /var/clawmind
+      CLAWMIND_EMBED_URL: http://embed:7411
+      CLAWMIND_API_HOST: 0.0.0.0
+    depends_on: [embed, redis]
+    ports: ['7410:7410']
+    volumes:
+      - clawmind-data:/var/clawmind
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infra/docker/web.Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:7410
+    ports: ['7412:7412']
+    depends_on: [api]
+
+volumes:
+  redis-data:
+  clawmind-data:

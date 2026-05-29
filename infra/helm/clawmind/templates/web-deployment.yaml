@@ -1,0 +1,16 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "clawmind.fullname" . }}-web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector: { matchLabels: { app: clawmind-web } }
+  template:
+    metadata: { labels: { app: clawmind-web } }
+    spec:
+      containers:
+        - name: web
+          image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}-web:{{ .Values.image.tag }}"
+          ports: [{ containerPort: {{ .Values.web.port }} }]
+          env:
+            - { name: NEXT_PUBLIC_API_URL, value: "http://{{ include "clawmind.fullname" . }}-api:{{ .Values.api.port }}" }
