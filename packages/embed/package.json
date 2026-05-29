@@ -1,0 +1,23 @@
+{
+  "name": "@clawmind/embed",
+  "version": "0.1.0",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "echo ok",
+    "test": "vitest run",
+    "lint": "echo ok",
+    "python:setup": "python3 -m venv python/.venv && python/.venv/bin/pip install -r python/requirements.txt",
+    "python:serve": "python/.venv/bin/uvicorn python.server:app --host 127.0.0.1 --port 7411"
+  },
+  "dependencies": {
+    "@clawmind/types": "workspace:*",
+    "@clawmind/config": "workspace:*",
+    "@clawmind/telemetry": "workspace:*",
+    "undici": "^6.21.0",
+    "p-retry": "^6.2.1"
+  },
+  "devDependencies": { "typescript": "^5.6.3", "vitest": "^2.1.8" }
+}

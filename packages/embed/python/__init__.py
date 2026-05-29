@@ -1,0 +1,1 @@
+"""ClawMind embed sidecar package."""
