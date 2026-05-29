@@ -1,0 +1,16 @@
+node_modules
+.turbo
+dist
+.next
+.DS_Store
+*.log
+.env
+.env.*
+!.env.example
+data/
+.lancedb/
+coverage/
+.vitest/
+playwright-report/
+test-results/
+

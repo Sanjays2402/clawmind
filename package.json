@@ -1,0 +1,25 @@
+{
+  "name": "clawmind",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first RAG over your OpenClaw workspace.",
+  "packageManager": "pnpm@9.12.0",
+  "engines": { "node": ">=20.10" },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev --parallel",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --write .",
+    "clawmind": "pnpm --filter @clawmind/cli exec clawmind"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.0",
+    "typescript": "^5.6.3",
+    "prettier": "^3.4.2",
+    "@types/node": "^22.10.0",
+    "vitest": "^2.1.8",
+    "tsx": "^4.19.2"
+  }
+}
