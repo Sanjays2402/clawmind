@@ -1,0 +1,33 @@
+{
+  "name": "@clawmind/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "clawmind": "./src/index.ts" },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo ok"
+  },
+  "dependencies": {
+    "@clawmind/types": "workspace:*",
+    "@clawmind/config": "workspace:*",
+    "@clawmind/store": "workspace:*",
+    "@clawmind/embed": "workspace:*",
+    "@clawmind/llm": "workspace:*",
+    "@clawmind/ingest": "workspace:*",
+    "@clawmind/rag": "workspace:*",
+    "@clawmind/telemetry": "workspace:*",
+    "commander": "^12.1.0",
+    "kleur": "^4.1.5",
+    "ora": "^8.1.1",
+    "tsx": "^4.19.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8",
+    "@types/node": "^22.10.0"
+  }
+}
