@@ -1,0 +1,14 @@
+{
+  "id": "sess-007",
+  "started_at": "2026-01-08",
+  "messages": [
+    {
+      "role": "user",
+      "content": "What's on my plate today 2026-01-08?"
+    },
+    {
+      "role": "assistant",
+      "content": "Three things: snip OCR follow-up, clawmind retrieval tuning, an email from the studio."
+    }
+  ]
+}
