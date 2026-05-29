@@ -1,0 +1,8 @@
+{
+  "id": "snip-ocr-tuesday",
+  "query": "what did I commit last Tuesday on snip?",
+  "must_contain": [
+    "snip",
+    "OCR"
+  ]
+}

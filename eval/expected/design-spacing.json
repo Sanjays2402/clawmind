@@ -1,0 +1,8 @@
+{
+  "id": "design-spacing",
+  "query": "what design system did we borrow spacing from?",
+  "must_contain": [
+    "Linear",
+    "tokens"
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "id": "openclaw-skill",
+  "query": "what skill did I add for inbox triage?",
+  "must_contain": [
+    "TaskFlow",
+    "inbox"
+  ]
+}

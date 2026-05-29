@@ -1,0 +1,9 @@
+{
+  "id": "clawmind-retrieval",
+  "query": "how does clawmind retrieval work?",
+  "must_contain": [
+    "hybrid",
+    "BM25",
+    "MMR"
+  ]
+}

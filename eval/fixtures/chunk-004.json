@@ -1,0 +1,11 @@
+{
+  "id": "chunk-004",
+  "documentId": "doc-4",
+  "path": "/samples/memory/2026-01-05.md",
+  "namespace": "projects",
+  "text": "Sample chunk 4. Topics include snip, clawmind, openclaw, hermes, infra, design.",
+  "startLine": 13,
+  "endLine": 16,
+  "tokens": 24,
+  "ord": 4
+}
