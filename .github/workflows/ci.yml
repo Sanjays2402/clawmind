@@ -1,0 +1,30 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: gate check
+        run: |
+          if [ "${{ vars.ENABLE_CI }}" != "true" ]; then
+            echo "CI is intentionally disabled (billing block). Set the repository variable ENABLE_CI=true to enable."
+            exit 0
+          fi
+
+  test:
+    needs: guard
+    if: vars.ENABLE_CI == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20.18.0', cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test

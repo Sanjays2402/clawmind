@@ -1,0 +1,12 @@
+name: codeql
+on:
+  schedule: [{ cron: '0 4 * * 1' }]
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          if [ "${{ vars.ENABLE_CI }}" != "true" ]; then
+            echo "CodeQL gated."
+            exit 0
+          fi

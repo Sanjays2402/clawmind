@@ -1,0 +1,14 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: gate
+        run: |
+          if [ "${{ vars.ENABLE_CI }}" != "true" ]; then
+            echo "Release pipeline gated. Set ENABLE_CI=true."
+            exit 0
+          fi
