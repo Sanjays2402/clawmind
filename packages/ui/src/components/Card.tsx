@@ -5,7 +5,7 @@ export function Card({ children, style, ...rest }: React.HTMLAttributes<HTMLDivE
     <div
       {...rest}
       style={{
-        background: 'var(--cm-subtle)',
+        background: 'var(--cm-paper)',
         border: '1px solid var(--cm-border)',
         borderRadius: 'var(--cm-radius)',
         padding: 16,
