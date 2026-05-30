@@ -77,7 +77,7 @@ export async function ask(deps: RagDeps, q: Query): Promise<AskResult> {
   const meta = { meta: { expansion: { original: q.q, expanded: q.q, added: [], corrections: [] } } };
   const hits = await retrieve(deps, q, meta);
   const sources = buildSources(hits);
-  const context = toPromptContext(hits);
+  const context = toPromptContext(hits, q.contextTokenBudget ? { maxTokens: q.contextTokenBudget } : {});
   const messages = buildPrompt({ question: q.q, context });
   const text = await deps.llm.chat({ model: '', messages, temperature: 0.2 });
   const citations = extractCitations(text, sources);
@@ -93,7 +93,7 @@ export async function* askStream(deps: RagDeps, q: Query): AsyncIterable<StreamE
     yield { type: 'expansion', value: meta.meta.expansion } as StreamEvent;
   }
   yield { type: 'sources', value: sources };
-  const context = toPromptContext(hits);
+  const context = toPromptContext(hits, q.contextTokenBudget ? { maxTokens: q.contextTokenBudget } : {});
   const messages = buildPrompt({ question: q.q, context });
   let buffer = '';
   try {

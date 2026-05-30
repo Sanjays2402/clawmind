@@ -12,5 +12,12 @@ export const QuerySchema = z.object({
   includeTags: z.array(z.string()).optional(),
   /** Drop sources carrying any of these tags from retrieval. */
   excludeTags: z.array(z.string()).optional(),
+  /**
+   * Optional cap on the total approximate tokens stuffed into the LLM
+   * prompt context. Excerpts are dropped from the lowest-ranked end
+   * first so the most relevant chunks survive a tight budget. Useful
+   * when targeting a small-context local model.
+   */
+  contextTokenBudget: z.number().int().positive().max(200_000).optional(),
 });
 export type Query = z.infer<typeof QuerySchema>;
