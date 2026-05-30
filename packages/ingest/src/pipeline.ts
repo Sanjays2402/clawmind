@@ -7,6 +7,7 @@ import { embedAll, EmbedCache } from '@clawmind/embed';
 import { loadMarkdown } from './loaders/markdown.js';
 import { loadCode, isCodeFile } from './loaders/code.js';
 import { loadJson } from './loaders/json.js';
+import { loadPdf, isPdfFile } from './loaders/pdf.js';
 import { semanticChunk } from './chunkers/semantic.js';
 import { filterIgnored } from './ignore.js';
 
@@ -25,6 +26,7 @@ const INCLUDE_GLOBS = [
   '**/*.md', '**/*.mdx', '**/*.txt', '**/*.json',
   '**/*.ts', '**/*.tsx', '**/*.js', '**/*.py', '**/*.go', '**/*.rs',
   '**/*.yml', '**/*.yaml', '**/*.toml',
+  '**/*.pdf',
 ];
 const EXCLUDE_GLOBS = [
   '**/node_modules/**', '**/.git/**', '**/.next/**', '**/dist/**', '**/build/**',
@@ -41,6 +43,10 @@ export async function discoverFiles(root: string): Promise<string[]> {
 
 async function loadByExt(path: string) {
   const ext = extname(path).toLowerCase();
+  if (isPdfFile(path)) {
+    const loaded = await loadPdf(path);
+    return { doc: loaded.doc, body: loaded.body };
+  }
   if (ext === '.md' || ext === '.mdx' || ext === '.txt') return loadMarkdown(path);
   if (ext === '.json') return loadJson(path);
   if (isCodeFile(path)) return loadCode(path);
