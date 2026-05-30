@@ -65,9 +65,14 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
             <div style={{ fontSize: 13, color: 'var(--cm-muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <IconFolder /> Lines {fileRes.start}-{fileRes.end}
             </div>
-            <Link href="/sources" style={{ ...link, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-              All sources <IconArrowRight />
-            </Link>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+              <Link href={`/related?path=${encodeURIComponent(path)}`} style={{ ...link, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                Related <IconArrowRight />
+              </Link>
+              <Link href="/sources" style={{ ...link, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                All sources <IconArrowRight />
+              </Link>
+            </div>
           </div>
           {lines.length === 0 ? (
             <div style={{ padding: 32, textAlign: 'center', color: 'var(--cm-muted)', fontSize: 14 }}>

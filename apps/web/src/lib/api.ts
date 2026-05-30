@@ -328,7 +328,80 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ dryRun }),
     }),
+
+  // Related: server returns sources semantically near the average embedding
+  // of the given path's chunks. Useful as a "what else is like this" panel
+  // from the source viewer. namespaces filter is optional.
+  related: (path: string, opts: { k?: number; namespaces?: string[] } = {}) => {
+    const params = new URLSearchParams({ path });
+    if (opts.k != null) params.set('k', String(opts.k));
+    if (opts.namespaces?.length) params.set('namespaces', opts.namespaces.join(','));
+    return j<RelatedResult>(`/v1/related?${params.toString()}`);
+  },
+
+  // Snapshots: per-saved-search captures of the current top-N sources. The
+  // diff endpoint runs the saved query again and compares fresh results to
+  // the chosen baseline so drift becomes visible without leaving the UI.
+  snapshotsList: (savedId: string) =>
+    j<{ items: SnapshotSummary[] }>(`/v1/saved/${encodeURIComponent(savedId)}/snapshots`).then((r) => r.items),
+  snapshotCapture: (savedId: string, body: { label?: string; k?: number } = {}) =>
+    j<{ snapshot: SnapshotEntry }>(`/v1/saved/${encodeURIComponent(savedId)}/snapshots`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }).then((r) => r.snapshot),
+  snapshotGet: (savedId: string, id: string) =>
+    j<{ snapshot: SnapshotEntry }>(
+      `/v1/saved/${encodeURIComponent(savedId)}/snapshots/${encodeURIComponent(id)}`,
+    ).then((r) => r.snapshot),
+  snapshotDelete: (savedId: string, id: string) =>
+    j<{ ok: boolean }>(
+      `/v1/saved/${encodeURIComponent(savedId)}/snapshots/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    ),
+  snapshotDiff: (savedId: string, id: string) =>
+    j<{ diff: SnapshotDiff; current: Source[] }>(
+      `/v1/saved/${encodeURIComponent(savedId)}/snapshots/${encodeURIComponent(id)}/diff`,
+      { method: 'POST' },
+    ),
 };
+
+export interface RelatedItem {
+  path: string;
+  namespace: string;
+  score: number;
+  hits: number;
+  bestChunkId: string;
+  excerpt: string;
+}
+
+export interface RelatedResult {
+  path: string;
+  sourceChunkCount: number;
+  items: RelatedItem[];
+  count: number;
+}
+
+export interface SnapshotSummary {
+  id: string;
+  label: string | null;
+  ts: number;
+  sourceCount: number;
+}
+
+export interface SnapshotEntry extends SnapshotSummary {
+  savedSearchId: string;
+  userId: string;
+  sources: Source[];
+}
+
+export interface SnapshotDiff {
+  baselineId: string;
+  baselineTs: number;
+  currentTs: number;
+  added: Source[];
+  removed: Source[];
+  unchanged: string[];
+}
 
 export type DoctorSeverity = 'info' | 'warn' | 'error';
 
