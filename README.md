@@ -309,6 +309,81 @@ curl -X POST http://127.0.0.1:7410/v1/ask \
 └── turbo.json
 ```
 
+## Operations
+
+Deploy targets are the Helm chart in `infra/helm/clawmind` and the Docker
+images built from `infra/docker/*.Dockerfile`. The API is stateless apart
+from the LanceDB and BM25 files under `CLAWMIND_DATA_DIR`, which the chart
+mounts from a PersistentVolumeClaim.
+
+Health endpoints:
+
+- `GET /health` is liveness. Returns 200 with the embed and LLM status,
+  chunk count, BM25 size, and document count. Used by the Kubernetes
+  livenessProbe with a generous failure threshold so a slow embed sidecar
+  does not restart the API.
+- `GET /ready` is readiness. Returns 200 once LanceDB, BM25, and the
+  ingest manifest are loaded, 503 before that. The Service does not route
+  to the pod until this passes.
+- `GET /version` returns the build name and version.
+
+Metrics:
+
+- `GET /metrics` returns Prometheus text exposition format (version
+  0.0.4). Scrape with a `ServiceMonitor` or plain Prometheus job. Series
+  exposed include `http_requests_total{method,route,status}`,
+  `http_requests_errors_total`, the
+  `http_request_duration_seconds` histogram with buckets from 5 ms to
+  10 s, plus `process_resident_memory_bytes`, `nodejs_heap_used_bytes`,
+  and `process_uptime_seconds`. Cardinality is bounded by labelling on
+  the Fastify route template, not the raw URL.
+- `GET /metrics` with `Accept: application/json`, or `GET /metrics.json`,
+  returns the legacy JSON snapshot for dashboards that have not moved to
+  Prometheus yet.
+
+Logs and traces:
+
+- Structured JSON logs via pino. Each request gets a request id from
+  Fastify and is attached to the log context.
+- OpenTelemetry tracing is opt-in via `CLAWMIND_OTEL_ENABLED=true` and
+  `CLAWMIND_OTEL_ENDPOINT`. Trace ids propagate into the log lines.
+
+Audit log:
+
+- Mutating requests and any non-2xx response are appended to the audit
+  log at `${CLAWMIND_DATA_DIR}/audit.log` by the `auditPlugin`. Each row
+  carries actor, action, resource, and request IP.
+
+Rate limits:
+
+- Global ceiling of 240 requests per minute, keyed on API key id, then
+  session user, then client IP. Hot routes such as `/v1/ask` apply a
+  tighter per-route budget on top.
+
+Scaling:
+
+- The API is horizontally scalable as long as all replicas share the
+  same `CLAWMIND_DATA_DIR` volume (ReadWriteMany) or you front a single
+  writer with read replicas. Set `api.replicas` in the Helm values.
+- Embed sidecar is CPU bound. Scale `embed.replicas` and put a Service
+  in front of it so the API load balances across pods.
+
+Backup and restore:
+
+- The only stateful directory is `CLAWMIND_DATA_DIR`. Snapshot the PVC
+  on a schedule (Velero, restic, or your cloud provider snapshotter).
+- To restore: stop the API replicas, restore the volume, restart.
+  Ingest is idempotent so a partial restore can be reconciled by
+  re-running `clawmind ingest` against the source workspace.
+
+On-call:
+
+- Page on `up{job="clawmind-api"} == 0`, sustained
+  `http_requests_errors_total` rate, or readiness flapping.
+- Warn on p95 latency from `http_request_duration_seconds` above
+  1 second for `/v1/ask`, or audit log growth stalling (indicates the
+  writer is wedged).
+
 ## License
 
 MIT. See `LICENSE`.

@@ -24,8 +24,15 @@ spec:
           volumeMounts:
             - { name: data, mountPath: /var/clawmind }
           readinessProbe:
+            httpGet: { path: /ready, port: {{ .Values.api.port }} }
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
             httpGet: { path: /health, port: {{ .Values.api.port }} }
-            initialDelaySeconds: 8
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 5
       volumes:
         - name: data
           {{- if .Values.persistence.enabled }}

@@ -14,6 +14,7 @@ import { registerRoutes } from './routes/index.js';
 import { authPlugin } from './plugins/auth.js';
 import { auditPlugin } from './plugins/audit.js';
 import { ragPlugin } from './plugins/rag.js';
+import { httpMetricsPlugin } from './plugins/http-metrics.js';
 
 export async function buildApp() {
   const env = loadEnv();
@@ -80,6 +81,7 @@ export async function buildApp() {
     manifest, audit, llm, dataDir: dataDir(env),
   });
 
+  await app.register(httpMetricsPlugin);
   await app.register(auditPlugin);
   await app.register(authPlugin);
   await app.register(ragPlugin);
