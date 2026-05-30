@@ -12,6 +12,8 @@ import {
   toChatMessages,
   rewriteFollowUp,
 } from '../services/conversations.js';
+import { conversationToMarkdown } from '../services/conversation-export.js';
+import { expand } from '@clawmind/config';
 import { buildPrompt } from '@clawmind/llm';
 
 // The conversation routes layer rolling chat history on top of the regular
@@ -46,6 +48,21 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       const conv = await loadConversation(app.clawmind.dataDir, req.params.id);
       if (!conv || conv.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });
       return { conversation: conv };
+    },
+  });
+
+  app.get<{ Params: { id: string } }>('/conversations/:id/export.md', {
+    preHandler: app.requireAuth,
+    handler: async (req, reply) => {
+      const conv = await loadConversation(app.clawmind.dataDir, req.params.id);
+      if (!conv || conv.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });
+      const md = conversationToMarkdown(conv, {
+        stripBasePath: expand(app.clawmind.env.CLAWMIND_WORKSPACE),
+      });
+      reply
+        .header('content-type', 'text/markdown; charset=utf-8')
+        .header('content-disposition', `attachment; filename="clawmind-${conv.id}.md"`)
+        .send(md);
     },
   });
 
