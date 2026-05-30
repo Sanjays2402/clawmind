@@ -7,3 +7,4 @@ export * from './loaders/code.js';
 export * from './loaders/json.js';
 export * from './chunkers/sliding.js';
 export * from './chunkers/semantic.js';
+export * from './compact.js';

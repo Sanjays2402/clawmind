@@ -8,6 +8,7 @@ import { watchCommand } from './commands/watch.js';
 import { statusCommand } from './commands/status.js';
 import { feedbackCommand } from './commands/feedback.js';
 import { digestCommand } from './commands/digest.js';
+import { compactCommand } from './commands/compact.js';
 
 const program = new Command();
 program
@@ -23,6 +24,7 @@ program.addCommand(watchCommand());
 program.addCommand(statusCommand());
 program.addCommand(feedbackCommand());
 program.addCommand(digestCommand());
+program.addCommand(compactCommand());
 
 program.parseAsync(process.argv).catch((err) => {
   // eslint-disable-next-line no-console
