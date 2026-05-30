@@ -6,6 +6,7 @@ import {
   createConversation, loadConversation, listConversations, deleteConversation,
   forkConversation,
   appendTurn, toChatMessages, rewriteFollowUp, MAX_TURNS, MAX_CONTEXT_TURNS,
+  renameConversation, setConversationArchived,
 } from '../src/services/conversations.js';
 
 let dir: string;
@@ -176,5 +177,77 @@ describe('forkConversation', () => {
     const ids = list.map((c) => c.id);
     expect(ids).toContain(src.id);
     expect(ids).toContain(out.conversation.id);
+  });
+});
+
+describe('renameConversation', () => {
+  it('updates the title and bumps updatedAt', async () => {
+    const c = await createConversation(dir, 'u1', 'old');
+    await new Promise((r) => setTimeout(r, 2));
+    const out = (await renameConversation(dir, 'u1', c.id, '  fresh title  '))!;
+    expect(out.title).toBe('fresh title');
+    expect(out.updatedAt).toBeGreaterThan(c.updatedAt);
+    const reloaded = await loadConversation(dir, c.id);
+    expect(reloaded!.title).toBe('fresh title');
+  });
+
+  it('caps overlong titles at 120 chars', async () => {
+    const c = await createConversation(dir, 'u1', 'old');
+    const huge = 'x'.repeat(500);
+    const out = (await renameConversation(dir, 'u1', c.id, huge))!;
+    expect(out.title.length).toBe(120);
+  });
+
+  it('returns null on whitespace-only titles', async () => {
+    const c = await createConversation(dir, 'u1', 'old');
+    expect(await renameConversation(dir, 'u1', c.id, '   ')).toBeNull();
+  });
+
+  it('refuses to rename a conversation owned by someone else', async () => {
+    const c = await createConversation(dir, 'u1', 'old');
+    expect(await renameConversation(dir, 'u2', c.id, 'hack')).toBeNull();
+    expect((await loadConversation(dir, c.id))!.title).toBe('old');
+  });
+
+  it('returns null on a missing conversation', async () => {
+    expect(await renameConversation(dir, 'u1', 'does-not-exist', 'x')).toBeNull();
+  });
+});
+
+describe('setConversationArchived', () => {
+  it('archives, hides from default listing, but stays loadable by id', async () => {
+    const c = await createConversation(dir, 'u1', 'doomed');
+    const out = (await setConversationArchived(dir, 'u1', c.id, true))!;
+    expect(out.archivedAt).toBeTypeOf('number');
+    expect((await listConversations(dir, 'u1')).map((x) => x.id)).not.toContain(c.id);
+    expect((await loadConversation(dir, c.id))!.archivedAt).toBeTypeOf('number');
+  });
+
+  it('archived listing returns archived items', async () => {
+    const a = await createConversation(dir, 'u1', 'a');
+    const b = await createConversation(dir, 'u1', 'b');
+    await setConversationArchived(dir, 'u1', a.id, true);
+    const archived = await listConversations(dir, 'u1', { archived: true });
+    const active = await listConversations(dir, 'u1');
+    expect(archived.map((x) => x.id)).toEqual([a.id]);
+    expect(active.map((x) => x.id)).toEqual([b.id]);
+  });
+
+  it('unarchiving restores visibility', async () => {
+    const c = await createConversation(dir, 'u1', 'x');
+    await setConversationArchived(dir, 'u1', c.id, true);
+    const out = (await setConversationArchived(dir, 'u1', c.id, false))!;
+    expect(out.archivedAt).toBeUndefined();
+    expect((await listConversations(dir, 'u1')).map((x) => x.id)).toContain(c.id);
+  });
+
+  it('refuses cross-user archive', async () => {
+    const c = await createConversation(dir, 'u1', 'x');
+    expect(await setConversationArchived(dir, 'u2', c.id, true)).toBeNull();
+    expect((await loadConversation(dir, c.id))!.archivedAt).toBeUndefined();
+  });
+
+  it('returns null on a missing conversation', async () => {
+    expect(await setConversationArchived(dir, 'u1', 'nope', true)).toBeNull();
   });
 });

@@ -26,6 +26,13 @@ export interface Conversation {
   title: string;
   createdAt: number;
   updatedAt: number;
+  /**
+   * Soft-delete timestamp. Archived conversations stay on disk and remain
+   * fetchable by id (so deep links keep working), but are hidden from the
+   * default listing endpoint. Use `archived=true` on /v1/conversations to
+   * see them. Unarchiving simply clears the field.
+   */
+  archivedAt?: number;
   turns: ConversationTurn[];
 }
 
@@ -57,7 +64,12 @@ export async function loadConversation(dataDir: string, id: string): Promise<Con
   }
 }
 
-export async function listConversations(dataDir: string, userId: string, limit = 50): Promise<Conversation[]> {
+export async function listConversations(
+  dataDir: string,
+  userId: string,
+  opts: { limit?: number; archived?: boolean } = {},
+): Promise<Conversation[]> {
+  const { limit = 50, archived = false } = opts;
   const d = dir(dataDir);
   try {
     const files = await readdir(d);
@@ -69,12 +81,54 @@ export async function listConversations(dataDir: string, userId: string, limit =
     );
     return all
       .filter((c) => c.userId === userId)
+      .filter((c) => (archived ? !!c.archivedAt : !c.archivedAt))
       .sort((a, b) => b.updatedAt - a.updatedAt)
       .slice(0, limit);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
     throw err;
   }
+}
+
+/**
+ * Rename a conversation. Returns the updated conversation, or `null` when
+ * it does not exist or is not owned by `userId`. The title is trimmed and
+ * capped at the same 120-char limit used for fresh conversations.
+ */
+export async function renameConversation(
+  dataDir: string,
+  userId: string,
+  id: string,
+  rawTitle: string,
+): Promise<Conversation | null> {
+  const conv = await loadConversation(dataDir, id);
+  if (!conv || conv.userId !== userId) return null;
+  const title = rawTitle.trim().slice(0, 120);
+  if (!title) return null;
+  conv.title = title;
+  conv.updatedAt = Date.now();
+  await writeFile(file(dataDir, id), JSON.stringify(conv, null, 2));
+  return conv;
+}
+
+/**
+ * Set or clear the archived flag. Returns the updated conversation, or
+ * `null` when it does not exist or is not owned by `userId`. Archiving is
+ * idempotent: archiving an already-archived conversation refreshes the
+ * timestamp; unarchiving an already-active one is a no-op.
+ */
+export async function setConversationArchived(
+  dataDir: string,
+  userId: string,
+  id: string,
+  archived: boolean,
+): Promise<Conversation | null> {
+  const conv = await loadConversation(dataDir, id);
+  if (!conv || conv.userId !== userId) return null;
+  if (archived) conv.archivedAt = Date.now();
+  else delete conv.archivedAt;
+  await writeFile(file(dataDir, id), JSON.stringify(conv, null, 2));
+  return conv;
 }
 
 export async function deleteConversation(dataDir: string, userId: string, id: string): Promise<boolean> {

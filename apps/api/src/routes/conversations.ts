@@ -12,6 +12,8 @@ import {
   appendTurn,
   toChatMessages,
   rewriteFollowUp,
+  renameConversation,
+  setConversationArchived,
 } from '../services/conversations.js';
 import { conversationToMarkdown } from '../services/conversation-export.js';
 import { expand } from '@clawmind/config';
@@ -23,16 +25,26 @@ import { buildPrompt } from '@clawmind/llm';
 // last few turns as conversation context.
 
 export const conversationRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/conversations', {
+  app.get<{ Querystring: { archived?: string } }>('/conversations', {
+    schema: {
+      querystring: z.object({
+        archived: z.enum(['true', 'false']).optional(),
+      }),
+    },
     preHandler: app.requireAuth,
-    handler: async (req) => ({
-      items: (await listConversations(app.clawmind.dataDir, req.user!.id)).map((c) => ({
-        id: c.id,
-        title: c.title,
-        updatedAt: c.updatedAt,
-        turns: c.turns.length,
-      })),
-    }),
+    handler: async (req) => {
+      const archived = req.query.archived === 'true';
+      const items = await listConversations(app.clawmind.dataDir, req.user!.id, { archived });
+      return {
+        items: items.map((c) => ({
+          id: c.id,
+          title: c.title,
+          updatedAt: c.updatedAt,
+          turns: c.turns.length,
+          archivedAt: c.archivedAt ?? null,
+        })),
+      };
+    },
   });
 
   app.post('/conversations', {
@@ -74,6 +86,61 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
                  await deleteConversation(app.clawmind.dataDir, req.user!.id, req.params.id);
       if (!ok) return reply.code(404).send({ error: 'not found' });
       return { ok: true };
+    },
+  });
+
+  // Rename a conversation. Idempotent on identical titles. Returns 404
+  // when the conversation is missing or owned by another user; 400 when
+  // the supplied title trims to empty.
+  app.patch<{ Params: { id: string }; Body: { title: string } }>('/conversations/:id', {
+    schema: {
+      params: z.object({ id: z.string().min(1) }),
+      body: z.object({ title: z.string().min(1).max(120) }),
+    },
+    preHandler: app.requireAuth,
+    handler: async (req, reply) => {
+      const conv = await renameConversation(
+        app.clawmind.dataDir, req.user!.id, req.params.id, req.body.title,
+      );
+      if (!conv) return reply.code(404).send({ error: 'not found' });
+      await app.clawmind.audit.write({
+        actor: req.user!.id, action: 'conversation.rename', resource: conv.id,
+        meta: { title: conv.title },
+      });
+      return { conversation: { id: conv.id, title: conv.title, updatedAt: conv.updatedAt } };
+    },
+  });
+
+  // Archive (soft delete) or unarchive a conversation. Archived items stay
+  // fetchable by id so deep links work, but are hidden from the default
+  // listing. Pass ?archived=true to list archived conversations.
+  app.post<{ Params: { id: string } }>('/conversations/:id/archive', {
+    schema: { params: z.object({ id: z.string().min(1) }) },
+    preHandler: app.requireAuth,
+    handler: async (req, reply) => {
+      const conv = await setConversationArchived(
+        app.clawmind.dataDir, req.user!.id, req.params.id, true,
+      );
+      if (!conv) return reply.code(404).send({ error: 'not found' });
+      await app.clawmind.audit.write({
+        actor: req.user!.id, action: 'conversation.archive', resource: conv.id,
+      });
+      return { id: conv.id, archivedAt: conv.archivedAt };
+    },
+  });
+
+  app.post<{ Params: { id: string } }>('/conversations/:id/unarchive', {
+    schema: { params: z.object({ id: z.string().min(1) }) },
+    preHandler: app.requireAuth,
+    handler: async (req, reply) => {
+      const conv = await setConversationArchived(
+        app.clawmind.dataDir, req.user!.id, req.params.id, false,
+      );
+      if (!conv) return reply.code(404).send({ error: 'not found' });
+      await app.clawmind.audit.write({
+        actor: req.user!.id, action: 'conversation.unarchive', resource: conv.id,
+      });
+      return { id: conv.id, archivedAt: null };
     },
   });
 
