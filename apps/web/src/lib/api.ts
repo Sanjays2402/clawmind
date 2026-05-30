@@ -82,6 +82,25 @@ export interface DigestSummary {
 
 export interface SavedSearch { id: string; title: string; query: string }
 
+export interface PinEntry {
+  path: string;
+  note?: string;
+  pinnedAt: number;
+  pinnedBy: string;
+}
+
+export interface ApiKey {
+  id: string;
+  userId: string;
+  label: string;
+  role: 'owner' | 'reader';
+  scopes: string[] | null;
+  createdAt: number;
+  expiresAt: number | null;
+  lastUsedAt: number | null;
+  revokedAt: number | null;
+}
+
 export const api = {
   health: () =>
     j<{ ok: boolean; embed: boolean; llm: boolean; docs: number; chunks: number }>('/health'),
@@ -160,6 +179,19 @@ export const api = {
     j<{ state: { savedSearchId: string; lastRunTs: number; history: { runTs: number; topSources: string[]; newSources: string[]; removedSources: string[] }[] } }>(
       `/v1/digests/${id}`,
     ),
+
+  // Pins
+  pinsList: () => j<{ items: PinEntry[]; count: number }>('/v1/pins').then((r) => r.items),
+  pinAdd: (path: string, note?: string) =>
+    j<PinEntry>('/v1/pins', { method: 'POST', body: JSON.stringify({ path, note }) }),
+  pinRemove: (path: string) =>
+    j<{ ok: boolean }>('/v1/pins', { method: 'DELETE', body: JSON.stringify({ path }) }),
+
+  // API keys
+  keysList: () => j<{ items: ApiKey[] }>('/v1/keys').then((r) => r.items),
+  keyIssue: (input: { label: string; role?: 'owner' | 'reader'; scopes?: string[]; ttlMs?: number | null }) =>
+    j<{ key: ApiKey; secret: string }>('/v1/keys', { method: 'POST', body: JSON.stringify(input) }),
+  keyRevoke: (id: string) => j<{ ok: boolean }>(`/v1/keys/${id}`, { method: 'DELETE' }),
 };
 
 async function streamPost(
