@@ -16,6 +16,13 @@ export interface RagDeps {
   embedModel: string;
   /** Optional path -> multiplier applied to blended scores before MMR. */
   boost?: (path: string) => number;
+  /**
+   * Optional per-query path predicate. Built lazily by the route layer from
+   * tag include/exclude filters so retrieval stays oblivious to the policy
+   * layer that defines tags. When provided, hits whose path is rejected are
+   * removed after the hybrid merge but before reranking.
+   */
+  pathFilter?: (q: Query, path: string) => boolean;
 }
 
 export interface RetrievalMeta {
@@ -42,12 +49,15 @@ export async function retrieve(
   // attach query vector to candidates so MMR can do cosine
   for (const h of denseHits) if (!h.embedding) h.embedding = [];
   const merged = hybridMerge(bm25Hits, denseHits, { alpha: q.hybridAlpha });
+  const filtered = deps.pathFilter
+    ? merged.filter((h) => deps.pathFilter!(q, h.path))
+    : merged;
   const boosted = deps.boost
-    ? merged.map((h) => {
+    ? filtered.map((h) => {
         const b = deps.boost!(h.path);
         return b === 1 ? h : { ...h, score: h.score * b };
       })
-    : merged;
+    : filtered;
   const reranked = lexicalRerank(effectiveQ, boosted);
   const top = mmrRerank(reranked, { lambda: q.mmrLambda, k: q.k, queryVector: emb });
   return top;

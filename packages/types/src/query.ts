@@ -8,5 +8,9 @@ export const QuerySchema = z.object({
   mmrLambda: z.number().min(0).max(1).default(0.5),
   hybridAlpha: z.number().min(0).max(1).default(0.5),
   expand: z.boolean().default(true),
+  /** Restrict retrieval to sources carrying at least one of these tags. */
+  includeTags: z.array(z.string()).optional(),
+  /** Drop sources carrying any of these tags from retrieval. */
+  excludeTags: z.array(z.string()).optional(),
 });
 export type Query = z.infer<typeof QuerySchema>;

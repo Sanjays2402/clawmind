@@ -18,6 +18,7 @@ import { aliasesRoutes } from './aliases.js';
 import { relatedRoutes } from './related.js';
 import { statsRoutes } from './stats.js';
 import { doctorRoutes } from './doctor.js';
+import { tagsRoutes } from './tags.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -39,4 +40,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(relatedRoutes, { prefix: '/v1' });
   await app.register(statsRoutes, { prefix: '/v1' });
   await app.register(doctorRoutes, { prefix: '/v1' });
+  await app.register(tagsRoutes, { prefix: '/v1' });
 }

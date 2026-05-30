@@ -17,6 +17,7 @@ import { relatedCommand } from './commands/related.js';
 import { statsCommand } from './commands/stats.js';
 import { forgetCommand } from './commands/forget.js';
 import { doctorCommand } from './commands/doctor.js';
+import { tagsCommand } from './commands/tags.js';
 
 const program = new Command();
 program
@@ -41,6 +42,7 @@ program.addCommand(relatedCommand());
 program.addCommand(statsCommand());
 program.addCommand(forgetCommand());
 program.addCommand(doctorCommand());
+program.addCommand(tagsCommand());
 
 program.parseAsync(process.argv).catch((err) => {
   // eslint-disable-next-line no-console

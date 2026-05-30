@@ -33,4 +33,20 @@ describe('retrieve', () => {
     expect(hits.length).toBeGreaterThan(0);
     expect(hits[0]?.id).toBe('a');
   });
+
+  it('honours pathFilter to drop hits before reranking', async () => {
+    const bm25 = new BM25Index();
+    bm25.add([
+      mk('a', 'snip launched today'),
+      mk('b', 'snip also mentioned here'),
+    ]);
+    const hits = await retrieve(
+      {
+        bm25, lance: fakeLance, embed: fakeEmbed, llm: fakeLlm, embedModel: 'f',
+        pathFilter: (_q, path) => path !== '/a.md',
+      },
+      { q: 'snip', k: 5, mmrLambda: 0.5, hybridAlpha: 0.5 },
+    );
+    expect(hits.map((h) => h.id)).toEqual(['b']);
+  });
 });
