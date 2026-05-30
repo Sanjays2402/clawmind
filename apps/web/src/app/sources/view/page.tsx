@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
 import { FeedbackForm } from '@/components/FeedbackForm';
+import { TagEditor } from '@/components/TagEditor';
 import { api, fmtBytes, fmtRelative } from '@/lib/api';
 import { IconFolder, IconArrowRight, IconWarning } from '@clawmind/ui';
 
@@ -57,6 +58,7 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
 
       <section style={{ marginTop: 20, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }}>
         <FeedbackForm path={path} initial={fb ? { ups: fb.ups, downs: fb.downs, boost: fb.boost } : null} />
+        <TagEditor path={path} />
 
         <div style={{ border: '1px solid var(--cm-border)', borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--cm-border)', background: 'var(--cm-subtle)' }}>
