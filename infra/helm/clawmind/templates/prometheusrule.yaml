@@ -1,0 +1,75 @@
+{{- if .Values.monitoring.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "clawmind.fullname" . }}-api
+  {{- with .Values.monitoring.prometheusRule.namespace }}
+  namespace: {{ . }}
+  {{- end }}
+  labels:
+    {{- include "clawmind.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: clawmind-api.rules
+      interval: {{ .Values.monitoring.prometheusRule.interval }}
+      rules:
+        - alert: ClawmindApiDown
+          # No scrape target up for the configured window means the API is
+          # either crashlooping or unreachable from Prometheus. Page.
+          expr: max by (job) (up{job=~"{{ .Values.monitoring.prometheusRule.jobRegex }}"}) == 0
+          for: {{ .Values.monitoring.prometheusRule.thresholds.downFor }}
+          labels:
+            severity: critical
+            service: clawmind-api
+          annotations:
+            summary: "ClawMind API is down"
+            description: "No clawmind-api scrape target has been up for {{ .Values.monitoring.prometheusRule.thresholds.downFor }}."
+            runbook: "https://github.com/Sanjays2402/clawmind#on-call"
+        - alert: ClawmindApiHighErrorRate
+          # Sustained server-error rate. Threshold expressed as errors per
+          # second over the rate window; tune via values.
+          expr: |
+            sum by (job) (rate(http_requests_errors_total{job=~"{{ .Values.monitoring.prometheusRule.jobRegex }}"}[{{ .Values.monitoring.prometheusRule.thresholds.errorRateWindow }}]))
+              > {{ .Values.monitoring.prometheusRule.thresholds.errorRatePerSecond }}
+          for: {{ .Values.monitoring.prometheusRule.thresholds.errorRateFor }}
+          labels:
+            severity: critical
+            service: clawmind-api
+          annotations:
+            summary: "ClawMind API error rate is elevated"
+            description: "http_requests_errors_total rate exceeds {{ .Values.monitoring.prometheusRule.thresholds.errorRatePerSecond }}/s over {{ .Values.monitoring.prometheusRule.thresholds.errorRateWindow }}."
+            runbook: "https://github.com/Sanjays2402/clawmind#on-call"
+        - alert: ClawmindApiAskLatencyHigh
+          # p95 latency for /v1/ask above the documented SLO. Warn level.
+          expr: |
+            histogram_quantile(
+              0.95,
+              sum by (le, route) (
+                rate(http_request_duration_seconds_bucket{job=~"{{ .Values.monitoring.prometheusRule.jobRegex }}",route="/v1/ask"}[{{ .Values.monitoring.prometheusRule.thresholds.latencyWindow }}])
+              )
+            ) > {{ .Values.monitoring.prometheusRule.thresholds.askP95Seconds }}
+          for: {{ .Values.monitoring.prometheusRule.thresholds.latencyFor }}
+          labels:
+            severity: warning
+            service: clawmind-api
+          annotations:
+            summary: "/v1/ask p95 latency above SLO"
+            description: "p95 latency for /v1/ask is above {{ .Values.monitoring.prometheusRule.thresholds.askP95Seconds }}s for {{ .Values.monitoring.prometheusRule.thresholds.latencyFor }}."
+            runbook: "https://github.com/Sanjays2402/clawmind#on-call"
+        - alert: ClawmindApiReadinessFlapping
+          # Readiness is flipping. Counts ready->not-ready transitions.
+          expr: |
+            changes(kube_pod_container_status_ready{container="api",pod=~"{{ .Values.monitoring.prometheusRule.thresholds.podRegex }}"}[{{ .Values.monitoring.prometheusRule.thresholds.flapWindow }}])
+              > {{ .Values.monitoring.prometheusRule.thresholds.flapChanges }}
+          for: {{ .Values.monitoring.prometheusRule.thresholds.flapFor }}
+          labels:
+            severity: warning
+            service: clawmind-api
+          annotations:
+            summary: "ClawMind API readiness flapping"
+            description: "API readiness has changed more than {{ .Values.monitoring.prometheusRule.thresholds.flapChanges }} times in {{ .Values.monitoring.prometheusRule.thresholds.flapWindow }}."
+            runbook: "https://github.com/Sanjays2402/clawmind#on-call"
+{{- end }}

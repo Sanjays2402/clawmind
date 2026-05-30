@@ -494,6 +494,29 @@ Helm hardening:
   out to `helm template` and asserts default vs hardened renders. Skipped
   when the `helm` CLI is not on PATH.
 
+Prometheus Operator integration:
+
+- `monitoring.serviceMonitor.enabled=true` installs a `ServiceMonitor` that
+  scrapes the API Service on the named `http` port at `/metrics`. Set
+  `monitoring.serviceMonitor.labels` to the label your Prometheus instance
+  uses for `serviceMonitorSelector` (for kube-prometheus-stack the
+  convention is `release: kube-prometheus-stack`). `interval` and
+  `scrapeTimeout` default to 30s and 10s respectively, and
+  `relabelings` / `metricRelabelings` pass through for advanced topologies.
+- `monitoring.prometheusRule.enabled=true` installs a `PrometheusRule`
+  with the four alerts listed under On-call below: `ClawmindApiDown`,
+  `ClawmindApiHighErrorRate`, `ClawmindApiAskLatencyHigh`, and
+  `ClawmindApiReadinessFlapping`. Thresholds and rate windows are tunable
+  via `monitoring.prometheusRule.thresholds.*` so you can match them to
+  your traffic profile without forking the chart. Every alert carries a
+  `severity` label (`critical` or `warning`), a `service: clawmind-api`
+  label for Alertmanager routing, and a `runbook` annotation pointing
+  back to this section.
+- Both objects are off by default and only render when their flag is
+  flipped, so the chart still installs cleanly on clusters that do not
+  have the `monitoring.coreos.com` CRDs registered. Coverage is locked
+  down by `apps/api/test/helm-chart.test.ts`.
+
 Backup and restore:
 
 - The only stateful directory is `CLAWMIND_DATA_DIR`. Snapshot the PVC
@@ -545,11 +568,22 @@ Continuous integration:
 
 On-call:
 
-- Page on `up{job="clawmind-api"} == 0`, sustained
-  `http_requests_errors_total` rate, or readiness flapping.
-- Warn on p95 latency from `http_request_duration_seconds` above
-  1 second for `/v1/ask`, or audit log growth stalling (indicates the
-  writer is wedged).
+- The four alerts shipped by `monitoring.prometheusRule.enabled=true`
+  encode this section directly:
+  - `ClawmindApiDown` pages when no API scrape target has been `up` for
+    `thresholds.downFor` (default 2m).
+  - `ClawmindApiHighErrorRate` pages on sustained
+    `http_requests_errors_total` rate above `thresholds.errorRatePerSecond`
+    over `thresholds.errorRateWindow`.
+  - `ClawmindApiAskLatencyHigh` warns when the p95 of
+    `http_request_duration_seconds_bucket{route="/v1/ask"}` exceeds
+    `thresholds.askP95Seconds` (default 1s).
+  - `ClawmindApiReadinessFlapping` warns when
+    `kube_pod_container_status_ready` for the API container changes more
+    than `thresholds.flapChanges` times in `thresholds.flapWindow`.
+- Audit log growth stalling (indicating the writer is wedged) is not yet
+  shipped as a built-in alert because it depends on whether you ship the
+  audit log to a sidecar; add it as an extra rule in your own overlay.
 
 ## License
 

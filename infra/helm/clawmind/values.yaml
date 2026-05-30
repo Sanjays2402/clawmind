@@ -87,3 +87,41 @@ networkPolicy:
   extraIngressNamespaceSelectors: []
   # Egress is permitted to DNS plus chart-internal services by default.
   allowEgressToInternet: true
+
+# Prometheus Operator integration. ServiceMonitor scrapes the API
+# /metrics endpoint; PrometheusRule ships the alerts documented in the
+# README's on-call section. Both default off so the chart still installs
+# on clusters without prometheus-operator CRDs.
+monitoring:
+  serviceMonitor:
+    enabled: false
+    # Optional override, defaults to release namespace.
+    namespace: ""
+    # Match the Prometheus instance's serviceMonitorSelector.
+    labels: {}
+    interval: 30s
+    scrapeTimeout: 10s
+    relabelings: []
+    metricRelabelings: []
+  prometheusRule:
+    enabled: false
+    namespace: ""
+    # Match the Prometheus instance's ruleSelector.
+    labels: {}
+    interval: 30s
+    # Regex Prometheus uses for the API job label. Override if your
+    # scrape config names the job differently.
+    jobRegex: "clawmind-api|.*-api"
+    thresholds:
+      downFor: 2m
+      errorRateWindow: 5m
+      errorRatePerSecond: 0.5
+      errorRateFor: 10m
+      latencyWindow: 5m
+      askP95Seconds: 1
+      latencyFor: 10m
+      flapWindow: 10m
+      flapChanges: 4
+      flapFor: 5m
+      # kube-state-metrics pod regex for the api pods.
+      podRegex: ".*-api-.*"
