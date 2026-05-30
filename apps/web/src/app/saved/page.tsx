@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
 import { api, fmtRelative, type DigestSummary, type SavedSearch } from '@/lib/api';
 import {
@@ -178,6 +179,12 @@ export default function SavedPage() {
                     )}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
+                    <Link
+                      href={`/saved/${saved.id}/snapshots`}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
+                    >
+                      Snapshots
+                    </Link>
                     <button
                       onClick={() => runDigest(saved.id)}
                       disabled={runningId === saved.id}
