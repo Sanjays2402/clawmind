@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
 import { api, fmtBytes, fmtRelative } from '@/lib/api';
-import { IconDatabase, IconChartBar, IconFolder, IconSpark, IconArrowRight, IconStethoscope, IconCheck, IconWarning } from '@clawmind/ui';
+import { IconDatabase, IconChartBar, IconFolder, IconSpark, IconArrowRight, IconCheck, IconWarning } from '@clawmind/ui';
 
 export const dynamic = 'force-dynamic';
 
