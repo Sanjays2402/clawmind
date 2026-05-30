@@ -7,6 +7,7 @@ import { sourcesRoutes } from './sources.js';
 import { historyRoutes } from './history.js';
 import { savedRoutes } from './saved.js';
 import { shareRoutes } from './share.js';
+import { conversationRoutes } from './conversations.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -17,4 +18,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(historyRoutes, { prefix: '/v1' });
   await app.register(savedRoutes, { prefix: '/v1' });
   await app.register(shareRoutes, { prefix: '/v1' });
+  await app.register(conversationRoutes, { prefix: '/v1' });
 }
