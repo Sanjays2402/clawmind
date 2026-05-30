@@ -388,6 +388,19 @@ Audit log:
 - Mutating requests and any non-2xx response are appended to the audit
   log at `${CLAWMIND_DATA_DIR}/audit.log` by the `auditPlugin`. Each row
   carries actor, action, resource, and request IP.
+- Compliance review uses `GET /v1/admin/audit`. The route requires the
+  `owner` role and the `audit:read` scope, so a narrowly scoped API key
+  cannot tail user activity. Supported query parameters are `actor`
+  (exact match), `action` (substring match), `resource` (path prefix
+  match), `since` and `until` (epoch ms window), and `limit` / `offset`
+  for paging. `limit` is capped at 1000. Results are newest first and
+  the response shape is `{ total, events }`. The query itself is
+  appended to the log with `action: audit.query`, so a reviewer
+  inspecting the trail always leaves their own footprint in it.
+- For very large logs, rotate `audit.log` out of band (logrotate, a k8s
+  sidecar, or shipping to object storage). The query endpoint reads the
+  current file into memory and is intended for incident response rather
+  than analytics.
 
 Rate limits:
 

@@ -62,6 +62,7 @@ export const Scopes = {
 
   LifecycleManage: 'lifecycle:admin',
   KeysManage: 'keys:admin',
+  AuditRead: 'audit:read',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];
