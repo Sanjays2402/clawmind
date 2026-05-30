@@ -1,6 +1,7 @@
+'use client';
 import * as React from 'react';
-import { IconSun, IconMoon } from '../icons/index.js';
-import { useTheme } from '../hooks/useTheme.js';
+import { IconSun, IconMoon } from '../icons/index';
+import { useTheme } from '../hooks/useTheme';
 
 export function ThemeToggle() {
   const { theme, toggle } = useTheme();

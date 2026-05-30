@@ -1,3 +1,4 @@
+'use client';
 import { useEffect } from 'react';
 export function useHotkey(combo: string, fn: (e: KeyboardEvent) => void) {
   useEffect(() => {

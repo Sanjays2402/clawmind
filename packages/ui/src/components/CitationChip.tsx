@@ -1,3 +1,4 @@
+'use client';
 import * as React from 'react';
 
 export function CitationChip({ n, path, onClick }: { n: number; path: string; onClick?: () => void }) {

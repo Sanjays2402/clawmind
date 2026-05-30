@@ -96,7 +96,7 @@ export default function SavedPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Saved searches</h1>
             <p className="mt-1 text-sm text-cm-muted">
-              Reusable queries. Run a digest to see what's new since the last time you checked.
+              Reusable queries. Run a digest to see what is new since the last time you checked.
             </p>
           </div>
           <button

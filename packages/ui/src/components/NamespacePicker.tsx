@@ -1,3 +1,4 @@
+'use client';
 import * as React from 'react';
 
 const ALL = ['memory', 'projects', 'sessions', 'docs', 'misc'] as const;

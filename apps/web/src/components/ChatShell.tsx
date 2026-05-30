@@ -1,15 +1,30 @@
 'use client';
 import { useRef, useState } from 'react';
-import Link from 'next/link';
-import { Logo, NamespacePicker, Spinner, ThemeToggle, type Ns } from '@clawmind/ui';
+import { TopNav } from '@/components/TopNav';
+import { NamespacePicker, Spinner, type Ns } from '@clawmind/ui';
 import { ChatStream } from './ChatStream';
 import { SourcesPane } from './SourcesPane';
 import { Composer } from './Composer';
 import { api } from '@/lib/api';
 
-interface Source { id: string; path: string; startLine: number; endLine: number; excerpt: string; score: number; }
+interface Source {
+  id: string;
+  path: string;
+  startLine: number;
+  endLine: number;
+  excerpt: string;
+  score: number;
+  snippet?: { text: string; spans: { start: number; end: number }[] } | null;
+  displayPath?: string;
+}
 
-export function ChatShell({ threadId: _t, onThread: _o }: { threadId: string | null; onThread: (id: string | null) => void }) {
+export function ChatShell({
+  threadId: _t,
+  onThread: _o,
+}: {
+  threadId: string | null;
+  onThread: (id: string | null) => void;
+}) {
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [sources, setSources] = useState<Source[]>([]);
@@ -42,49 +57,47 @@ export function ChatShell({ threadId: _t, onThread: _o }: { threadId: string | n
   }
 
   return (
-    <main style={{ minHeight: '100vh', display: 'grid', gridTemplateColumns: '260px 1fr 380px' }}>
-      <aside style={{ borderRight: '1px solid var(--cm-border)', padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <Logo size={24} />
-          <span style={{ fontWeight: 600 }}>ClawMind</span>
-        </Link>
-        <div style={{ fontSize: 12, color: 'var(--cm-muted)', marginTop: 4 }}>Namespaces</div>
-        <NamespacePicker value={namespaces} onChange={setNamespaces} />
-        <div style={{ marginTop: 'auto', display: 'flex', gap: 8, fontSize: 13, color: 'var(--cm-muted)' }}>
-          <Link href="/history">History</Link>
-          <Link href="/saved">Saved</Link>
-          <Link href="/settings">Settings</Link>
-        </div>
-      </aside>
+    <main className="min-h-screen flex flex-col">
+      <TopNav />
+      <div className="grid flex-1 grid-cols-1 lg:grid-cols-[220px_1fr_320px]">
+        <aside className="hidden border-r border-cm-border p-4 lg:flex lg:flex-col lg:gap-3">
+          <div className="text-xs uppercase tracking-wide text-cm-muted">Namespaces</div>
+          <NamespacePicker value={namespaces} onChange={setNamespaces} />
+        </aside>
 
-      <section style={{ display: 'flex', flexDirection: 'column' }}>
-        <header style={{ padding: '14px 24px', borderBottom: '1px solid var(--cm-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ fontWeight: 500 }}>Ask</div>
-          <ThemeToggle />
-        </header>
-        <div style={{ flex: 1, overflow: 'auto', padding: 24 }}>
-          {!answer && !loading && !error && (
-            <div style={{ marginTop: '15vh', textAlign: 'center', color: 'var(--cm-muted)' }}>
-              <div style={{ fontSize: 18, color: 'var(--cm-fg)', fontWeight: 500 }}>What would you like to know?</div>
-              <div style={{ marginTop: 6 }}>Try: what did I commit last Tuesday on snip?</div>
-            </div>
-          )}
-          {loading && answer === '' && <Spinner />}
-          {error && <div style={{ color: 'var(--cm-danger)' }}>{error}</div>}
-          {answer && <ChatStream text={answer} sources={sources} onCite={setActiveSource} />}
-        </div>
-        <Composer
-          value={question}
-          onChange={setQuestion}
-          onSubmit={submit}
-          loading={loading}
-          onStop={() => { cancelRef.current = true; setLoading(false); }}
-        />
-      </section>
+        <section className="flex flex-col">
+          <div className="flex-1 overflow-auto px-4 py-6 sm:px-8">
+            {!answer && !loading && !error && (
+              <div className="mx-auto max-w-xl pt-[12vh] text-center text-cm-muted">
+                <div className="text-lg font-medium text-cm-fg">What would you like to know?</div>
+                <div className="mt-1.5 text-sm">
+                  Try: what did I commit last Tuesday on snip?
+                </div>
+              </div>
+            )}
+            {loading && answer === '' && (
+              <div className="flex justify-center pt-12"><Spinner /></div>
+            )}
+            {error && (
+              <div className="mx-auto max-w-xl rounded-md border border-cm-danger/40 bg-cm-danger/5 p-3 text-sm text-cm-danger">
+                {error}
+              </div>
+            )}
+            {answer && <ChatStream text={answer} sources={sources} onCite={setActiveSource} />}
+          </div>
+          <Composer
+            value={question}
+            onChange={setQuestion}
+            onSubmit={submit}
+            loading={loading}
+            onStop={() => { cancelRef.current = true; setLoading(false); }}
+          />
+        </section>
 
-      <aside style={{ borderLeft: '1px solid var(--cm-border)', padding: 16, overflow: 'auto' }}>
-        <SourcesPane sources={sources} active={activeSource} onSelect={setActiveSource} />
-      </aside>
+        <aside className="border-t border-cm-border p-4 lg:border-l lg:border-t-0 lg:overflow-auto">
+          <SourcesPane sources={sources} active={activeSource} onSelect={setActiveSource} />
+        </aside>
+      </div>
     </main>
   );
 }

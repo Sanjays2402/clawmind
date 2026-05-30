@@ -1,10 +1,12 @@
 'use client';
 import Link from 'next/link';
+import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
-import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook } from '@clawmind/ui';
+import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch } from '@clawmind/ui';
 
-const items = [
+const items: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/chat', label: 'Chat', Icon: IconSpark },
+  { href: '/search', label: 'Search', Icon: IconSearch },
   { href: '/sources', label: 'Sources', Icon: IconFolder },
   { href: '/stats', label: 'Stats', Icon: IconChartBar },
   { href: '/ingest', label: 'Ingest', Icon: IconDatabase },
