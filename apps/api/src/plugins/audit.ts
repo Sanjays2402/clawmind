@@ -9,7 +9,7 @@ const plugin: FastifyPluginAsync = async (app) => {
       actor: req.user?.id ?? 'anon',
       action: `${req.method} ${reply.statusCode}`,
       resource: req.url,
-      meta: { ip: req.ip },
+      meta: { ip: req.ip, requestId: req.id },
     });
   });
 };

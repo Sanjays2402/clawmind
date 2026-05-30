@@ -16,6 +16,7 @@ import { auditPlugin } from './plugins/audit.js';
 import { ragPlugin } from './plugins/rag.js';
 import { httpMetricsPlugin } from './plugins/http-metrics.js';
 import { sentryPlugin } from './plugins/sentry.js';
+import { requestIdPlugin, pickRequestId } from './plugins/request-id.js';
 
 export async function buildApp() {
   const env = loadEnv();
@@ -33,7 +34,14 @@ export async function buildApp() {
     tracesSampleRate: env.CLAWMIND_SENTRY_TRACES_SAMPLE_RATE,
   });
 
-  const app = Fastify({ loggerInstance: logger as never }).withTypeProvider<ZodTypeProvider>();
+  const app = Fastify({
+    loggerInstance: logger as never,
+    // Honour an upstream X-Request-Id when present, otherwise mint one.
+    // This becomes req.id, is logged by Fastify on every entry, and is
+    // echoed back on the response by the request-id plugin.
+    genReqId: (req) => pickRequestId(req.headers['x-request-id']),
+    requestIdLogLabel: 'requestId',
+  }).withTypeProvider<ZodTypeProvider>();
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
@@ -89,6 +97,7 @@ export async function buildApp() {
     manifest, audit, llm, dataDir: dataDir(env),
   });
 
+  await app.register(requestIdPlugin);
   await app.register(httpMetricsPlugin);
   await app.register(sentryPlugin);
   await app.register(auditPlugin);

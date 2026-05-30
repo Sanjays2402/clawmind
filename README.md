@@ -350,7 +350,14 @@ Metrics:
 Logs and traces:
 
 - Structured JSON logs via pino. Each request gets a request id from
-  Fastify and is attached to the log context.
+  Fastify and is attached to the log context as `requestId`.
+- Request id propagation: the API honours an inbound `X-Request-Id`
+  header when it matches `^[A-Za-z0-9_.:-]{8,128}$` so an upstream
+  gateway, load balancer, or calling service can join logs across hops.
+  Otherwise a fresh `req_` prefixed nanoid is minted. The chosen id is
+  echoed back on every response as `X-Request-Id` and is recorded on
+  every audit row under `meta.requestId`, so logs, audit, Sentry events,
+  and the client trace all join on the same key.
 - OpenTelemetry tracing is opt-in via `CLAWMIND_OTEL_ENABLED=true` and
   `CLAWMIND_OTEL_ENDPOINT`. Trace ids propagate into the log lines.
 

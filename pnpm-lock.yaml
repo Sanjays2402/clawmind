@@ -71,6 +71,9 @@ importers:
       fastify:
         specifier: ^5.1.0
         version: 5.8.5
+      fastify-plugin:
+        specifier: ^5.0.1
+        version: 5.1.0
       fastify-type-provider-zod:
         specifier: ^4.0.2
         version: 4.0.2(fastify@5.8.5)(zod@3.25.76)
