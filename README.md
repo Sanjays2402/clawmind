@@ -475,6 +475,26 @@ Scaling:
 - Embed sidecar is CPU bound. Scale `embed.replicas` and put a Service
   in front of it so the API load balances across pods.
 
+Security headers:
+
+- The API ships an in-process `security-headers` plugin (`apps/api/src/plugins/security-headers.ts`)
+  that stamps a JSON-API baseline on every response: `X-Content-Type-Options:
+  nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`,
+  `Permissions-Policy` denying camera, microphone, geolocation, and the
+  legacy `interest-cohort` token, plus `Cross-Origin-Opener-Policy` and
+  `Cross-Origin-Resource-Policy` both pinned to `same-origin`.
+- The default `Content-Security-Policy` is `default-src 'none'; frame-ancestors
+  'none'; base-uri 'none'; form-action 'none'`. The API only serves JSON and
+  never returns user supplied HTML, so this policy is safe to leave on. The
+  Next.js web client is a separate origin and is not affected.
+- `Strict-Transport-Security` is opt-in via `CLAWMIND_HSTS_ENABLED=true`
+  because the default bind is plain HTTP on `127.0.0.1`. Enable it once the
+  API is behind a TLS terminating ingress. `CLAWMIND_HSTS_MAX_AGE_SECONDS`
+  controls the max-age (default 180 days, `includeSubDomains` on).
+- Headers are applied via the `onSend` hook so they also appear on error
+  responses, including 4xx/5xx coming from Fastify itself. Coverage lives in
+  `apps/api/test/security-headers.test.ts`.
+
 Helm hardening:
 
 - The chart defaults are safe but minimal. Production overlays should set

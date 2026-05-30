@@ -17,6 +17,7 @@ import { ragPlugin } from './plugins/rag.js';
 import { httpMetricsPlugin } from './plugins/http-metrics.js';
 import { sentryPlugin } from './plugins/sentry.js';
 import { requestIdPlugin, pickRequestId } from './plugins/request-id.js';
+import { securityHeadersPlugin } from './plugins/security-headers.js';
 
 export async function buildApp() {
   const env = loadEnv();
@@ -101,6 +102,10 @@ export async function buildApp() {
   });
 
   await app.register(requestIdPlugin);
+  await app.register(securityHeadersPlugin, {
+    hstsEnabled: env.CLAWMIND_HSTS_ENABLED,
+    hstsMaxAgeSeconds: env.CLAWMIND_HSTS_MAX_AGE_SECONDS,
+  });
   await app.register(httpMetricsPlugin);
   await app.register(sentryPlugin);
   await app.register(auditPlugin);

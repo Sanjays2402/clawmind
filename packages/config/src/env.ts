@@ -45,6 +45,13 @@ export function loadEnv() {
     // under ~32 MiB and retain 5 generations, which is ~192 MiB worst case.
     CLAWMIND_AUDIT_MAX_BYTES: num({ default: 32 * 1024 * 1024 }),
     CLAWMIND_AUDIT_KEEP_FILES: num({ default: 5 }),
+
+    // HTTP Strict Transport Security. Opt-in because the default dev bind
+    // is plain HTTP on 127.0.0.1; enabling HSTS there would pin browsers to
+    // a scheme the local server cannot speak. Production deployments behind
+    // a TLS ingress should set CLAWMIND_HSTS_ENABLED=true.
+    CLAWMIND_HSTS_ENABLED: bool({ default: false }),
+    CLAWMIND_HSTS_MAX_AGE_SECONDS: num({ default: 15552000 }),
   });
 }
 
