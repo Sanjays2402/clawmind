@@ -8,6 +8,7 @@ import { loadMarkdown } from './loaders/markdown.js';
 import { loadCode, isCodeFile } from './loaders/code.js';
 import { loadJson } from './loaders/json.js';
 import { semanticChunk } from './chunkers/semantic.js';
+import { filterIgnored } from './ignore.js';
 
 export interface IngestOptions {
   store: LanceStore;
@@ -31,7 +32,11 @@ const EXCLUDE_GLOBS = [
 ];
 
 export async function discoverFiles(root: string): Promise<string[]> {
-  return fg(INCLUDE_GLOBS, { cwd: root, ignore: EXCLUDE_GLOBS, absolute: true, dot: false });
+  const all = await fg(INCLUDE_GLOBS, { cwd: root, ignore: EXCLUDE_GLOBS, absolute: true, dot: false });
+  // `.clawmindignore` files layer on top of the built-in excludes so users can
+  // carve out generated fixtures, vendored code, or private notes without
+  // touching the pipeline configuration.
+  return filterIgnored(root, all);
 }
 
 async function loadByExt(path: string) {
