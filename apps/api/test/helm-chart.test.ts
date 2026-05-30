@@ -72,4 +72,14 @@ describe('helm chart hardening', () => {
     expect(pdbCount).toBe(3);
     expect(npCount).toBe(3);
   });
+
+  it('api livenessProbe targets /live so a flaky embed cannot kill the pod', () => {
+    const out = render();
+    const apiBlock = out
+      .split(/^---$/m)
+      .find((b) => /kind:\s*Deployment/.test(b) && /-api\b/.test(b));
+    expect(apiBlock, 'api Deployment present').toBeTruthy();
+    expect(apiBlock!).toMatch(/livenessProbe:[\s\S]*?path:\s*\/live/);
+    expect(apiBlock!).toMatch(/readinessProbe:[\s\S]*?path:\s*\/ready/);
+  });
 });

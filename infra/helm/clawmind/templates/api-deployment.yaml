@@ -37,7 +37,7 @@ spec:
             periodSeconds: 5
             failureThreshold: 3
           livenessProbe:
-            httpGet: { path: /health, port: {{ .Values.api.port }} }
+            httpGet: { path: /live, port: {{ .Values.api.port }} }
             initialDelaySeconds: 20
             periodSeconds: 15
             failureThreshold: 5

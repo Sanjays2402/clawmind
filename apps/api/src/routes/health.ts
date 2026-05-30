@@ -2,8 +2,18 @@ import type { FastifyPluginAsync } from 'fastify';
 import { snapshot, renderProm, PROM_CONTENT_TYPE } from '@clawmind/telemetry';
 
 export const healthRoutes: FastifyPluginAsync = async (app) => {
-  // Liveness: process is up and serving requests. No downstream calls so
-  // Kubernetes does not kill us when the embed sidecar is slow.
+  // True liveness: only proves the event loop is responsive. Zero downstream
+  // calls, zero allocations of consequence, so Kubernetes will not restart
+  // the pod when the embed sidecar or LLM provider is slow or degraded.
+  // The Helm livenessProbe targets this path.
+  app.get('/live', async (_req, reply) => {
+    reply.code(200);
+    return { ok: true };
+  });
+
+  // Deep status. Calls embed and LLM health and reports index sizes. Useful
+  // for dashboards and on-call but NOT safe as a Kubernetes livenessProbe
+  // because a flaky dependency would cause the API pod to be killed.
   app.get('/health', async () => ({
     ok: true,
     embed: await app.clawmind.embed.health(),

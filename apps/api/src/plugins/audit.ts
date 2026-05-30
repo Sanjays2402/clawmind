@@ -3,7 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 
 const plugin: FastifyPluginAsync = async (app) => {
   app.addHook('onResponse', async (req, reply) => {
-    if (req.url.startsWith('/health') || req.url.startsWith('/metrics')) return;
+    if (req.url.startsWith('/health') || req.url.startsWith('/live') || req.url.startsWith('/ready') || req.url.startsWith('/metrics')) return;
     if (req.method === 'GET' && reply.statusCode < 300) return;
     await app.clawmind.audit.write({
       actor: req.user?.id ?? 'anon',

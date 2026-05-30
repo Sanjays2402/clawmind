@@ -324,13 +324,17 @@ mounts from a PersistentVolumeClaim.
 
 Health endpoints:
 
-- `GET /health` is liveness. Returns 200 with the embed and LLM status,
-  chunk count, BM25 size, and document count. Used by the Kubernetes
-  livenessProbe with a generous failure threshold so a slow embed sidecar
-  does not restart the API.
+- `GET /live` is the Kubernetes liveness target. Always returns 200 with
+  `{ "ok": true }` and performs zero downstream calls, so a slow or
+  degraded embed sidecar, LLM provider, or storage layer cannot cascade
+  into pod restarts. The Helm chart points the api livenessProbe here.
 - `GET /ready` is readiness. Returns 200 once LanceDB, BM25, and the
-  ingest manifest are loaded, 503 before that. The Service does not route
-  to the pod until this passes.
+  ingest manifest are loaded, 503 before that. The Service does not
+  route to the pod until this passes.
+- `GET /health` is a deeper status endpoint for dashboards and on-call.
+  It reports embed and LLM health, chunk count, BM25 size, and document
+  count. Do not use it as a livenessProbe; it intentionally fans out to
+  dependencies and can stall.
 - `GET /version` returns the build name and version.
 
 Metrics:
