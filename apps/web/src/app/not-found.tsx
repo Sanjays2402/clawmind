@@ -16,11 +16,11 @@ export default function NotFound() {
       <div style={{ fontSize: 12, letterSpacing: 1.2, color: 'var(--cm-muted)', textTransform: 'uppercase' }}>
         404
       </div>
-      <h1 style={{ fontSize: 28, fontWeight: 600, marginTop: 8, letterSpacing: -0.3 }}>
-        Nothing lives here
+      <h1 className="cm-display" style={{ fontSize: 44, fontWeight: 500, marginTop: 10, color: 'var(--cm-fg)' }}>
+        Nothing on this page.
       </h1>
-      <p style={{ marginTop: 8, color: 'var(--cm-muted)', fontSize: 14, maxWidth: 420 }}>
-        The page you tried to open is missing or moved. Pick a place to land below.
+      <p style={{ marginTop: 10, color: 'var(--cm-muted)', fontSize: 15, maxWidth: 460, lineHeight: 1.55 }}>
+        The shelf you reached is empty, or the page has moved. Pick a quieter room below.
       </p>
       <div style={{ marginTop: 20, display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
         <Link
@@ -28,7 +28,7 @@ export default function NotFound() {
           style={{
             padding: '8px 14px',
             background: 'var(--cm-accent)',
-            color: 'white',
+            color: '#FBFAF6',
             borderRadius: 8,
             fontSize: 14,
             fontWeight: 500,

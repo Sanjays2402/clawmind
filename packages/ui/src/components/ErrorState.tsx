@@ -12,7 +12,7 @@ export function ErrorState({
   retryLabel?: string;
 }) {
   return (
-    <div style={{ padding: 16, border: '1px solid var(--cm-danger)', borderRadius: 'var(--cm-radius)', background: 'rgba(255,93,108,0.05)' }}>
+    <div style={{ padding: 16, border: '1px solid var(--cm-danger)', borderRadius: 'var(--cm-radius)', background: 'rgba(180,66,60,0.06)' }}>
       <div style={{ color: 'var(--cm-danger)', fontWeight: 600 }}>{title}</div>
       <div style={{ marginTop: 6, color: 'var(--cm-muted)', fontSize: 14 }}>{message}</div>
       {onRetry && (
