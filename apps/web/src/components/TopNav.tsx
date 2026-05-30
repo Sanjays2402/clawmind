@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
-import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope } from '@clawmind/ui';
+import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp } from '@clawmind/ui';
 
 const items: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/dashboard', label: 'Dashboard', Icon: IconChartBar },
@@ -12,6 +12,7 @@ const items: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/sources', label: 'Sources', Icon: IconFolder },
   { href: '/pins', label: 'Pins', Icon: IconPushPin },
   { href: '/mutes', label: 'Mutes', Icon: IconSpeakerSlash },
+  { href: '/feedback', label: 'Feedback', Icon: IconThumbsUp },
   { href: '/tags', label: 'Tags', Icon: IconTag },
   { href: '/aliases', label: 'Aliases', Icon: IconAt },
   { href: '/stale', label: 'Stale', Icon: IconClockCountdown },
