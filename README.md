@@ -218,6 +218,8 @@ Auth and admin:
 - `GET|POST /v1/keys`, `DELETE /v1/keys/:id`
 - `POST /v1/maintenance/compact`
 - `POST /v1/maintenance/forget`
+- `GET /v1/me/export` – download every per-user record as JSON
+- `DELETE /v1/me/data` – erase every per-user record, body `{"confirm":"DELETE"}`
 
 Requests are rate-limited globally to 240/min, keyed by API key id, session user, or IP in that order.
 
@@ -375,6 +377,25 @@ Backup and restore:
 - To restore: stop the API replicas, restore the volume, restart.
   Ingest is idempotent so a partial restore can be reconciled by
   re-running `clawmind ingest` against the source workspace.
+
+Data lifecycle (GDPR):
+
+- `GET /v1/me/export` returns a JSON bundle of every per-user record
+  (history, conversations, saved searches, feedback votes, and API key
+  metadata with hashes redacted). Served with a `Content-Disposition`
+  attachment header so curl and browsers save it as a file. The export
+  is written to the audit log with row counts.
+- `DELETE /v1/me/data` erases every per-user record and returns a
+  deletion report with counts. Body must be `{"confirm": "DELETE"}`.
+  Shared feedback entries are updated in place: the calling user's vote
+  is removed and counts are decremented, and entries that go to zero are
+  dropped. Workspace scoped state (pins, mutes, aliases, tags, the
+  ingest manifest, the embedding index) is left intact because it is
+  shared across users. The deletion is written to the audit log.
+- Both endpoints require authentication and are scoped to the calling
+  user. There is no admin override that deletes another user's data
+  from the API surface; operators do that by stopping the API and
+  editing the data directory directly.
 
 On-call:
 

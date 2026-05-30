@@ -21,6 +21,7 @@ import { doctorRoutes } from './doctor.js';
 import { tagsRoutes } from './tags.js';
 import { staleRoutes } from './stale.js';
 import { snapshotRoutes } from './snapshots.js';
+import { lifecycleRoutes } from './lifecycle.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -45,4 +46,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(tagsRoutes, { prefix: '/v1' });
   await app.register(staleRoutes, { prefix: '/v1' });
   await app.register(snapshotRoutes, { prefix: '/v1' });
+  await app.register(lifecycleRoutes, { prefix: '/v1' });
 }
