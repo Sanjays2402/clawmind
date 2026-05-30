@@ -10,4 +10,5 @@ export * from './loaders/html.js';
 export * from './chunkers/sliding.js';
 export * from './chunkers/semantic.js';
 export * from './compact.js';
+export * from './forget.js';
 export * from './ignore.js';

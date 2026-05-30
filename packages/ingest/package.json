@@ -23,7 +23,8 @@
     "fast-glob": "^3.3.2",
     "gray-matter": "^4.0.3",
     "p-queue": "^8.0.1",
-    "pdfjs-dist": "^4.7.76"
+    "pdfjs-dist": "^4.7.76",
+    "picomatch": "^4.0.2"
   },
   "devDependencies": {
     "typescript": "^5.6.3",
