@@ -1,5 +1,6 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { TopNav } from '@/components/TopNav';
 import { api, type Source } from '@/lib/api';
 import { HighlightedText } from '@/components/SourcesPane';
@@ -19,21 +20,37 @@ export default function SearchPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const searchParams = useSearchParams();
+  const lastInitialRef = useRef<string | null>(null);
 
-  async function run(e: React.FormEvent) {
-    e.preventDefault();
-    if (!q.trim() || loading) return;
+  async function executeSearch(query: string) {
+    const trimmed = query.trim();
+    if (!trimmed) return;
     setLoading(true);
     setError(null);
     setSubmitted(true);
     try {
-      const res = await api.search({ q: q.trim(), k: 12, highlight: true });
+      const res = await api.search({ q: trimmed, k: 12, highlight: true });
       setHits(res.hits);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setLoading(false);
     }
+  }
+
+  useEffect(() => {
+    const initial = searchParams.get('q');
+    if (!initial || lastInitialRef.current === initial) return;
+    lastInitialRef.current = initial;
+    setQ(initial);
+    void executeSearch(initial);
+  }, [searchParams]);
+
+  async function run(e: React.FormEvent) {
+    e.preventDefault();
+    if (!q.trim() || loading) return;
+    await executeSearch(q);
   }
 
   return (

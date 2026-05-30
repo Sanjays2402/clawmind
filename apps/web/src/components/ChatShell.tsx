@@ -1,5 +1,6 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { TopNav } from '@/components/TopNav';
 import { NamespacePicker, Spinner, type Ns } from '@clawmind/ui';
 import { ChatStream } from './ChatStream';
@@ -33,6 +34,15 @@ export function ChatShell({
   const [error, setError] = useState<string | null>(null);
   const [namespaces, setNamespaces] = useState<Ns[]>(['memory', 'projects', 'sessions']);
   const cancelRef = useRef<boolean>(false);
+  const searchParams = useSearchParams();
+  const prefillRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const initial = searchParams.get('q');
+    if (!initial || prefillRef.current === initial) return;
+    prefillRef.current = initial;
+    setQuestion(initial);
+  }, [searchParams]);
 
   async function submit() {
     if (!question.trim() || loading) return;

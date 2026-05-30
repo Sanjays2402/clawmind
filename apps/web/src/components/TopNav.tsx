@@ -49,6 +49,14 @@ export function TopNav() {
           })}
         </nav>
         <div className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className="hidden items-center gap-1 rounded-md border border-cm-border px-2 py-1 text-[11px] text-cm-muted sm:inline-flex"
+            title="Open command palette"
+          >
+            <kbd className="font-mono">⌘</kbd>
+            <kbd className="font-mono">K</kbd>
+          </span>
           <ThemeToggle />
         </div>
       </div>
