@@ -50,4 +50,32 @@ export const auditRoutes: FastifyPluginAsync = async (app) => {
       return result;
     },
   });
+
+  // Tamper-evidence check. Recomputes the hash chain over every audit
+  // file (active log plus rotated siblings) and returns the first break,
+  // or ok=true with the current head hash. Reviewers anchor the head
+  // hash externally (commit to a ticket, notarise, etc.) so a later
+  // verify() with a different head proves on-disk tampering.
+  app.get('/admin/audit/verify', {
+    preHandler: [
+      app.requireAuth,
+      app.requireRole('owner'),
+      app.requireScope(Scopes.AuditRead),
+    ],
+    handler: async (req) => {
+      const result = await app.clawmind.audit.verify();
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: 'audit.verify',
+        resource: '/v1/admin/audit/verify',
+        meta: {
+          ok: result.ok,
+          checked: result.checked,
+          headHash: result.headHash,
+          reason: result.reason,
+        },
+      });
+      return result;
+    },
+  });
 };

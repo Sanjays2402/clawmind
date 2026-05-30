@@ -436,6 +436,24 @@ Audit log:
   plus every retained rotation so a window that crosses a rotation
   boundary still returns the right events; it is intended for incident
   response rather than analytics and caps a single response at 1000 rows.
+- Each row is part of a sha256 hash chain. On write, the previous row's
+  hash is stored in `prevHash` and a new `hash` is computed over a
+  canonical serialisation of the row (meta keys sorted, hash field
+  excluded). The first row in any chain commits to the sentinel
+  `genesis`. `GET /v1/admin/audit/verify` replays the chain across the
+  active log and every retained rotation, returns
+  `{ ok, checked, firstBadIndex, reason, headHash }`, and self-logs the
+  call with `action: audit.verify`. An on-call procedure for tamper
+  evidence is: (1) after a security event, snapshot the current
+  `headHash` from `/v1/admin/audit/verify` and stash it in the incident
+  ticket; (2) anchor that head externally if you want non-repudiation
+  (commit hash to a ticket, notarise, ship to write-once storage);
+  (3) re-run verify later, and if `ok=false` or `headHash` changed for
+  a record at or before the anchored point, the on-disk log was
+  tampered with. The chain tolerates a legacy unchained prefix (rows
+  written before this feature carry no hash and are skipped without
+  failing verify) so an upgrade in place does not falsely flag the
+  existing log.
 
 Rate limits:
 

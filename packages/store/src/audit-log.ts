@@ -1,7 +1,57 @@
 import { appendFile, mkdir, readFile, stat, rename, unlink, readdir } from 'node:fs/promises';
 import { dirname, basename, join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import type { AuditEvent } from '@clawmind/types';
+
+// Seed value committed to by the first record in any audit chain. Picking a
+// fixed sentinel (rather than the empty string or all-zeroes) means a chain
+// that genuinely starts here is distinguishable from one whose first record
+// was deleted (the new "first" record would carry the deleted record's hash
+// in prevHash, not GENESIS_PREV_HASH).
+export const GENESIS_PREV_HASH = 'genesis';
+
+// Stable serialisation for the hashable view of a record. We must exclude
+// `hash` itself (we are computing it) and must include every other field in
+// a deterministic order so a verifier on another machine gets the same
+// digest. JSON.stringify with a fixed key list is enough: AuditEvent has a
+// closed schema and `meta` is hashed by its own canonical serialisation.
+function canonicalMeta(meta: unknown): string {
+  if (meta === undefined || meta === null) return 'null';
+  if (Array.isArray(meta)) return JSON.stringify(meta);
+  if (typeof meta !== 'object') return JSON.stringify(meta);
+  const obj = meta as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  const parts = keys.map((k) => JSON.stringify(k) + ':' + canonicalMeta(obj[k]));
+  return '{' + parts.join(',') + '}';
+}
+
+function hashableBody(ev: AuditEvent): string {
+  // Order matters; pin it explicitly.
+  return JSON.stringify({
+    id: ev.id,
+    ts: ev.ts,
+    actor: ev.actor,
+    action: ev.action,
+    resource: ev.resource,
+    meta: ev.meta === undefined ? null : JSON.parse(canonicalMeta(ev.meta)),
+    prevHash: ev.prevHash ?? GENESIS_PREV_HASH,
+  });
+}
+
+export function computeRecordHash(ev: AuditEvent): string {
+  return createHash('sha256').update(hashableBody(ev)).digest('hex');
+}
+
+export interface AuditVerifyResult {
+  ok: boolean;
+  checked: number;
+  /** Index of the first bad record in chronological order, or null if ok. */
+  firstBadIndex: number | null;
+  /** Why the chain broke. Populated when ok=false. */
+  reason: string | null;
+  /** Hash of the most recent record. Useful for external anchoring. */
+  headHash: string | null;
+}
 
 export interface AuditQuery {
   actor?: string;
@@ -46,23 +96,137 @@ const DEFAULT_KEEP_FILES = 5;
 export class AuditLog {
   private readonly maxBytes: number;
   private readonly keepFiles: number;
+  // Cached hash of the last record written, used to seed the next record's
+  // prevHash without re-reading the file. Lazily populated on first write.
+  private lastHash: string | null = null;
+  private lastHashLoaded = false;
 
   constructor(private readonly file: string, opts: AuditLogOptions = {}) {
     this.maxBytes = Math.max(opts.maxBytes ?? DEFAULT_MAX_BYTES, 0);
     this.keepFiles = Math.max(opts.keepFiles ?? DEFAULT_KEEP_FILES, 0);
   }
 
-  /** Append a single event as JSON Lines. Returns the persisted record. */
-  async write(event: Omit<AuditEvent, 'id' | 'ts'>): Promise<AuditEvent> {
-    const full: AuditEvent = { id: randomUUID(), ts: Date.now(), ...event };
+  /**
+   * Append a single event as JSON Lines. Returns the persisted record,
+   * including the hash-chain fields (`prevHash`, `hash`). The chain is
+   * seeded from the existing log on first write so a restart does not
+   * silently start a fresh chain that would look broken to verify().
+   */
+  async write(event: Omit<AuditEvent, 'id' | 'ts' | 'prevHash' | 'hash'>): Promise<AuditEvent> {
     await mkdir(dirname(this.file), { recursive: true });
     // Rotate BEFORE appending so the new entry always lands in a file that
     // is at or below the configured limit. Rotation is cheap (rename) and
     // any I/O error here is bubbled up so an operator can investigate
     // rather than silently corrupting the on-disk audit trail.
     await this.maybeRotate();
+    if (!this.lastHashLoaded) {
+      this.lastHash = await this.readLastHash();
+      this.lastHashLoaded = true;
+    }
+    const base: AuditEvent = {
+      id: randomUUID(),
+      ts: Date.now(),
+      ...event,
+      prevHash: this.lastHash ?? GENESIS_PREV_HASH,
+    };
+    const hash = computeRecordHash(base);
+    const full: AuditEvent = { ...base, hash };
     await appendFile(this.file, JSON.stringify(full) + '\n', 'utf8');
+    this.lastHash = hash;
     return full;
+  }
+
+  /**
+   * Walk every file in chronological order and verify each record's hash
+   * and prevHash linkage. Returns the first inconsistency rather than
+   * throwing so the audit API can surface a structured result.
+   */
+  async verify(): Promise<AuditVerifyResult> {
+    const files = (await this.listFiles()).slice().reverse(); // oldest first
+    let prev: string = GENESIS_PREV_HASH;
+    let checked = 0;
+    let head: string | null = null;
+    for (const f of files) {
+      const exists = await stat(f).then(() => true).catch(() => false);
+      if (!exists) continue;
+      const raw = await readFile(f, 'utf8');
+      const lines = raw.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line) continue;
+        let ev: AuditEvent;
+        try {
+          ev = JSON.parse(line) as AuditEvent;
+        } catch {
+          return {
+            ok: false,
+            checked,
+            firstBadIndex: checked,
+            reason: `malformed JSON in ${basename(f)} line ${i + 1}`,
+            headHash: head,
+          };
+        }
+        // Records written before the hash-chain upgrade have no hash and
+        // no prevHash. Treat them as a legacy prefix: they neither extend
+        // nor invalidate the chain, and the next chained record will use
+        // GENESIS_PREV_HASH so verify() picks up from there.
+        if (!ev.hash) {
+          checked++;
+          continue;
+        }
+        const expectedPrev = ev.prevHash ?? GENESIS_PREV_HASH;
+        if (expectedPrev !== prev) {
+          return {
+            ok: false,
+            checked,
+            firstBadIndex: checked,
+            reason: `prevHash mismatch at ${basename(f)} line ${i + 1}: expected ${prev}, got ${expectedPrev}`,
+            headHash: head,
+          };
+        }
+        const recomputed = computeRecordHash({ ...ev, hash: undefined });
+        if (recomputed !== ev.hash) {
+          return {
+            ok: false,
+            checked,
+            firstBadIndex: checked,
+            reason: `hash mismatch at ${basename(f)} line ${i + 1}`,
+            headHash: head,
+          };
+        }
+        prev = ev.hash;
+        head = ev.hash;
+        checked++;
+      }
+    }
+    return { ok: true, checked, firstBadIndex: null, reason: null, headHash: head };
+  }
+
+  /**
+   * Recover the last hash in the chain by scanning the newest file with
+   * content. After rotation the active file is empty so we fall through to
+   * `audit.log.1` and so on. Returns null if no chained record exists yet.
+   */
+  private async readLastHash(): Promise<string | null> {
+    const files = await this.listFiles(); // newest first
+    for (const f of files) {
+      const exists = await stat(f).then(() => true).catch(() => false);
+      if (!exists) continue;
+      const raw = await readFile(f, 'utf8');
+      const lines = raw.split('\n');
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const line = lines[i];
+        if (!line) continue;
+        try {
+          const ev = JSON.parse(line) as AuditEvent;
+          if (ev.hash) return ev.hash;
+        } catch {
+          // Skip malformed tail lines; a partial write should not break the next append.
+          continue;
+        }
+      }
+    }
+    return null;
   }
 
   /**
@@ -102,6 +266,11 @@ export class AuditLog {
     } else {
       await rename(this.file, `${this.file}.1`).catch(() => undefined);
     }
+    // After rotation the active file is empty; the chain head still lives
+    // in the rotated sibling. Force lastHash to be re-read on next write so
+    // the new file's first record links to the rotated file's tail.
+    this.lastHashLoaded = false;
+    this.lastHash = null;
   }
 
   /**
