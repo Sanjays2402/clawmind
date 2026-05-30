@@ -7,17 +7,22 @@ on:
 jobs:
   guard:
     runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.gate.outputs.enabled }}
     steps:
-      - name: gate check
+      - id: gate
+        name: gate check
         run: |
           if [ "${{ vars.ENABLE_CI }}" != "true" ]; then
             echo "CI is intentionally disabled (billing block). Set the repository variable ENABLE_CI=true to enable."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
 
-  test:
+  verify:
     needs: guard
-    if: vars.ENABLE_CI == 'true'
+    if: needs.guard.outputs.enabled == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,5 +31,48 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: '20.18.0', cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck
-      - run: pnpm test
+      - name: typecheck
+        run: pnpm typecheck
+      - name: test
+        run: pnpm test
+      - name: build
+        run: pnpm build
+
+  audit:
+    needs: guard
+    if: needs.guard.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: '20.18.0', cache: pnpm }
+      # Fail on high or critical advisories. Moderate/low surface in the log
+      # but do not block: keeps the gate signal high without weekly churn.
+      - name: pnpm audit (high+)
+        run: pnpm audit --prod --audit-level high
+
+  docker:
+    needs: guard
+    if: needs.guard.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - { name: api, dockerfile: infra/docker/api.Dockerfile }
+          - { name: web, dockerfile: infra/docker/web.Dockerfile }
+          - { name: embed, dockerfile: infra/docker/embed.Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: build ${{ matrix.image.name }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.image.dockerfile }}
+          push: false
+          load: false
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,scope=${{ matrix.image.name }},mode=max

@@ -450,6 +450,28 @@ Data lifecycle (GDPR):
   from the API surface; operators do that by stopping the API and
   editing the data directory directly.
 
+Continuous integration:
+
+- The pipeline lives in `.github/workflows/ci.yml` and is gated behind the
+  repository variable `ENABLE_CI=true`. The `guard` job emits an `enabled`
+  output and every real job (`verify`, `audit`, `docker`) refuses to run
+  unless that output is `'true'`. This keeps the gate honest: there is no
+  silent skip, the gating expression is the same string in every job.
+- `verify` runs `pnpm install --frozen-lockfile` then `pnpm typecheck`,
+  `pnpm test`, and `pnpm build` end to end. A green run means the entire
+  workspace typechecks, every package test suite passes, and every build
+  target produces its declared `outputs`.
+- `audit` runs `pnpm audit --prod --audit-level high`, so any high or
+  critical advisory in a production dependency fails the build. Moderate
+  and low advisories surface in the log without blocking.
+- `docker` builds the `api`, `web`, and `embed` images from
+  `infra/docker/*.Dockerfile` via `docker/build-push-action` with a GHA
+  layer cache. The images are built but not pushed; this catches
+  Dockerfile regressions before they hit `release.yml`.
+- The workflow shape is locked down by `apps/api/test/ci-workflow.test.ts`
+  so accidental edits (dropping the audit job, ungating a step, deleting
+  a Dockerfile from the matrix) fail in `pnpm test` before they ship.
+
 On-call:
 
 - Page on `up{job="clawmind-api"} == 0`, sustained

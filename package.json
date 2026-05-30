@@ -12,6 +12,8 @@
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "ci:verify": "pnpm typecheck && pnpm test && pnpm build",
     "clawmind": "pnpm --filter @clawmind/cli exec clawmind"
   },
   "devDependencies": {
