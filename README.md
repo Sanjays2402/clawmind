@@ -1,5 +1,8 @@
 # ClawMind
 
+![landing](docs/screenshots/landing.png)
+
+
 Local-first RAG over your OpenClaw workspace. Ask in natural language, get cited answers grounded in your own notes, projects, and session logs.
 
 ClawMind runs entirely on your Mac. Embeddings come from Apple MLX through a tiny Python sidecar. Vectors live in LanceDB. The retrieval pipeline uses hybrid BM25 plus dense search with MMR rerank, then streams answers through a local LLM (hermes-agent by default, with a GitHub Copilot proxy as fallback).
