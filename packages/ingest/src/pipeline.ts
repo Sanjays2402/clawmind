@@ -8,6 +8,7 @@ import { loadMarkdown } from './loaders/markdown.js';
 import { loadCode, isCodeFile } from './loaders/code.js';
 import { loadJson } from './loaders/json.js';
 import { loadPdf, isPdfFile } from './loaders/pdf.js';
+import { loadHtml, isHtmlFile } from './loaders/html.js';
 import { semanticChunk } from './chunkers/semantic.js';
 import { filterIgnored } from './ignore.js';
 
@@ -27,6 +28,7 @@ const INCLUDE_GLOBS = [
   '**/*.ts', '**/*.tsx', '**/*.js', '**/*.py', '**/*.go', '**/*.rs',
   '**/*.yml', '**/*.yaml', '**/*.toml',
   '**/*.pdf',
+  '**/*.html', '**/*.htm',
 ];
 const EXCLUDE_GLOBS = [
   '**/node_modules/**', '**/.git/**', '**/.next/**', '**/dist/**', '**/build/**',
@@ -47,6 +49,7 @@ async function loadByExt(path: string) {
     const loaded = await loadPdf(path);
     return { doc: loaded.doc, body: loaded.body };
   }
+  if (isHtmlFile(path)) return loadHtml(path);
   if (ext === '.md' || ext === '.mdx' || ext === '.txt') return loadMarkdown(path);
   if (ext === '.json') return loadJson(path);
   if (isCodeFile(path)) return loadCode(path);

@@ -6,6 +6,7 @@ export * from './loaders/markdown.js';
 export * from './loaders/code.js';
 export * from './loaders/json.js';
 export * from './loaders/pdf.js';
+export * from './loaders/html.js';
 export * from './chunkers/sliding.js';
 export * from './chunkers/semantic.js';
 export * from './compact.js';
