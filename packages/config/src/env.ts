@@ -29,6 +29,14 @@ export function loadEnv() {
 
     CLAWMIND_OTEL_ENABLED: bool({ default: false }),
     CLAWMIND_OTEL_ENDPOINT: str({ default: 'http://127.0.0.1:4318' }),
+
+    // Sentry error tracking. DSN empty = disabled, no events sent. Sample
+    // rate applies to performance traces only; errors are always captured
+    // when the SDK is initialised.
+    CLAWMIND_SENTRY_DSN: str({ default: '' }),
+    CLAWMIND_SENTRY_ENVIRONMENT: str({ default: 'development' }),
+    CLAWMIND_SENTRY_RELEASE: str({ default: '' }),
+    CLAWMIND_SENTRY_TRACES_SAMPLE_RATE: num({ default: 0 }),
   });
 }
 

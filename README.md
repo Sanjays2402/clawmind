@@ -127,6 +127,10 @@ All env vars are loaded via `envalid` in `packages/config`. See `.env.example`.
 | `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:7410` | Used by the web app |
 | `CLAWMIND_OTEL_ENABLED` | `false` | Enable OTLP traces |
 | `CLAWMIND_OTEL_ENDPOINT` | `http://127.0.0.1:4318` | OTLP collector |
+| `CLAWMIND_SENTRY_DSN` | empty | Sentry DSN; empty disables the SDK |
+| `CLAWMIND_SENTRY_ENVIRONMENT` | `development` | Sentry environment tag |
+| `CLAWMIND_SENTRY_RELEASE` | empty | Release tag, usually the git sha |
+| `CLAWMIND_SENTRY_TRACES_SAMPLE_RATE` | `0` | Sentry performance trace sampling |
 
 ## Scripts
 
@@ -349,6 +353,28 @@ Logs and traces:
   Fastify and is attached to the log context.
 - OpenTelemetry tracing is opt-in via `CLAWMIND_OTEL_ENABLED=true` and
   `CLAWMIND_OTEL_ENDPOINT`. Trace ids propagate into the log lines.
+
+Error tracking (Sentry):
+
+- Set `CLAWMIND_SENTRY_DSN` to enable. With the DSN empty the SDK never
+  initialises and zero events are sent, so dev and test runs stay offline.
+- The Fastify `sentryPlugin` reports every 5xx response and every uncaught
+  error handler invocation. 4xx responses are intentionally skipped to keep
+  validation noise out of the issue tracker; those still land in the audit
+  log and structured logs.
+- Each event carries the Fastify request id, the route template (not the
+  raw URL, so query strings stay out of the payload), the client IP, and
+  the HTTP status. When a user is authenticated the event is tagged with
+  their user id and GitHub login.
+- `req.captureException(err, extra?)` is exposed on every request for
+  routes that want to capture handled errors with extra context.
+- `CLAWMIND_SENTRY_ENVIRONMENT` (default `development`) and
+  `CLAWMIND_SENTRY_RELEASE` map to the standard Sentry fields.
+  `CLAWMIND_SENTRY_TRACES_SAMPLE_RATE` controls performance trace sampling
+  and defaults to `0`.
+- On graceful shutdown the plugin flushes the Sentry queue with a 1.5 s
+  budget so in-flight events leave the pod before SIGTERM kills the
+  process.
 
 Audit log:
 

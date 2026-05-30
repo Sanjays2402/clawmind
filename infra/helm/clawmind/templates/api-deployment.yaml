@@ -20,6 +20,10 @@ spec:
             - { name: CLAWMIND_EMBED_URL, value: "http://{{ include "clawmind.fullname" . }}-embed:{{ .Values.embed.port }}" }
             - { name: CLAWMIND_DATA_DIR, value: "/var/clawmind" }
             - { name: CLAWMIND_API_HOST, value: "0.0.0.0" }
+            - { name: CLAWMIND_SENTRY_DSN, value: {{ .Values.api.sentry.dsn | quote }} }
+            - { name: CLAWMIND_SENTRY_ENVIRONMENT, value: {{ .Values.api.sentry.environment | quote }} }
+            - { name: CLAWMIND_SENTRY_RELEASE, value: {{ .Values.api.sentry.release | quote }} }
+            - { name: CLAWMIND_SENTRY_TRACES_SAMPLE_RATE, value: {{ .Values.api.sentry.tracesSampleRate | quote }} }
           resources: {{- toYaml .Values.api.resources | nindent 12 }}
           volumeMounts:
             - { name: data, mountPath: /var/clawmind }

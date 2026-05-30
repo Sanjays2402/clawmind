@@ -6,7 +6,7 @@ import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
 import { loadEnv, lancedbDir, bm25Dir, manifestPath, auditPath, dataDir } from '@clawmind/config';
-import { createLogger, startTracing } from '@clawmind/telemetry';
+import { createLogger, startTracing, initSentry } from '@clawmind/telemetry';
 import { LanceStore, BM25Index, IngestManifest, AuditLog } from '@clawmind/store';
 import { MlxEmbedClient, OpenAIEmbedClient, FallbackEmbedProvider } from '@clawmind/embed';
 import { buildDefaultLLM } from '@clawmind/llm';
@@ -15,6 +15,7 @@ import { authPlugin } from './plugins/auth.js';
 import { auditPlugin } from './plugins/audit.js';
 import { ragPlugin } from './plugins/rag.js';
 import { httpMetricsPlugin } from './plugins/http-metrics.js';
+import { sentryPlugin } from './plugins/sentry.js';
 
 export async function buildApp() {
   const env = loadEnv();
@@ -23,6 +24,13 @@ export async function buildApp() {
     enabled: env.CLAWMIND_OTEL_ENABLED,
     endpoint: env.CLAWMIND_OTEL_ENDPOINT,
     serviceName: 'clawmind-api',
+  });
+  initSentry({
+    dsn: env.CLAWMIND_SENTRY_DSN || undefined,
+    environment: env.CLAWMIND_SENTRY_ENVIRONMENT,
+    release: env.CLAWMIND_SENTRY_RELEASE || undefined,
+    serviceName: 'clawmind-api',
+    tracesSampleRate: env.CLAWMIND_SENTRY_TRACES_SAMPLE_RATE,
   });
 
   const app = Fastify({ loggerInstance: logger as never }).withTypeProvider<ZodTypeProvider>();
@@ -82,6 +90,7 @@ export async function buildApp() {
   });
 
   await app.register(httpMetricsPlugin);
+  await app.register(sentryPlugin);
   await app.register(auditPlugin);
   await app.register(authPlugin);
   await app.register(ragPlugin);

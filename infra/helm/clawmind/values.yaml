@@ -10,6 +10,13 @@ api:
   resources:
     limits: { cpu: "500m", memory: "512Mi" }
     requests: { cpu: "100m", memory: "256Mi" }
+  # Sentry error tracking. Leave dsn empty to disable; the SDK is then
+  # skipped at startup and nothing leaves the pod.
+  sentry:
+    dsn: ""
+    environment: "production"
+    release: ""
+    tracesSampleRate: "0"
 
 web:
   replicas: 1
