@@ -2,16 +2,18 @@
 import Link from 'next/link';
 import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
-import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh } from '@clawmind/ui';
+import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey } from '@clawmind/ui';
 
 const items: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/dashboard', label: 'Dashboard', Icon: IconChartBar },
   { href: '/chat', label: 'Chat', Icon: IconSpark },
   { href: '/search', label: 'Search', Icon: IconSearch },
   { href: '/sources', label: 'Sources', Icon: IconFolder },
+  { href: '/pins', label: 'Pins', Icon: IconPushPin },
   { href: '/digests', label: 'Digests', Icon: IconRefresh },
   { href: '/ingest', label: 'Ingest', Icon: IconDatabase },
   { href: '/saved', label: 'Saved', Icon: IconBook },
+  { href: '/keys', label: 'Keys', Icon: IconKey },
 ];
 
 export function TopNav() {
