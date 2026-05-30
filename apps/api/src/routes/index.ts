@@ -13,6 +13,7 @@ import { digestRoutes } from './digests.js';
 import { keyRoutes } from './keys.js';
 import { maintenanceRoutes } from './maintenance.js';
 import { pinsRoutes } from './pins.js';
+import { mutesRoutes } from './mutes.js';
 import { statsRoutes } from './stats.js';
 import { doctorRoutes } from './doctor.js';
 
@@ -31,6 +32,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(keyRoutes, { prefix: '/v1' });
   await app.register(maintenanceRoutes, { prefix: '/v1' });
   await app.register(pinsRoutes, { prefix: '/v1' });
+  await app.register(mutesRoutes, { prefix: '/v1' });
   await app.register(statsRoutes, { prefix: '/v1' });
   await app.register(doctorRoutes, { prefix: '/v1' });
 }

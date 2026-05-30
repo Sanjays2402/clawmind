@@ -4,12 +4,14 @@ import type { RagDeps } from '@clawmind/rag';
 import { AnswerCache } from '@clawmind/rag';
 import { loadFeedback, boostFor, type FeedbackMap } from '../services/feedback.js';
 import { loadPins, pinBoostFor, type PinMap } from '../services/pins.js';
+import { loadMutes, mutePenaltyFor, type MuteMap } from '../services/mutes.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
     rag: RagDeps;
     feedback: { reload(): Promise<void>; current(): FeedbackMap };
     pins: { reload(): Promise<void>; current(): PinMap };
+    mutes: { reload(): Promise<void>; current(): MuteMap };
     answerCache: AnswerCache;
     corpusVersion: { value: number; bump(): number };
   }
@@ -19,6 +21,7 @@ const plugin: FastifyPluginAsync = async (app) => {
   const c = app.clawmind;
   let fb: FeedbackMap = await loadFeedback(c.dataDir);
   let pins: PinMap = await loadPins(c.dataDir);
+  let mutes: MuteMap = await loadMutes(c.dataDir);
   app.decorate('feedback', {
     reload: async () => { fb = await loadFeedback(c.dataDir); },
     current: () => fb,
@@ -27,13 +30,18 @@ const plugin: FastifyPluginAsync = async (app) => {
     reload: async () => { pins = await loadPins(c.dataDir); },
     current: () => pins,
   });
+  app.decorate('mutes', {
+    reload: async () => { mutes = await loadMutes(c.dataDir); },
+    current: () => mutes,
+  });
   app.decorate('rag', {
     bm25: c.bm25,
     lance: c.lance,
     embed: c.embed,
     llm: c.llm,
     embedModel: c.env.CLAWMIND_EMBED_MODEL,
-    boost: (path: string) => boostFor(fb[path]) * pinBoostFor(pins, path),
+    boost: (path: string) =>
+      boostFor(fb[path]) * pinBoostFor(pins, path) * mutePenaltyFor(mutes, path),
   });
   app.decorate('answerCache', new AnswerCache({ maxEntries: 200, ttlMs: 30 * 60_000 }));
   const corpus = { value: Date.now(), bump(): number { corpus.value = Date.now(); return corpus.value; } };
