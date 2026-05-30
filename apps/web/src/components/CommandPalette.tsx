@@ -19,6 +19,7 @@ import {
   IconAt,
   IconSpeakerSlash,
   IconClockCountdown,
+  IconStethoscope,
   IconArrowRight,
 } from '@clawmind/ui';
 import { api } from '@/lib/api';
@@ -63,6 +64,7 @@ const ROUTES: RouteItem[] = [
   { id: 'r-tags', kind: 'route', label: 'Tags', href: '/tags', Icon: IconTag },
   { id: 'r-aliases', kind: 'route', label: 'Aliases', href: '/aliases', Icon: IconAt },
   { id: 'r-stale', kind: 'route', label: 'Stale', href: '/stale', Icon: IconClockCountdown },
+  { id: 'r-doctor', kind: 'route', label: 'Doctor', href: '/doctor', Icon: IconStethoscope, hint: 'Index health' },
   { id: 'r-digests', kind: 'route', label: 'Digests', href: '/digests', Icon: IconRefresh },
   { id: 'r-ingest', kind: 'route', label: 'Ingest', href: '/ingest', Icon: IconDatabase },
   { id: 'r-saved', kind: 'route', label: 'Saved searches', href: '/saved', Icon: IconBook },

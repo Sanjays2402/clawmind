@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
-import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown } from '@clawmind/ui';
+import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope } from '@clawmind/ui';
 
 const items: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/dashboard', label: 'Dashboard', Icon: IconChartBar },
@@ -15,6 +15,7 @@ const items: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/tags', label: 'Tags', Icon: IconTag },
   { href: '/aliases', label: 'Aliases', Icon: IconAt },
   { href: '/stale', label: 'Stale', Icon: IconClockCountdown },
+  { href: '/doctor', label: 'Doctor', Icon: IconStethoscope },
   { href: '/digests', label: 'Digests', Icon: IconRefresh },
   { href: '/ingest', label: 'Ingest', Icon: IconDatabase },
   { href: '/saved', label: 'Saved', Icon: IconBook },
