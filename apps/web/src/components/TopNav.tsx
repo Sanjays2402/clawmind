@@ -2,11 +2,12 @@
 import Link from 'next/link';
 import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
-import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey } from '@clawmind/ui';
+import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat } from '@clawmind/ui';
 
 const items: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/dashboard', label: 'Dashboard', Icon: IconChartBar },
   { href: '/chat', label: 'Chat', Icon: IconSpark },
+  { href: '/conversations', label: 'Threads', Icon: IconChat },
   { href: '/search', label: 'Search', Icon: IconSearch },
   { href: '/sources', label: 'Sources', Icon: IconFolder },
   { href: '/pins', label: 'Pins', Icon: IconPushPin },
