@@ -8,6 +8,7 @@ import {
   loadConversation,
   listConversations,
   deleteConversation,
+  forkConversation,
   appendTurn,
   toChatMessages,
   rewriteFollowUp,
@@ -73,6 +74,41 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
                  await deleteConversation(app.clawmind.dataDir, req.user!.id, req.params.id);
       if (!ok) return reply.code(404).send({ error: 'not found' });
       return { ok: true };
+    },
+  });
+
+  // Fork a conversation at a given turn index. The new conversation copies
+  // turns [0..throughIndex] from the source, gets fresh per-turn ids, and is
+  // owned by the requesting user. The source is left untouched, so a user
+  // can explore an alternate line of questioning without losing the
+  // original thread.
+  app.post<{ Params: { id: string } }>('/conversations/:id/fork', {
+    schema: {
+      body: z.object({
+        throughIndex: z.number().int().nonnegative(),
+        title: z.string().max(120).optional(),
+      }),
+    },
+    preHandler: app.requireAuth,
+    handler: async (req, reply) => {
+      const result = await forkConversation(
+        app.clawmind.dataDir,
+        req.user!.id,
+        req.params.id,
+        req.body.throughIndex,
+        req.body.title,
+      );
+      if (!result) return reply.code(404).send({ error: 'not found or index out of range' });
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: 'fork-conversation',
+        resource: `${result.sourceId}->${result.conversation.id}@${result.throughIndex}`,
+      });
+      return {
+        conversation: result.conversation,
+        sourceId: result.sourceId,
+        throughIndex: result.throughIndex,
+      };
     },
   });
 

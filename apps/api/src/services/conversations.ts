@@ -84,6 +84,46 @@ export async function deleteConversation(dataDir: string, userId: string, id: st
   return true;
 }
 
+/**
+ * Copy a conversation up to and including the turn at `throughIndex`
+ * (0-based, inclusive) into a brand-new conversation owned by `userId`.
+ * The new conversation gets fresh turn ids so future appends to either
+ * fork do not collide. The original conversation is left untouched.
+ *
+ * Returns `null` if the source conversation does not exist, is not owned
+ * by `userId`, or `throughIndex` is out of range. Returns the new
+ * Conversation along with the source's id and the fork point on success.
+ */
+export async function forkConversation(
+  dataDir: string,
+  userId: string,
+  sourceId: string,
+  throughIndex: number,
+  title?: string,
+): Promise<{ conversation: Conversation; sourceId: string; throughIndex: number } | null> {
+  const src = await loadConversation(dataDir, sourceId);
+  if (!src || src.userId !== userId) return null;
+  if (!Number.isInteger(throughIndex)) return null;
+  if (throughIndex < 0 || throughIndex >= src.turns.length) return null;
+  const now = Date.now();
+  const copied = src.turns.slice(0, throughIndex + 1).map((t) => ({
+    ...t,
+    id: nanoid(8), // fresh ids so the forks evolve independently
+  }));
+  const fork: Conversation = {
+    id: nanoid(10),
+    userId,
+    title: (title?.slice(0, 120) || `Fork of: ${src.title}`).slice(0, 120),
+    createdAt: now,
+    updatedAt: now,
+    turns: copied,
+  };
+  const f = file(dataDir, fork.id);
+  await mkdir(dirname(f), { recursive: true });
+  await writeFile(f, JSON.stringify(fork, null, 2));
+  return { conversation: fork, sourceId: src.id, throughIndex };
+}
+
 export async function appendTurn(
   dataDir: string,
   id: string,

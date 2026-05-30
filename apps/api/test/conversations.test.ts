@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createConversation, loadConversation, listConversations, deleteConversation,
+  forkConversation,
   appendTurn, toChatMessages, rewriteFollowUp, MAX_TURNS, MAX_CONTEXT_TURNS,
 } from '../src/services/conversations.js';
 
@@ -107,5 +108,73 @@ describe('rewriteFollowUp', () => {
     const r = rewriteFollowUp(conv([]) as never, 'why');
     expect(r.usedHistory).toBe(false);
     expect(r.rewritten).toBe('why');
+  });
+});
+
+describe('forkConversation', () => {
+  async function seed(userId: string) {
+    const c = await createConversation(dir, userId, 'Original');
+    await appendTurn(dir, c.id, { role: 'user', content: 'q1' });
+    await appendTurn(dir, c.id, { role: 'assistant', content: 'a1' });
+    await appendTurn(dir, c.id, { role: 'user', content: 'q2' });
+    await appendTurn(dir, c.id, { role: 'assistant', content: 'a2' });
+    return (await loadConversation(dir, c.id))!;
+  }
+
+  it('copies turns through the fork point and assigns a new id', async () => {
+    const src = await seed('u1');
+    const out = await forkConversation(dir, 'u1', src.id, 1);
+    expect(out).not.toBeNull();
+    expect(out!.conversation.id).not.toBe(src.id);
+    expect(out!.conversation.turns).toHaveLength(2);
+    expect(out!.conversation.turns.map((t) => t.content)).toEqual(['q1', 'a1']);
+  });
+
+  it('gives every copied turn a fresh id so forks evolve independently', async () => {
+    const src = await seed('u1');
+    const out = (await forkConversation(dir, 'u1', src.id, src.turns.length - 1))!;
+    const srcIds = new Set(src.turns.map((t) => t.id));
+    for (const t of out.conversation.turns) {
+      expect(srcIds.has(t.id)).toBe(false);
+    }
+  });
+
+  it('leaves the source conversation untouched', async () => {
+    const src = await seed('u1');
+    await forkConversation(dir, 'u1', src.id, 1);
+    const reloaded = await loadConversation(dir, src.id);
+    expect(reloaded!.turns.map((t) => t.content)).toEqual(['q1', 'a1', 'q2', 'a2']);
+  });
+
+  it('uses a provided title or falls back to "Fork of: <source>"', async () => {
+    const src = await seed('u1');
+    const a = (await forkConversation(dir, 'u1', src.id, 0))!;
+    expect(a.conversation.title).toBe('Fork of: Original');
+    const b = (await forkConversation(dir, 'u1', src.id, 0, 'My branch'))!;
+    expect(b.conversation.title).toBe('My branch');
+  });
+
+  it('returns null when the source does not exist', async () => {
+    expect(await forkConversation(dir, 'u1', 'nope', 0)).toBeNull();
+  });
+
+  it('returns null when another user owns the source', async () => {
+    const src = await seed('u1');
+    expect(await forkConversation(dir, 'u2', src.id, 0)).toBeNull();
+  });
+
+  it('returns null on an out-of-range index', async () => {
+    const src = await seed('u1');
+    expect(await forkConversation(dir, 'u1', src.id, -1)).toBeNull();
+    expect(await forkConversation(dir, 'u1', src.id, src.turns.length)).toBeNull();
+  });
+
+  it('the fork shows up in listConversations alongside the source', async () => {
+    const src = await seed('u1');
+    const out = (await forkConversation(dir, 'u1', src.id, 1))!;
+    const list = await listConversations(dir, 'u1');
+    const ids = list.map((c) => c.id);
+    expect(ids).toContain(src.id);
+    expect(ids).toContain(out.conversation.id);
   });
 });
