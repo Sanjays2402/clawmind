@@ -2,15 +2,28 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "clawmind.fullname" . }}-embed
+  labels: {{- include "clawmind.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.embed.replicas }}
   selector: { matchLabels: { app: clawmind-embed } }
   template:
     metadata: { labels: { app: clawmind-embed } }
     spec:
+      securityContext: {{- toYaml .Values.securityContext | nindent 8 }}
       containers:
         - name: embed
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}-embed:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports: [{ containerPort: {{ .Values.embed.port }} }]
           env:
             - { name: CLAWMIND_EMBED_MODEL, value: "{{ .Values.embed.model }}" }
+          resources: {{- toYaml .Values.embed.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          readinessProbe:
+            tcpSocket: { port: {{ .Values.embed.port }} }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: {{ .Values.embed.port }} }
+            initialDelaySeconds: 30
+            periodSeconds: 30

@@ -1,0 +1,96 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default-deny + explicit allows. The API is reachable from:
+#   - chart-internal pods (clawmind-web)
+#   - anything labelled `clawmind.io/allow: api` (e.g. ingress-nginx)
+#   - extra namespace selectors from values.yaml
+# The web pod is reachable from the same set. Embed only accepts
+# traffic from the API. Egress is permitted to chart-internal services,
+# DNS, and (optionally) the wider internet.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "clawmind.fullname" . }}-api
+  labels: {{- include "clawmind.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app: clawmind-api }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: clawmind-web } }
+        - podSelector: { matchLabels: { clawmind.io/allow: api } }
+        {{- range .Values.networkPolicy.extraIngressNamespaceSelectors }}
+        - namespaceSelector:
+            matchLabels: {{- toYaml . | nindent 14 }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.api.port }}
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: clawmind-embed } }
+      ports:
+        - protocol: TCP
+          port: {{ .Values.embed.port }}
+    - ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+    {{- if .Values.networkPolicy.allowEgressToInternet }}
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+    {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "clawmind.fullname" . }}-web
+  labels: {{- include "clawmind.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app: clawmind-web }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { clawmind.io/allow: api } }
+        {{- range .Values.networkPolicy.extraIngressNamespaceSelectors }}
+        - namespaceSelector:
+            matchLabels: {{- toYaml . | nindent 14 }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.web.port }}
+  egress:
+    - to:
+        - podSelector: { matchLabels: { app: clawmind-api } }
+      ports:
+        - protocol: TCP
+          port: {{ .Values.api.port }}
+    - ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "clawmind.fullname" . }}-embed
+  labels: {{- include "clawmind.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels: { app: clawmind-embed }
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector: { matchLabels: { app: clawmind-api } }
+      ports:
+        - protocol: TCP
+          port: {{ .Values.embed.port }}
+  egress:
+    - ports:
+        - { protocol: UDP, port: 53 }
+        - { protocol: TCP, port: 53 }
+{{- end }}

@@ -2,15 +2,30 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "clawmind.fullname" . }}-web
+  labels: {{- include "clawmind.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.web.autoscaling.enabled }}
   replicas: {{ .Values.web.replicas }}
+  {{- end }}
   selector: { matchLabels: { app: clawmind-web } }
   template:
     metadata: { labels: { app: clawmind-web } }
     spec:
+      securityContext: {{- toYaml .Values.securityContext | nindent 8 }}
       containers:
         - name: web
           image: "{{ .Values.image.registry }}/{{ .Values.image.repository }}-web:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports: [{ containerPort: {{ .Values.web.port }} }]
           env:
             - { name: NEXT_PUBLIC_API_URL, value: "http://{{ include "clawmind.fullname" . }}-api:{{ .Values.api.port }}" }
+          resources: {{- toYaml .Values.web.resources | nindent 12 }}
+          securityContext: {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          readinessProbe:
+            tcpSocket: { port: {{ .Values.web.port }} }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: {{ .Values.web.port }} }
+            initialDelaySeconds: 20
+            periodSeconds: 20

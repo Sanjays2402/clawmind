@@ -396,6 +396,33 @@ Scaling:
 - Embed sidecar is CPU bound. Scale `embed.replicas` and put a Service
   in front of it so the API load balances across pods.
 
+Helm hardening:
+
+- The chart defaults are safe but minimal. Production overlays should set
+  `api.autoscaling.enabled=true` (and optionally `web.autoscaling.enabled=true`)
+  to enable the `HorizontalPodAutoscaler`. CPU target defaults to 75 percent
+  and memory to 80 percent; tune via `api.autoscaling.targetCPUUtilizationPercentage`
+  and `targetMemoryUtilizationPercentage`. The HPA replaces the static
+  `replicas` field, so do not set both.
+- `api.pdb.enabled`, `web.pdb.enabled`, and `embed.pdb.enabled` install a
+  `PodDisruptionBudget` with `minAvailable: 1` per service. Turn these on
+  before node drains during cluster upgrades.
+- `networkPolicy.enabled=true` installs three `NetworkPolicy` objects:
+  the API accepts traffic from `clawmind-web` and any pod labelled
+  `clawmind.io/allow: api`; the web pod accepts the same set; the embed
+  pod only accepts traffic from the API. Add ingress controllers via
+  `networkPolicy.extraIngressNamespaceSelectors`. Set
+  `networkPolicy.allowEgressToInternet=false` for fully air-gapped deploys.
+- Every workload runs as `runAsNonRoot` UID 10001, drops `ALL` capabilities,
+  and uses the `RuntimeDefault` seccomp profile. These satisfy the
+  Pod Security Standards `restricted` profile.
+- Resource limits are set for `api`, `web`, and `embed`. The embed sidecar
+  defaults to 1 CPU and 2 GiB memory because the BGE model preload is the
+  hot path; raise this for larger models.
+- The chart is covered by `apps/api/test/helm-chart.test.ts` which shells
+  out to `helm template` and asserts default vs hardened renders. Skipped
+  when the `helm` CLI is not on PATH.
+
 Backup and restore:
 
 - The only stateful directory is `CLAWMIND_DATA_DIR`. Snapshot the PVC

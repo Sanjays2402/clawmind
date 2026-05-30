@@ -17,15 +17,41 @@ api:
     environment: "production"
     release: ""
     tracesSampleRate: "0"
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 75
+    targetMemoryUtilizationPercentage: 80
+  pdb:
+    enabled: false
+    minAvailable: 1
 
 web:
   replicas: 1
   port: 7412
+  resources:
+    limits: { cpu: "500m", memory: "512Mi" }
+    requests: { cpu: "50m", memory: "128Mi" }
+  autoscaling:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 75
+  pdb:
+    enabled: false
+    minAvailable: 1
 
 embed:
   replicas: 1
   port: 7411
   model: "mlx-community/bge-small-en-v1.5-4bit"
+  resources:
+    limits: { cpu: "1000m", memory: "2Gi" }
+    requests: { cpu: "200m", memory: "512Mi" }
+  pdb:
+    enabled: false
+    minAvailable: 1
 
 persistence:
   enabled: true
@@ -36,3 +62,28 @@ ingress:
   enabled: false
   className: nginx
   host: clawmind.local
+
+# Pod-level security. These defaults satisfy the restricted PSS profile.
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+# NetworkPolicy locks east-west traffic to the chart's own pods plus
+# anything labelled `clawmind.io/allow: api` (e.g. an ingress controller).
+# When disabled the chart emits no NetworkPolicy and falls back to the
+# cluster default (typically allow-all).
+networkPolicy:
+  enabled: false
+  # Extra namespace selectors that may reach the API (e.g. ingress-nginx).
+  extraIngressNamespaceSelectors: []
+  # Egress is permitted to DNS plus chart-internal services by default.
+  allowEgressToInternet: true

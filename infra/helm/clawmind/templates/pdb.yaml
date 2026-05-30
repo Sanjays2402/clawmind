@@ -1,0 +1,35 @@
+{{- if .Values.api.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "clawmind.fullname" . }}-api
+  labels: {{- include "clawmind.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.api.pdb.minAvailable }}
+  selector:
+    matchLabels: { app: clawmind-api }
+{{- end }}
+{{- if .Values.web.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "clawmind.fullname" . }}-web
+  labels: {{- include "clawmind.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.web.pdb.minAvailable }}
+  selector:
+    matchLabels: { app: clawmind-web }
+{{- end }}
+{{- if .Values.embed.pdb.enabled }}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "clawmind.fullname" . }}-embed
+  labels: {{- include "clawmind.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.embed.pdb.minAvailable }}
+  selector:
+    matchLabels: { app: clawmind-embed }
+{{- end }}
