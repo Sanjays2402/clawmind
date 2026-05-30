@@ -1,10 +1,17 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
-import { verifySecret } from '../services/api-keys.js';
+import { verifySecret, hasScope } from '../services/api-keys.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    user?: { id: string; github: string | null; role: 'owner' | 'reader'; via?: 'session' | 'api-key'; apiKeyId?: string };
+    user?: {
+      id: string;
+      github: string | null;
+      role: 'owner' | 'reader';
+      via?: 'session' | 'api-key';
+      apiKeyId?: string;
+      scopes?: string[] | null;
+    };
   }
 }
 
@@ -25,6 +32,7 @@ const plugin: FastifyPluginAsync = async (app) => {
           role: result.record.role,
           via: 'api-key',
           apiKeyId: result.record.id,
+          scopes: result.record.scopes ?? null,
         };
         return;
       }
@@ -55,6 +63,19 @@ const plugin: FastifyPluginAsync = async (app) => {
       if (role === 'owner' && req.user.role !== 'owner') {
         return reply.code(403).send({ error: 'forbidden' });
       }
+    };
+  });
+
+  // requireScope gates a route on a 'resource:action' scope. Session users
+  // (no scope list) and unscoped API keys pass through unchanged, preserving
+  // backwards compatibility. API keys with a scope list must include the
+  // requested scope or the wildcard '*'.
+  app.decorate('requireScope', function requireScope(scope: string) {
+    return async function (req: FastifyRequest, reply: FastifyReply) {
+      if (!req.user) return reply.code(401).send({ error: 'auth required' });
+      if (req.user.via !== 'api-key') return; // session users are unscoped
+      if (hasScope(req.user.scopes ?? null, scope)) return;
+      return reply.code(403).send({ error: 'scope required', scope });
     };
   });
 
@@ -107,6 +128,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireRole: (role: 'owner' | 'reader') => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireScope: (scope: string) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 

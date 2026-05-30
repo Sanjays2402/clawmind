@@ -16,7 +16,7 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
       body: SearchBody,
       response: { 200: z.object({ hits: z.array(z.any()) }) },
     },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope('search:read')],
     handler: async (req) => {
       const { highlight, snippetWidth, ...query } = req.body;
       // Rewrite "@alias/sub/file" tokens to the real path before retrieval

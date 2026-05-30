@@ -8,7 +8,7 @@ const BodySchema = z.object({ root: z.string().min(1), watch: z.boolean().defaul
 export const ingestRoutes: FastifyPluginAsync = async (app) => {
   app.post('/ingest', {
     schema: { body: BodySchema },
-    preHandler: app.requireRole('owner'),
+    preHandler: [app.requireRole('owner'), app.requireScope('ingest:write')],
     config: { rateLimit: { max: 3, timeWindow: '1 minute' } },
     handler: async (req) => {
       const c = app.clawmind;
