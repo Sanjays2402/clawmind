@@ -1,9 +1,10 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
+import { verifySecret } from '../services/api-keys.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
-    user?: { id: string; github: string | null; role: 'owner' | 'reader' };
+    user?: { id: string; github: string | null; role: 'owner' | 'reader'; via?: 'session' | 'api-key'; apiKeyId?: string };
   }
 }
 
@@ -11,8 +12,25 @@ const plugin: FastifyPluginAsync = async (app) => {
   const env = app.clawmind.env;
 
   app.addHook('preHandler', async (req) => {
+    // 1) Bearer API key wins when present so automation can be scoped
+    //    independently of the human session cookie.
+    const auth = req.headers.authorization;
+    if (auth && auth.startsWith('Bearer ')) {
+      const presented = auth.slice('Bearer '.length).trim();
+      const result = await verifySecret(app.clawmind.dataDir, presented);
+      if (result.ok) {
+        req.user = {
+          id: result.record.userId,
+          github: null,
+          role: result.record.role,
+          via: 'api-key',
+          apiKeyId: result.record.id,
+        };
+        return;
+      }
+    }
     if (env.CLAWMIND_AUTH_MODE === 'single-user') {
-      req.user = { id: 'local', github: null, role: 'owner' };
+      req.user = { id: 'local', github: null, role: 'owner', via: 'session' };
       return;
     }
     if (req.session.userId) {
@@ -20,6 +38,7 @@ const plugin: FastifyPluginAsync = async (app) => {
         id: req.session.userId,
         github: req.session.github ?? null,
         role: 'owner',
+        via: 'session',
       };
     }
   });
