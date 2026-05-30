@@ -9,6 +9,7 @@ export const askRoutes: FastifyPluginAsync = async (app) => {
   app.post('/ask', {
     schema: { body: QuerySchema },
     preHandler: app.requireAuth,
+    config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     handler: async (req, reply) => {
       const key = cacheKey(req.body, app.clawmind.llm.id, app.corpusVersion.value);
       const cached = app.answerCache.get(key);

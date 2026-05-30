@@ -12,6 +12,7 @@ export const maintenanceRoutes: FastifyPluginAsync = async (app) => {
   app.post('/maintenance/compact', {
     schema: { body: Body },
     preHandler: app.requireRole('owner'),
+    config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
     handler: async (req) => {
       const c = app.clawmind;
       const report = await compactStore({

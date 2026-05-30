@@ -9,6 +9,7 @@ export const ingestRoutes: FastifyPluginAsync = async (app) => {
   app.post('/ingest', {
     schema: { body: BodySchema },
     preHandler: app.requireRole('owner'),
+    config: { rateLimit: { max: 3, timeWindow: '1 minute' } },
     handler: async (req) => {
       const c = app.clawmind;
       const stats = await ingestRoot(expand(req.body.root), {

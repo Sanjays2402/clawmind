@@ -30,7 +30,21 @@ export async function buildApp() {
 
   await app.register(sensible);
   await app.register(cors, { origin: env.CLAWMIND_API_CORS_ORIGIN, credentials: true });
-  await app.register(rateLimit, { max: 240, timeWindow: '1 minute' });
+  await app.register(rateLimit, {
+    global: true,
+    max: 240,
+    timeWindow: '1 minute',
+    // Key on the authenticated user when available so a single shared IP
+    // (laptop on tethering, container behind a proxy) cannot starve everyone
+    // else. API-key-backed requests get keyed on the key id, session users on
+    // their session id, anonymous requests fall back to IP.
+    keyGenerator(req) {
+      const u = (req as { user?: { id: string; apiKeyId?: string } }).user;
+      if (u?.apiKeyId) return `k:${u.apiKeyId}`;
+      if (u?.id) return `u:${u.id}`;
+      return `ip:${req.ip}`;
+    },
+  });
   await app.register(cookie);
   await app.register(session, {
     secret: env.CLAWMIND_SESSION_SECRET.padEnd(32, '0'),
