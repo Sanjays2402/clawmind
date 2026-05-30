@@ -15,6 +15,7 @@ import { maintenanceRoutes } from './maintenance.js';
 import { pinsRoutes } from './pins.js';
 import { mutesRoutes } from './mutes.js';
 import { aliasesRoutes } from './aliases.js';
+import { relatedRoutes } from './related.js';
 import { statsRoutes } from './stats.js';
 import { doctorRoutes } from './doctor.js';
 
@@ -35,6 +36,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(pinsRoutes, { prefix: '/v1' });
   await app.register(mutesRoutes, { prefix: '/v1' });
   await app.register(aliasesRoutes, { prefix: '/v1' });
+  await app.register(relatedRoutes, { prefix: '/v1' });
   await app.register(statsRoutes, { prefix: '/v1' });
   await app.register(doctorRoutes, { prefix: '/v1' });
 }

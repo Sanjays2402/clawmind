@@ -91,6 +91,22 @@ export class LanceStore {
     return await table.countRows();
   }
 
+  /**
+   * Return all stored chunks for a given source path. Used by the related-
+   * documents endpoint to average chunk embeddings into a per-document
+   * query vector. Limited to a defensive cap so a pathological mega-file
+   * cannot blow up memory.
+   */
+  async chunksForPath(path: string, max = 256): Promise<Chunk[]> {
+    const table = await this.ensureTable();
+    const safe = path.replace(/'/g, "''");
+    const rows = (await table.query()
+      .where(`path = '${safe}'`)
+      .limit(max)
+      .toArray()) as Chunk[];
+    return rows;
+  }
+
   async close() {
     this.conn = null;
   }
