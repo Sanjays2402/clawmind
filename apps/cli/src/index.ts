@@ -10,6 +10,7 @@ import { feedbackCommand } from './commands/feedback.js';
 import { digestCommand } from './commands/digest.js';
 import { compactCommand } from './commands/compact.js';
 import { exportCommand } from './commands/export.js';
+import { pinsCommand } from './commands/pins.js';
 
 const program = new Command();
 program
@@ -27,6 +28,7 @@ program.addCommand(feedbackCommand());
 program.addCommand(digestCommand());
 program.addCommand(compactCommand());
 program.addCommand(exportCommand());
+program.addCommand(pinsCommand());
 
 program.parseAsync(process.argv).catch((err) => {
   // eslint-disable-next-line no-console
