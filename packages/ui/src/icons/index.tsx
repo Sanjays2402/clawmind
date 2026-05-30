@@ -204,3 +204,29 @@ export const IconPencil = (p: IconProps) => (
     <path d="M227.31 73.37 182.63 28.68a16 16 0 0 0-22.63 0L36.68 152a15.87 15.87 0 0 0-4.68 11.31V208a16 16 0 0 0 16 16h44.69a15.87 15.87 0 0 0 11.31-4.68L227.31 96a16 16 0 0 0 0-22.63ZM48 208v-37.37l92.69-92.69 37.37 37.37L85.37 208Zm144-119.4-37.4-37.4 16-16L220.4 72Z" />
   </svg>
 );
+
+// SpeakerSlash: used for the "mutes" surface (workspace-wide source
+// suppression). Phosphor duotone style: a soft fill layer plus a crisp stroke
+// glyph layered on top.
+export const IconSpeakerSlash = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M152 56v144l-72-56H32V112h48Z" opacity="0.2" />
+    <path d="M155.51 24.81a8 8 0 0 0-8.42.88L77.25 80H32a16 16 0 0 0-16 16v64a16 16 0 0 0 16 16h45.25l69.84 54.31A8 8 0 0 0 160 224V32a8 8 0 0 0-4.49-7.19ZM144 207.64 84.93 161.69A8 8 0 0 0 80 160H32V96h48a8 8 0 0 0 4.93-1.69L144 48.36ZM237.66 130.34a8 8 0 0 1-11.32 11.32L208 123.31l-18.34 18.35a8 8 0 0 1-11.32-11.32L196.69 112l-18.35-18.34a8 8 0 0 1 11.32-11.32L208 100.69l18.34-18.35a8 8 0 0 1 11.32 11.32L219.31 112Z" />
+  </svg>
+);
+
+// At: used for the aliases surface (short names that resolve to long paths).
+export const IconAt = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="128" cy="128" r="40" opacity="0.2" />
+    <path d="M128 24a104 104 0 1 0 56.27 191.46 8 8 0 1 0-8.7-13.42A88 88 0 1 1 216 128v8a20 20 0 0 1-40 0V88a8 8 0 0 0-16 0v4.79A48 48 0 1 0 168.16 165 36 36 0 0 0 232 136v-8A104.11 104.11 0 0 0 128 24Zm0 136a32 32 0 1 1 32-32 32 32 0 0 1-32 32Z" />
+  </svg>
+);
+
+// ClockCountdown: used for the stale-sources diagnostic page.
+export const IconClockCountdown = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="128" cy="128" r="96" opacity="0.2" />
+    <path d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Zm0 192a88 88 0 1 1 88-88 88.1 88.1 0 0 1-88 88Zm45.66-93.66a8 8 0 0 1 0 11.32l-40 40a8 8 0 0 1-11.32-11.32L155.31 128l-32.97-32.97a8 8 0 0 1 11.32-11.32Z" />
+  </svg>
+);

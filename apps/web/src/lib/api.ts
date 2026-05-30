@@ -247,7 +247,111 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ q, k }) },
     ),
   conversationExportUrl: (id: string) => `${BASE}/v1/conversations/${id}/export.md`,
+
+  // Tags: workspace-wide labels on source paths. Reads are open to any auth'd
+  // user; writes require owner role and the UI surfaces the resulting 403
+  // through the standard ApiError flow.
+  tagsList: () =>
+    j<{ items: TagSummary[]; count: number }>('/v1/tags').then((r) => r.items),
+  tagDetail: (tag: string) =>
+    j<{ tag: string; paths: string[]; count: number }>(`/v1/tags/${encodeURIComponent(tag)}`),
+  tagsForPath: (path: string) =>
+    j<{ path: string; tags: string[] }>(`/v1/tags/by-path?path=${encodeURIComponent(path)}`),
+  tagsSetForPath: (path: string, tags: string[]) =>
+    j<{ path: string; tags: string[] }>('/v1/tags/by-path', {
+      method: 'PUT',
+      body: JSON.stringify({ path, tags }),
+    }),
+  tagsAddForPath: (path: string, tags: string[]) =>
+    j<{ path: string; tags: string[] }>('/v1/tags/by-path', {
+      method: 'POST',
+      body: JSON.stringify({ path, tags }),
+    }),
+  tagsRemoveForPath: (path: string, tags?: string[]) =>
+    j<{ path: string; tags: string[] }>('/v1/tags/by-path', {
+      method: 'DELETE',
+      body: JSON.stringify({ path, ...(tags ? { tags } : {}) }),
+    }),
+
+  // Aliases: short names for long source paths. Used by the rag plugin at
+  // both query-rewrite and citation-render time, so the UI doubles as a
+  // canonical place to discover what shortcuts exist.
+  aliasesList: () =>
+    j<{ items: AliasEntry[]; count: number }>('/v1/aliases').then((r) => r.items),
+  aliasAdd: (name: string, path: string) =>
+    j<AliasEntry>('/v1/aliases', {
+      method: 'POST',
+      body: JSON.stringify({ name, path }),
+    }),
+  aliasRemove: (name: string) =>
+    j<{ ok: boolean }>('/v1/aliases', {
+      method: 'DELETE',
+      body: JSON.stringify({ name }),
+    }),
+
+  // Mutes: inverse of pins. A muted source still exists in the index but is
+  // demoted at retrieval time. Reason text is optional but encouraged so a
+  // future operator can audit why a source was suppressed.
+  mutesList: () =>
+    j<{ items: MuteEntry[]; count: number }>('/v1/mutes').then((r) => r.items),
+  muteAdd: (path: string, reason?: string) =>
+    j<MuteEntry>('/v1/mutes', {
+      method: 'POST',
+      body: JSON.stringify({ path, ...(reason ? { reason } : {}) }),
+    }),
+  muteRemove: (path: string) =>
+    j<{ ok: boolean }>('/v1/mutes', {
+      method: 'DELETE',
+      body: JSON.stringify({ path }),
+    }),
+
+  // Stale: diagnostic listing of sources whose last successful ingest is
+  // older than `olderThanDays`. The API clamps the threshold server-side so
+  // we pass the user input through verbatim.
+  staleList: (opts: { olderThanDays?: number; limit?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.olderThanDays != null) params.set('olderThanDays', String(opts.olderThanDays));
+    if (opts.limit != null) params.set('limit', String(opts.limit));
+    const qs = params.toString();
+    return j<StaleResult>(`/v1/sources/stale${qs ? `?${qs}` : ''}`);
+  },
 };
+
+export interface TagSummary {
+  tag: string;
+  count: number;
+}
+
+export interface AliasEntry {
+  name: string;
+  path: string;
+  createdBy: string;
+  createdAt: number;
+}
+
+export interface MuteEntry {
+  path: string;
+  reason?: string;
+  mutedBy: string;
+  mutedAt: number;
+}
+
+export interface StaleEntry {
+  path: string;
+  ingestedAt: number;
+  ageMs: number;
+  ageDays: number;
+  chunkCount: number;
+  size: number;
+}
+
+export interface StaleResult {
+  thresholdDays: number;
+  thresholdMs: number;
+  asOf: number;
+  total: number;
+  items: StaleEntry[];
+}
 
 async function streamPost(
   url: string,
