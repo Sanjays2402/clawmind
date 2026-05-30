@@ -3,6 +3,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import {
   addAlias, loadAliases, removeAlias, ALIAS_NAME_RE,
 } from '../services/aliases.js';
+import { Scopes } from '../scopes.js';
 
 // Manage short, memorable aliases for long source paths. Aliases live in
 // `aliases.json` next to pins and mutes, and are applied by the rag plugin
@@ -14,7 +15,7 @@ import {
 
 export const aliasesRoutes: FastifyPluginAsync = async (app) => {
   app.get('/aliases', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.AliasesRead)],
     handler: async () => {
       const map = await loadAliases(app.clawmind.dataDir);
       const items = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
@@ -29,7 +30,7 @@ export const aliasesRoutes: FastifyPluginAsync = async (app) => {
         path: z.string().min(1),
       }),
     },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.AliasesWrite)],
     handler: async (req) => {
       const entry = await addAlias(
         app.clawmind.dataDir,
@@ -44,7 +45,7 @@ export const aliasesRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete('/aliases', {
     schema: { body: z.object({ name: z.string().min(1) }) },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.AliasesWrite)],
     handler: async (req, reply) => {
       const removed = await removeAlias(app.clawmind.dataDir, req.body.name);
       if (!removed) return reply.notFound('alias not found');

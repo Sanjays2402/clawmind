@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
 import { addMute, loadMutes, removeMute } from '../services/mutes.js';
+import { Scopes } from '../scopes.js';
 
 // Mute a source path so retrieval pushes it to the back of the line. Mutes
 // are a workspace-wide signal (not per-user) for the same reason pins are:
@@ -14,7 +15,7 @@ import { addMute, loadMutes, removeMute } from '../services/mutes.js';
 
 export const mutesRoutes: FastifyPluginAsync = async (app) => {
   app.get('/mutes', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
     handler: async () => {
       const map = await loadMutes(app.clawmind.dataDir);
       const items = Object.values(map).sort((a, b) => b.mutedAt - a.mutedAt);
@@ -29,7 +30,7 @@ export const mutesRoutes: FastifyPluginAsync = async (app) => {
         reason: z.string().max(500).optional(),
       }),
     },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.MutesWrite)],
     handler: async (req) => {
       const entry = await addMute(
         app.clawmind.dataDir,
@@ -44,7 +45,7 @@ export const mutesRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete('/mutes', {
     schema: { body: z.object({ path: z.string().min(1) }) },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.MutesWrite)],
     handler: async (req, reply) => {
       const removed = await removeMute(app.clawmind.dataDir, req.body.path);
       if (!removed) return reply.notFound('mute not found');

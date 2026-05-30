@@ -18,6 +18,7 @@ import {
 import { conversationToMarkdown } from '../services/conversation-export.js';
 import { expand } from '@clawmind/config';
 import { buildPrompt } from '@clawmind/llm';
+import { Scopes } from '../scopes.js';
 
 // The conversation routes layer rolling chat history on top of the regular
 // RAG pipeline. Follow-up questions get rewritten with the previous user turn
@@ -31,7 +32,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         archived: z.enum(['true', 'false']).optional(),
       }),
     },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
     handler: async (req) => {
       const archived = req.query.archived === 'true';
       const items = await listConversations(app.clawmind.dataDir, req.user!.id, { archived });
@@ -49,14 +50,14 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/conversations', {
     schema: { body: z.object({ title: z.string().max(120).optional() }) },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsWrite)],
     handler: async (req) => ({
       conversation: await createConversation(app.clawmind.dataDir, req.user!.id, req.body.title),
     }),
   });
 
   app.get<{ Params: { id: string } }>('/conversations/:id', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
     handler: async (req, reply) => {
       const conv = await loadConversation(app.clawmind.dataDir, req.params.id);
       if (!conv || conv.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });
@@ -65,7 +66,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get<{ Params: { id: string } }>('/conversations/:id/export.md', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
     handler: async (req, reply) => {
       const conv = await loadConversation(app.clawmind.dataDir, req.params.id);
       if (!conv || conv.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });
@@ -80,7 +81,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.delete<{ Params: { id: string } }>('/conversations/:id', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsWrite)],
     handler: async (req, reply) => {
       const ok = await deleteConversation(app.clawmind.dataDir, req.params.id, req.user!.id) ||
                  await deleteConversation(app.clawmind.dataDir, req.user!.id, req.params.id);
@@ -97,7 +98,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
       params: z.object({ id: z.string().min(1) }),
       body: z.object({ title: z.string().min(1).max(120) }),
     },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsWrite)],
     handler: async (req, reply) => {
       const conv = await renameConversation(
         app.clawmind.dataDir, req.user!.id, req.params.id, req.body.title,
@@ -116,7 +117,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
   // listing. Pass ?archived=true to list archived conversations.
   app.post<{ Params: { id: string } }>('/conversations/:id/archive', {
     schema: { params: z.object({ id: z.string().min(1) }) },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsWrite)],
     handler: async (req, reply) => {
       const conv = await setConversationArchived(
         app.clawmind.dataDir, req.user!.id, req.params.id, true,
@@ -131,7 +132,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Params: { id: string } }>('/conversations/:id/unarchive', {
     schema: { params: z.object({ id: z.string().min(1) }) },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsWrite)],
     handler: async (req, reply) => {
       const conv = await setConversationArchived(
         app.clawmind.dataDir, req.user!.id, req.params.id, false,
@@ -156,7 +157,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
         title: z.string().max(120).optional(),
       }),
     },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsWrite)],
     handler: async (req, reply) => {
       const result = await forkConversation(
         app.clawmind.dataDir,
@@ -181,7 +182,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Params: { id: string } }>('/conversations/:id/ask', {
     schema: { body: QuerySchema },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
     handler: async (req, reply) => {
       const conv = await loadConversation(app.clawmind.dataDir, req.params.id);
       if (!conv || conv.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });
@@ -203,7 +204,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Params: { id: string } }>('/conversations/:id/ask/stream', {
     schema: { body: QuerySchema },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
     handler: async (req, reply) => {
       const conv = await loadConversation(app.clawmind.dataDir, req.params.id);
       if (!conv || conv.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });

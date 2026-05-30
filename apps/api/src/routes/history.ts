@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
 import { listHistory, pruneHistory } from '../services/history.js';
+import { Scopes } from '../scopes.js';
 
 const ListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(1000).optional(),
@@ -19,7 +20,7 @@ const PruneQuery = z.object({
 export const historyRoutes: FastifyPluginAsync = async (app) => {
   app.get('/history', {
     schema: { querystring: ListQuery },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.HistoryRead)],
     handler: async (req) => {
       const { limit, since, until, q, namespaces } = req.query as z.infer<typeof ListQuery>;
       const ns = namespaces
@@ -34,7 +35,7 @@ export const historyRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete('/history', {
     schema: { querystring: PruneQuery },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.HistoryWrite)],
     handler: async (req, reply) => {
       const { before, keepPerUser } = req.query as z.infer<typeof PruneQuery>;
       if (before === undefined && keepPerUser === undefined) {

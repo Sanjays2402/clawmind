@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
 import { compactStore, forgetSources } from '@clawmind/ingest';
+import { Scopes } from '../scopes.js';
 
 const Body = z.object({ dryRun: z.boolean().default(false) });
 const ForgetBody = z.object({
@@ -15,7 +16,7 @@ const ForgetBody = z.object({
 export const maintenanceRoutes: FastifyPluginAsync = async (app) => {
   app.post('/maintenance/compact', {
     schema: { body: Body },
-    preHandler: app.requireRole('owner'),
+    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.Maintenance)],
     config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
     handler: async (req) => {
       const c = app.clawmind;
@@ -40,7 +41,7 @@ export const maintenanceRoutes: FastifyPluginAsync = async (app) => {
   // call from clients so users see what they are about to delete.
   app.post('/maintenance/forget', {
     schema: { body: ForgetBody },
-    preHandler: app.requireRole('owner'),
+    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.Maintenance)],
     config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
     handler: async (req) => {
       const c = app.clawmind;

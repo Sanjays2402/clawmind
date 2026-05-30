@@ -395,6 +395,30 @@ Rate limits:
   session user, then client IP. Hot routes such as `/v1/ask` apply a
   tighter per-route budget on top.
 
+API key scopes:
+
+- Every gated route declares a scope from `apps/api/src/scopes.ts`. The
+  full catalogue is also exposed at `GET /v1/keys/scopes` so a UI can
+  render checkboxes when issuing a key.
+- Scopes follow `<resource>:<action>` where action is one of `read`,
+  `write`, or `admin`. Examples: `search:read`, `ingest:write`,
+  `lifecycle:admin`. The wildcard `*` grants every scope and is the
+  intended choice for trusted automation that needs the whole surface.
+- A key with an empty scope list is treated as unrestricted for
+  backwards compatibility, matching the long-standing behaviour of
+  `services/api-keys.ts#hasScope`. A key with at least one scope is
+  restricted to that set; the `requireScope` preHandler returns 403 on
+  any route that asks for a scope not in the list.
+- `POST /v1/keys` validates submitted scopes against the registry and
+  rejects typos with HTTP 400, so a key cannot silently look
+  restrictive while in practice gating nothing. Session-cookie users
+  bypass the scope check (they are intentionally unscoped); scope
+  enforcement only applies to API key requests.
+- Coverage is enforced by `apps/api/test/scopes.test.ts`, which asserts
+  that no route file leaves a bare `requireAuth` or `requireRole`
+  preHandler in place and that every `requireScope()` argument resolves
+  to a known scope. Adding a new route without a scope fails the build.
+
 Scaling:
 
 - The API is horizontally scalable as long as all replicas share the

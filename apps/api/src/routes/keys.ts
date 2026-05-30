@@ -1,11 +1,20 @@
 import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
 import { issueKey, listKeys, revokeKey, redact, SCOPE_RE, WILDCARD_SCOPE } from '../services/api-keys.js';
+import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 
-const ScopeSchema = z.string().refine(
-  (s) => s === WILDCARD_SCOPE || SCOPE_RE.test(s),
-  { message: "scope must be '*' or '<resource>:(read|write|admin)'" },
-);
+const ScopeSchema = z.string()
+  .refine(
+    (s) => s === WILDCARD_SCOPE || SCOPE_RE.test(s),
+    { message: "scope must be '*' or '<resource>:(read|write|admin)'" },
+  )
+  // Reject scopes that no route actually enforces. Without this check a typo
+  // like 'searh:read' would silently grant nothing extra but also restrict
+  // nothing, so a key that looks scoped is in practice unrestricted.
+  .refine(
+    (s) => s === WILDCARD_SCOPE || (KNOWN_SCOPES as readonly string[]).includes(s),
+    { message: 'unknown scope; GET /v1/keys/scopes for the list' },
+  );
 
 const IssueBody = z.object({
   label: z.string().min(1).max(80),
@@ -15,8 +24,16 @@ const IssueBody = z.object({
 });
 
 export const keyRoutes: FastifyPluginAsync = async (app) => {
+  // Catalogue of every scope the server currently enforces. Useful for UIs
+  // that render checkboxes when issuing a key. Auth-gated so it does not
+  // leak from an internet-exposed instance.
+  app.get('/keys/scopes', {
+    preHandler: [app.requireAuth, app.requireScope(Scopes.KeysManage)],
+    handler: async () => ({ scopes: KNOWN_SCOPES, wildcard: WILDCARD_SCOPE }),
+  });
+
   app.get('/keys', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.KeysManage)],
     handler: async (req) => {
       const keys = await listKeys(app.clawmind.dataDir, req.user!.id);
       return { items: keys.map(redact) };
@@ -25,7 +42,7 @@ export const keyRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/keys', {
     schema: { body: IssueBody },
-    preHandler: app.requireRole('owner'),
+    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.KeysManage)],
     handler: async (req) => {
       const issued = await issueKey(app.clawmind.dataDir, {
         userId: req.user!.id,
@@ -43,7 +60,7 @@ export const keyRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.delete<{ Params: { id: string } }>('/keys/:id', {
-    preHandler: app.requireRole('owner'),
+    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.KeysManage)],
     handler: async (req, reply) => {
       const ok = await revokeKey(app.clawmind.dataDir, req.user!.id, req.params.id);
       if (!ok) return reply.code(404).send({ error: 'not found' });

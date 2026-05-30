@@ -4,6 +4,7 @@ import { listSaved } from '../services/saved.js';
 import { retrieve } from '@clawmind/rag';
 import { runDigest, loadState, listDigestsForUser } from '../services/digests.js';
 import { buildSources } from '@clawmind/rag';
+import { Scopes } from '../scopes.js';
 
 // Saved-search digests. Re-runs a saved query against the current index and
 // diffs the top sources against the previous run, so you can see what's new
@@ -16,7 +17,7 @@ import { buildSources } from '@clawmind/rag';
 
 export const digestRoutes: FastifyPluginAsync = async (app) => {
   app.get('/digests', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.DigestsRead)],
     handler: async (req) => {
       const saved = await listSaved(app.clawmind.dataDir, req.user!.id);
       const states = await listDigestsForUser(app.clawmind.dataDir, req.user!.id, saved.map((s) => s.id));
@@ -38,7 +39,7 @@ export const digestRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get<{ Params: { id: string } }>('/digests/:id', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.DigestsRead)],
     handler: async (req, reply) => {
       const state = await loadState(app.clawmind.dataDir, req.params.id);
       if (!state || state.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });
@@ -48,7 +49,7 @@ export const digestRoutes: FastifyPluginAsync = async (app) => {
 
   app.post<{ Params: { id: string } }>('/digests/:id/run', {
     schema: { body: z.object({ k: z.number().int().min(1).max(50).default(8) }).optional() },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.DigestsWrite)],
     handler: async (req, reply) => {
       const saved = await listSaved(app.clawmind.dataDir, req.user!.id);
       const target = saved.find((s) => s.id === req.params.id);
@@ -70,7 +71,7 @@ export const digestRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.post('/digests/run', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.DigestsWrite)],
     handler: async (req) => {
       const saved = await listSaved(app.clawmind.dataDir, req.user!.id);
       const results: Array<{ savedSearchId: string; newCount: number; removedCount: number }> = [];

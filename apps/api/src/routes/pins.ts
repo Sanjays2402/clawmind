@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
 import { addPin, loadPins, removePin } from '../services/pins.js';
+import { Scopes } from '../scopes.js';
 
 // Pin a source path so retrieval treats it as a strong prior. Pins are a
 // workspace-wide signal (not per-user) because pinning is usually a
@@ -12,7 +13,7 @@ import { addPin, loadPins, removePin } from '../services/pins.js';
 
 export const pinsRoutes: FastifyPluginAsync = async (app) => {
   app.get('/pins', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
     handler: async () => {
       const map = await loadPins(app.clawmind.dataDir);
       const items = Object.values(map).sort((a, b) => b.pinnedAt - a.pinnedAt);
@@ -27,7 +28,7 @@ export const pinsRoutes: FastifyPluginAsync = async (app) => {
         note: z.string().max(500).optional(),
       }),
     },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.PinsWrite)],
     handler: async (req) => {
       const entry = await addPin(
         app.clawmind.dataDir,
@@ -42,7 +43,7 @@ export const pinsRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete('/pins', {
     schema: { body: z.object({ path: z.string().min(1) }) },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.PinsWrite)],
     handler: async (req, reply) => {
       const removed = await removePin(app.clawmind.dataDir, req.body.path);
       if (!removed) return reply.notFound('pin not found');

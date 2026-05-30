@@ -4,11 +4,12 @@ import { ask, askStream, cacheKey } from '@clawmind/rag';
 import { QuerySchema } from '@clawmind/types';
 import { nanoid } from 'nanoid';
 import { recordHistory } from '../services/history.js';
+import { Scopes } from '../scopes.js';
 
 export const askRoutes: FastifyPluginAsync = async (app) => {
   app.post('/ask', {
     schema: { body: QuerySchema },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     handler: async (req, reply) => {
       const body = { ...req.body, q: app.aliases.expandQuery(req.body.q) };
@@ -31,12 +32,12 @@ export const askRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get('/ask/cache/stats', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
     handler: async () => ({ ...app.answerCache.stats(), corpusVersion: app.corpusVersion.value }),
   });
 
   app.post('/ask/cache/clear', {
-    preHandler: app.requireRole('owner'),
+    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.Maintenance)],
     handler: async () => {
       app.answerCache.clear();
       return { ok: true };
@@ -45,7 +46,7 @@ export const askRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/ask/stream', {
     schema: { body: QuerySchema },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
     handler: async (req, reply) => {
       reply.raw.setHeader('content-type', 'text/event-stream');
       reply.raw.setHeader('cache-control', 'no-cache');

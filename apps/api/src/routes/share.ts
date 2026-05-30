@@ -1,11 +1,12 @@
 import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
 import { createShare, readShare } from '../services/share.js';
+import { Scopes } from '../scopes.js';
 
 export const shareRoutes: FastifyPluginAsync = async (app) => {
   app.post('/share', {
     schema: { body: z.object({ query: z.string(), answer: z.string(), sources: z.array(z.any()) }) },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ShareWrite)],
     handler: async (req) => {
       const id = await createShare(app.clawmind.dataDir, req.body);
       return { id, url: `/s/${id}` };

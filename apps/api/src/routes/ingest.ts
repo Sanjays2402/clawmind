@@ -2,13 +2,14 @@ import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
 import { ingestRoot, startWatcher } from '@clawmind/ingest';
 import { expand } from '@clawmind/config';
+import { Scopes } from '../scopes.js';
 
 const BodySchema = z.object({ root: z.string().min(1), watch: z.boolean().default(false) });
 
 export const ingestRoutes: FastifyPluginAsync = async (app) => {
   app.post('/ingest', {
     schema: { body: BodySchema },
-    preHandler: [app.requireRole('owner'), app.requireScope('ingest:write')],
+    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.Ingest)],
     config: { rateLimit: { max: 3, timeWindow: '1 minute' } },
     handler: async (req) => {
       const c = app.clawmind;
@@ -30,7 +31,7 @@ export const ingestRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get('/ingest/status', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.Ingest)],
     handler: async () => ({
       documents: app.clawmind.manifest.size(),
       chunks: await app.clawmind.lance.count(),

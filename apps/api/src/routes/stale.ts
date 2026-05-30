@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
 import { findStaleSources, DEFAULT_STALE_DAYS } from '../services/stale.js';
+import { Scopes } from '../scopes.js';
 
 // Diagnostic endpoint for surfacing sources whose last successful ingest is
 // older than a configurable threshold. Returned items are sorted oldest
@@ -15,7 +16,7 @@ export const staleRoutes: FastifyPluginAsync = async (app) => {
         limit: z.string().regex(/^\d+$/).optional(),
       }),
     },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.StaleRead)],
     handler: async (req) => {
       const thresholdDays = req.query.olderThanDays
         ? Number(req.query.olderThanDays)

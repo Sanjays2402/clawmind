@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { exportUserData, deleteUserData } from '../services/lifecycle.js';
+import { Scopes } from '../scopes.js';
 
 // GDPR-style data lifecycle endpoints. Both are scoped to the authenticated
 // user and write to the audit log so a regulator can see who exported or
@@ -16,7 +17,7 @@ const deleteSchema = z.object({ confirm: z.literal('DELETE') });
 
 export const lifecycleRoutes: FastifyPluginAsync = async (app) => {
   app.get('/me/export', {
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.LifecycleManage)],
     handler: async (req, reply) => {
       const userId = req.user!.id;
       const bundle = await exportUserData(app.clawmind.dataDir, userId);
@@ -42,7 +43,7 @@ export const lifecycleRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete('/me/data', {
     schema: { body: deleteSchema },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.LifecycleManage)],
     handler: async (req) => {
       const userId = req.user!.id;
       const report = await deleteUserData(app.clawmind.dataDir, userId);

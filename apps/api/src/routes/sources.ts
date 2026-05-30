@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
 import { readFile } from 'node:fs/promises';
 import { inferNamespace } from '@clawmind/ingest';
+import { Scopes } from '../scopes.js';
 
 // Sources routes expose the ingest manifest as a browsable list and let the
 // web UI pull a snippet of any indexed file. Listing reads from the manifest
@@ -26,7 +27,7 @@ export const sourcesRoutes: FastifyPluginAsync = async (app) => {
         sort: z.enum(['recent', 'path', 'chunks']).optional(),
       }),
     },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
     handler: async (req) => {
       const limit = Math.min(200, Math.max(1, Number(req.query.limit ?? 50)));
       const offset = Math.max(0, Number(req.query.offset ?? 0));
@@ -59,7 +60,7 @@ export const sourcesRoutes: FastifyPluginAsync = async (app) => {
 
   app.get<{ Querystring: { path: string; start?: string; end?: string } }>('/sources/file', {
     schema: { querystring: z.object({ path: z.string(), start: z.string().optional(), end: z.string().optional() }) },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
     handler: async (req, reply) => {
       try {
         const raw = await readFile(req.query.path, 'utf8');

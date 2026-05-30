@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
 import { retrieve, snippetFor, queryTerms } from '@clawmind/rag';
 import { QuerySchema } from '@clawmind/types';
+import { Scopes } from '../scopes.js';
 
 const SearchBody = QuerySchema.extend({
   /** When true (default), include a `snippet` with highlighted term spans. */
@@ -16,7 +17,7 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
       body: SearchBody,
       response: { 200: z.object({ hits: z.array(z.any()) }) },
     },
-    preHandler: [app.requireAuth, app.requireScope('search:read')],
+    preHandler: [app.requireAuth, app.requireScope(Scopes.Search)],
     handler: async (req) => {
       const { highlight, snippetWidth, ...query } = req.body;
       // Rewrite "@alias/sub/file" tokens to the real path before retrieval

@@ -10,6 +10,7 @@ import {
   diffAgainstSnapshot,
   DEFAULT_SNAPSHOT_TOP,
 } from '../services/snapshots.js';
+import { Scopes } from '../scopes.js';
 
 // Saved-search snapshots are user-triggered captures of the current top-N
 // sources for a saved query. Distinct from digests (auto periodic diffs vs
@@ -38,7 +39,7 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
 
   app.get<{ Params: { savedId: string } }>('/saved/:savedId/snapshots', {
     schema: { params: z.object({ savedId: z.string().min(1) }) },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.SnapshotsRead)],
     handler: async (req, reply) => {
       const target = await ownedSaved(req.user!.id, req.params.savedId);
       if (!target) return reply.code(404).send({ error: 'saved search not found' });
@@ -64,7 +65,7 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
           k: z.number().int().min(1).max(DEFAULT_SNAPSHOT_TOP).optional(),
         }).optional(),
       },
-      preHandler: app.requireAuth,
+      preHandler: [app.requireAuth, app.requireScope(Scopes.SnapshotsWrite)],
       handler: async (req, reply) => {
         const target = await ownedSaved(req.user!.id, req.params.savedId);
         if (!target) return reply.code(404).send({ error: 'saved search not found' });
@@ -90,7 +91,7 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         params: z.object({ savedId: z.string().min(1), id: z.string().min(1) }),
       },
-      preHandler: app.requireAuth,
+      preHandler: [app.requireAuth, app.requireScope(Scopes.SnapshotsRead)],
       handler: async (req, reply) => {
         const target = await ownedSaved(req.user!.id, req.params.savedId);
         if (!target) return reply.code(404).send({ error: 'saved search not found' });
@@ -107,7 +108,7 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         params: z.object({ savedId: z.string().min(1), id: z.string().min(1) }),
       },
-      preHandler: app.requireAuth,
+      preHandler: [app.requireAuth, app.requireScope(Scopes.SnapshotsWrite)],
       handler: async (req, reply) => {
         const target = await ownedSaved(req.user!.id, req.params.savedId);
         if (!target) return reply.code(404).send({ error: 'saved search not found' });
@@ -124,7 +125,7 @@ export const snapshotRoutes: FastifyPluginAsync = async (app) => {
       schema: {
         params: z.object({ savedId: z.string().min(1), id: z.string().min(1) }),
       },
-      preHandler: app.requireAuth,
+      preHandler: [app.requireAuth, app.requireScope(Scopes.SnapshotsRead)],
       handler: async (req, reply) => {
         const target = await ownedSaved(req.user!.id, req.params.savedId);
         if (!target) return reply.code(404).send({ error: 'saved search not found' });

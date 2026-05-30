@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
 import { averageEmbedding, groupRelated } from '../services/related.js';
+import { Scopes } from '../scopes.js';
 
 // GET /v1/related?path=<source>&k=8&namespaces=notes,projects
 //
@@ -19,7 +20,7 @@ const RelatedQuery = z.object({
 export const relatedRoutes: FastifyPluginAsync = async (app) => {
   app.get('/related', {
     schema: { querystring: RelatedQuery },
-    preHandler: app.requireAuth,
+    preHandler: [app.requireAuth, app.requireScope(Scopes.RelatedRead)],
     handler: async (req, reply) => {
       const { path, k, namespaces } = req.query;
       const ns = namespaces
