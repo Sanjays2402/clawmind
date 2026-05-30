@@ -13,6 +13,7 @@ import { digestRoutes } from './digests.js';
 import { keyRoutes } from './keys.js';
 import { maintenanceRoutes } from './maintenance.js';
 import { pinsRoutes } from './pins.js';
+import { statsRoutes } from './stats.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -29,4 +30,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(keyRoutes, { prefix: '/v1' });
   await app.register(maintenanceRoutes, { prefix: '/v1' });
   await app.register(pinsRoutes, { prefix: '/v1' });
+  await app.register(statsRoutes, { prefix: '/v1' });
 }
