@@ -14,6 +14,8 @@ export interface RagDeps {
   embed: EmbedProvider;
   llm: LLMProvider;
   embedModel: string;
+  /** Optional path -> multiplier applied to blended scores before MMR. */
+  boost?: (path: string) => number;
 }
 
 export interface RetrievalMeta {
@@ -40,7 +42,13 @@ export async function retrieve(
   // attach query vector to candidates so MMR can do cosine
   for (const h of denseHits) if (!h.embedding) h.embedding = [];
   const merged = hybridMerge(bm25Hits, denseHits, { alpha: q.hybridAlpha });
-  const reranked = lexicalRerank(effectiveQ, merged);
+  const boosted = deps.boost
+    ? merged.map((h) => {
+        const b = deps.boost!(h.path);
+        return b === 1 ? h : { ...h, score: h.score * b };
+      })
+    : merged;
+  const reranked = lexicalRerank(effectiveQ, boosted);
   const top = mmrRerank(reranked, { lambda: q.mmrLambda, k: q.k, queryVector: emb });
   return top;
 }
