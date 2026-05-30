@@ -39,7 +39,7 @@ export default function GlobalError({
             Back to dashboard
           </Link>
           {error.digest && (
-            <span style={{ marginLeft: 12, fontFamily: 'var(--font-geist-mono)', fontSize: 11 }}>
+            <span style={{ marginLeft: 12, fontFamily: 'var(--cm-font-mono)', fontSize: 11 }}>
               digest {error.digest}
             </span>
           )}

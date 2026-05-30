@@ -129,7 +129,7 @@ export default async function Dashboard() {
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 500 }}>
                         <IconWarning />
-                        <span style={{ fontFamily: 'var(--font-geist-mono)', fontSize: 11, color: 'var(--cm-muted)' }}>{f.code}</span>
+                        <span style={{ fontFamily: 'var(--cm-font-mono)', fontSize: 11, color: 'var(--cm-muted)' }}>{f.code}</span>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.message}</span>
                       </div>
                     </div>

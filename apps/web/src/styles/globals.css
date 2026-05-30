@@ -2,12 +2,35 @@
 @import '@clawmind/ui/styles.css';
 
 @theme {
-  --color-bg: #0b0b0d;
-  --color-fg: #ededee;
-  --color-accent: #7c5cff;
-  --font-sans: 'Geist', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'Geist Mono', ui-monospace, monospace;
+  --color-bg: #F7F5F0;
+  --color-fg: #1B2330;
+  --color-accent: #E8743B;
+  --font-sans: var(--cm-font);
+  --font-mono: var(--cm-font-mono);
+  --font-display: var(--cm-font-display);
 }
+
+/* Display headings use Fraunces with optical sizing and a softer mode. */
+.cm-display {
+  font-family: var(--cm-font-display);
+  font-optical-sizing: auto;
+  font-variation-settings: 'opsz' 96, 'SOFT' 50, 'WONK' 0;
+  letter-spacing: -0.012em;
+  line-height: 1.04;
+}
+.cm-display-soft {
+  font-family: var(--cm-font-display);
+  font-optical-sizing: auto;
+  font-variation-settings: 'opsz' 72, 'SOFT' 100, 'WONK' 1;
+  font-style: italic;
+  letter-spacing: -0.005em;
+}
+.cm-serif {
+  font-family: var(--cm-font-display);
+  font-optical-sizing: auto;
+  font-variation-settings: 'opsz' 24, 'SOFT' 80;
+}
+.cm-mono { font-family: var(--cm-font-mono); }
 
 body {
   background: var(--cm-bg);
@@ -18,33 +41,159 @@ body {
 a { color: inherit; text-decoration: none; }
 * { box-sizing: border-box; }
 
-.cm-chat-stream p { margin-bottom: 0.75rem; line-height: 1.6; }
-.cm-chat-stream code { background: var(--cm-subtle); padding: 1px 6px; border-radius: 6px; font-family: var(--cm-font-mono); font-size: 13px; }
-.cm-chat-stream pre { background: #0d0d11; border: 1px solid var(--cm-border); padding: 12px; border-radius: 10px; overflow: auto; }
+/* Reading column for chat answers: comfortable book-like measure. */
+.cm-chat-stream {
+  font-family: var(--cm-font);
+  font-size: 16.5px;
+  line-height: 1.62;
+  color: var(--cm-fg);
+}
+.cm-chat-stream p { margin: 0 0 0.95rem; }
+.cm-chat-stream h1, .cm-chat-stream h2, .cm-chat-stream h3 {
+  font-family: var(--cm-font-display);
+  font-optical-sizing: auto;
+  font-variation-settings: 'opsz' 36, 'SOFT' 60;
+  color: var(--cm-fg);
+  margin: 1.4em 0 0.5em;
+  letter-spacing: -0.01em;
+}
+.cm-chat-stream h1 { font-size: 1.7rem; }
+.cm-chat-stream h2 { font-size: 1.35rem; }
+.cm-chat-stream h3 { font-size: 1.1rem; }
+.cm-chat-stream code {
+  font-family: var(--cm-font-mono);
+  background: var(--cm-subtle);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.86em;
+}
+.cm-chat-stream pre {
+  font-family: var(--cm-font-mono);
+  background: var(--cm-paper);
+  border: 1px solid var(--cm-border);
+  padding: 14px 16px;
+  border-radius: 8px;
+  overflow: auto;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.cm-chat-stream pre code { background: transparent; padding: 0; }
+.cm-chat-stream ul, .cm-chat-stream ol { padding-left: 1.25rem; margin: 0 0 0.95rem; }
+.cm-chat-stream li { margin: 0.2rem 0; }
+.cm-chat-stream blockquote {
+  border-left: 3px solid var(--cm-accent-line);
+  padding: 0.1rem 0 0.1rem 0.9rem;
+  margin: 0.6rem 0 0.95rem;
+  color: var(--cm-fg-soft);
+  font-style: italic;
+  font-family: var(--cm-font-display);
+  font-variation-settings: 'opsz' 18, 'SOFT' 100;
+}
+
+/* Source paths and inline file references look like ink-on-paper monotype. */
+.cm-path {
+  font-family: var(--cm-font-mono);
+  font-size: 12px;
+  color: var(--cm-muted);
+  letter-spacing: -0.005em;
+}
 
 mark.cm-hi {
-  background: var(--cm-accent-soft);
+  background: var(--cm-cite-bg);
   color: var(--cm-fg);
   padding: 0 2px;
-  border-radius: 3px;
+  border-radius: 2px;
+  box-shadow: inset 0 -1px 0 var(--cm-cite-line);
 }
 
 /* Token-color helpers used across pages so Tailwind utilities can blend
    with the existing CSS variable palette. */
 .bg-cm-bg { background: var(--cm-bg); }
+.bg-cm-paper { background: var(--cm-paper); }
 .bg-cm-subtle { background: var(--cm-subtle); }
 .bg-cm-accent { background: var(--cm-accent); }
 .bg-cm-accent-soft { background: var(--cm-accent-soft); }
+.bg-cm-cite-bg { background: var(--cm-cite-bg); }
 .text-cm-fg { color: var(--cm-fg); }
+.text-cm-fg-soft { color: var(--cm-fg-soft); }
 .text-cm-muted { color: var(--cm-muted); }
+.text-cm-faint { color: var(--cm-faint); }
 .text-cm-accent { color: var(--cm-accent); }
+.text-cm-cite { color: var(--cm-cite); }
 .text-cm-danger { color: var(--cm-danger); }
 .text-cm-success { color: var(--cm-success); }
 .border-cm-border { border-color: var(--cm-border); }
+.border-cm-border-strong { border-color: var(--cm-border-strong); }
+.border-cm-accent-line { border-color: var(--cm-accent-line); }
 .ring-cm-accent:focus { outline: 2px solid var(--cm-accent); outline-offset: 1px; }
 
 .cm-card {
-  background: var(--cm-subtle);
+  background: var(--cm-paper);
   border: 1px solid var(--cm-border);
-  border-radius: 12px;
+  border-radius: 10px;
+}
+
+.cm-hairline {
+  background-image: linear-gradient(to right, var(--cm-border) 50%, transparent 0%);
+  background-size: 8px 1px;
+  background-repeat: repeat-x;
+  background-position: 0 50%;
+  height: 1px;
+}
+
+/* Inline numbered citation pill, used in answer text. */
+.cm-cite-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: super;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 5px;
+  margin: 0 1px 0 1px;
+  border-radius: 999px;
+  background: var(--cm-cite-bg);
+  color: var(--cm-cite);
+  font-family: var(--cm-font-mono);
+  font-size: 10.5px;
+  line-height: 1;
+  font-weight: 600;
+  border: 1px solid var(--cm-cite-line);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, transform 80ms ease;
+}
+.cm-cite-pill:hover,
+.cm-cite-pill[data-active='true'] {
+  background: var(--cm-cite);
+  color: var(--cm-paper);
+}
+.cm-cite-pill:focus { outline: 2px solid var(--cm-cite-line); outline-offset: 2px; }
+
+/* Hover snippet preview above the pill. */
+.cm-cite-pop {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: 320px;
+  max-width: 80vw;
+  padding: 10px 12px;
+  background: var(--cm-paper);
+  color: var(--cm-fg);
+  border: 1px solid var(--cm-border);
+  border-radius: 8px;
+  box-shadow: 0 8px 28px rgba(27, 35, 48, 0.10);
+  z-index: 40;
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+}
+.cm-cite-pop .cm-pop-path {
+  display: block;
+  font-family: var(--cm-font-mono);
+  font-size: 11px;
+  color: var(--cm-cite);
+  margin-bottom: 4px;
 }

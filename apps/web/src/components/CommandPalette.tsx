@@ -322,6 +322,6 @@ const kbd: React.CSSProperties = {
   borderRadius: 4,
   padding: '1px 5px',
   fontSize: 10.5,
-  fontFamily: 'var(--font-geist-mono)',
+  fontFamily: 'var(--cm-font-mono)',
   color: 'var(--cm-muted)',
 };

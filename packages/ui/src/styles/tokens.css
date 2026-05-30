@@ -1,33 +1,78 @@
+/* ClawMind design tokens
+ * Paper-cream background, deep-navy ink, single warm accent.
+ * Type system layered via next/font CSS variables on <html>.
+ */
 :root {
-  --cm-bg: #0b0b0d;
-  --cm-fg: #ededee;
-  --cm-muted: #8a8a93;
-  --cm-subtle: #1a1a1f;
-  --cm-border: #232328;
-  --cm-accent: #7c5cff;
-  --cm-accent-soft: rgba(124, 92, 255, 0.18);
-  --cm-danger: #ff5d6c;
-  --cm-success: #43d39e;
-  --cm-radius: 10px;
-  --cm-font: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --cm-font-mono: 'Geist Mono', ui-monospace, 'JetBrains Mono', monospace;
+  /* Surfaces */
+  --cm-bg: #F7F5F0;            /* paper cream */
+  --cm-paper: #FBFAF6;          /* slightly lighter card surface */
+  --cm-subtle: #EFEBE2;         /* warmer tint for inset rows */
+  --cm-border: #E2DCCE;         /* hairline */
+  --cm-border-strong: #C9C1AE;
+
+  /* Ink */
+  --cm-fg: #1B2330;             /* deep navy ink */
+  --cm-fg-soft: #2E3848;
+  --cm-muted: #6B7283;
+  --cm-faint: #9098A8;
+
+  /* Accent (warm orange) */
+  --cm-accent: #E8743B;
+  --cm-accent-ink: #B0501F;
+  --cm-accent-soft: rgba(232, 116, 59, 0.12);
+  --cm-accent-line: rgba(232, 116, 59, 0.32);
+
+  /* Citation highlight (distinct from accent) */
+  --cm-cite: #B98A1A;            /* aged-gold ink */
+  --cm-cite-bg: rgba(185, 138, 26, 0.10);
+  --cm-cite-line: rgba(185, 138, 26, 0.40);
+
+  /* Feedback */
+  --cm-danger: #B4423C;
+  --cm-success: #2F7A55;
+
+  --cm-radius: 8px;
+
+  /* Type stacks. The next/font variables (Fraunces / Inter / JetBrains Mono)
+     are applied on <html>; we reference them here with safe fallbacks so
+     tokens still resolve in isolation. */
+  --cm-font-display: var(--font-fraunces, 'Fraunces', 'Iowan Old Style', 'Charter', Georgia, serif);
+  --cm-font: var(--font-inter, 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif);
+  --cm-font-mono: var(--font-mono, 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace);
 }
 
-[data-theme='light'] {
-  --cm-bg: #fafafa;
-  --cm-fg: #15151a;
-  --cm-muted: #5e5e68;
-  --cm-subtle: #f0f0f3;
-  --cm-border: #e3e3e8;
-  --cm-accent: #5b3df7;
-  --cm-accent-soft: rgba(91, 61, 247, 0.12);
+[data-theme='dark'] {
+  --cm-bg: #161A22;
+  --cm-paper: #1B2030;
+  --cm-subtle: #20283A;
+  --cm-border: #2A3346;
+  --cm-border-strong: #3B4660;
+
+  --cm-fg: #ECE7DA;
+  --cm-fg-soft: #C8CBD4;
+  --cm-muted: #8A92A4;
+  --cm-faint: #5D6479;
+
+  --cm-accent: #F0915E;
+  --cm-accent-ink: #F4A87E;
+  --cm-accent-soft: rgba(240, 145, 94, 0.16);
+  --cm-accent-line: rgba(240, 145, 94, 0.40);
+
+  --cm-cite: #D4B05A;
+  --cm-cite-bg: rgba(212, 176, 90, 0.14);
+  --cm-cite-line: rgba(212, 176, 90, 0.40);
+
+  --cm-danger: #E27770;
+  --cm-success: #62B68F;
 }
 
 html, body {
   background: var(--cm-bg);
   color: var(--cm-fg);
   font-family: var(--cm-font);
+  font-feature-settings: 'ss01', 'cv11';
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
 
 ::selection { background: var(--cm-accent-soft); color: var(--cm-fg); }
