@@ -1,9 +1,28 @@
 'use client';
-import { EmptyState } from '@clawmind/ui';
+import { EmptyState, IconFolder } from '@clawmind/ui';
 
-interface Source { id: string; path: string; startLine: number; endLine: number; excerpt: string; score: number; }
+interface SnippetSpan { start: number; end: number }
+interface Snippet { text: string; spans: SnippetSpan[] }
+interface Source {
+  id: string;
+  path: string;
+  startLine: number;
+  endLine: number;
+  excerpt: string;
+  score: number;
+  snippet?: Snippet | null;
+  displayPath?: string;
+}
 
-export function SourcesPane({ sources, active, onSelect }: { sources: Source[]; active: Source | null; onSelect: (s: Source) => void }) {
+export function SourcesPane({
+  sources,
+  active,
+  onSelect,
+}: {
+  sources: Source[];
+  active: Source | null;
+  onSelect: (s: Source) => void;
+}) {
   if (sources.length === 0) {
     return <EmptyState title="No sources yet" hint="Sources appear here once you ask something." />;
   }
@@ -24,14 +43,37 @@ export function SourcesPane({ sources, active, onSelect }: { sources: Source[]; 
             cursor: 'pointer',
           }}
         >
-          <div style={{ fontSize: 12, color: 'var(--cm-muted)', fontFamily: 'var(--cm-font-mono)' }}>
-            [^{i + 1}] {s.path.split('/').slice(-2).join('/')}:{s.startLine}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--cm-muted)', fontFamily: 'var(--cm-font-mono)' }}>
+            <IconFolder size={12} />
+            <span>[^{i + 1}] {(s.displayPath ?? s.path).split('/').slice(-2).join('/')}:{s.startLine}</span>
           </div>
           <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.45 }}>
-            {s.excerpt.length > 220 ? s.excerpt.slice(0, 220) + '...' : s.excerpt}
+            {renderSnippet(s)}
           </div>
         </button>
       ))}
     </div>
   );
+}
+
+function renderSnippet(s: Source) {
+  if (s.snippet && s.snippet.text) {
+    return <HighlightedText text={s.snippet.text} spans={s.snippet.spans} />;
+  }
+  const text = s.excerpt ?? '';
+  return text.length > 220 ? text.slice(0, 220) + '...' : text;
+}
+
+export function HighlightedText({ text, spans }: { text: string; spans: SnippetSpan[] }) {
+  if (!spans || spans.length === 0) return <>{text}</>;
+  const sorted = [...spans].sort((a, b) => a.start - b.start);
+  const out: React.ReactNode[] = [];
+  let cursor = 0;
+  sorted.forEach((sp, idx) => {
+    if (sp.start > cursor) out.push(<span key={`p-${idx}`}>{text.slice(cursor, sp.start)}</span>);
+    out.push(<mark key={`m-${idx}`} className="cm-hi">{text.slice(sp.start, sp.end)}</mark>);
+    cursor = sp.end;
+  });
+  if (cursor < text.length) out.push(<span key="tail">{text.slice(cursor)}</span>);
+  return <>{out}</>;
 }

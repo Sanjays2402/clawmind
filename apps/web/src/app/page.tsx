@@ -11,8 +11,10 @@ export default function Landing() {
         </div>
         <div style={{ display: 'flex', gap: 16, color: 'var(--cm-muted)', fontSize: 14 }}>
           <Link href="/chat">Chat</Link>
-          <Link href="/history">History</Link>
-          <Link href="/settings">Settings</Link>
+          <Link href="/sources">Sources</Link>
+          <Link href="/stats">Stats</Link>
+          <Link href="/ingest">Ingest</Link>
+          <Link href="/saved">Saved</Link>
           <a href="https://github.com/Sanjays2402/clawmind" target="_blank" rel="noreferrer">GitHub</a>
         </div>
       </nav>

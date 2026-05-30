@@ -12,6 +12,7 @@
 body {
   background: var(--cm-bg);
   color: var(--cm-fg);
+  font-family: var(--cm-font);
 }
 
 a { color: inherit; text-decoration: none; }
@@ -20,3 +21,30 @@ a { color: inherit; text-decoration: none; }
 .cm-chat-stream p { margin-bottom: 0.75rem; line-height: 1.6; }
 .cm-chat-stream code { background: var(--cm-subtle); padding: 1px 6px; border-radius: 6px; font-family: var(--cm-font-mono); font-size: 13px; }
 .cm-chat-stream pre { background: #0d0d11; border: 1px solid var(--cm-border); padding: 12px; border-radius: 10px; overflow: auto; }
+
+mark.cm-hi {
+  background: var(--cm-accent-soft);
+  color: var(--cm-fg);
+  padding: 0 2px;
+  border-radius: 3px;
+}
+
+/* Token-color helpers used across pages so Tailwind utilities can blend
+   with the existing CSS variable palette. */
+.bg-cm-bg { background: var(--cm-bg); }
+.bg-cm-subtle { background: var(--cm-subtle); }
+.bg-cm-accent { background: var(--cm-accent); }
+.bg-cm-accent-soft { background: var(--cm-accent-soft); }
+.text-cm-fg { color: var(--cm-fg); }
+.text-cm-muted { color: var(--cm-muted); }
+.text-cm-accent { color: var(--cm-accent); }
+.text-cm-danger { color: var(--cm-danger); }
+.text-cm-success { color: var(--cm-success); }
+.border-cm-border { border-color: var(--cm-border); }
+.ring-cm-accent:focus { outline: 2px solid var(--cm-accent); outline-offset: 1px; }
+
+.cm-card {
+  background: var(--cm-subtle);
+  border: 1px solid var(--cm-border);
+  border-radius: 12px;
+}
