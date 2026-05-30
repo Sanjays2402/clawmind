@@ -10,9 +10,10 @@ export default function Landing() {
           <span style={{ fontWeight: 600, letterSpacing: 0.2 }}>ClawMind</span>
         </div>
         <div style={{ display: 'flex', gap: 16, color: 'var(--cm-muted)', fontSize: 14 }}>
+          <Link href="/dashboard">Dashboard</Link>
           <Link href="/chat">Chat</Link>
           <Link href="/sources">Sources</Link>
-          <Link href="/stats">Stats</Link>
+          <Link href="/digests">Digests</Link>
           <Link href="/ingest">Ingest</Link>
           <Link href="/saved">Saved</Link>
           <a href="https://github.com/Sanjays2402/clawmind" target="_blank" rel="noreferrer">GitHub</a>
@@ -27,12 +28,12 @@ export default function Landing() {
           Apple MLX for embeddings. LanceDB for vectors. Cited answers that link straight to file and line.
         </p>
         <div style={{ marginTop: 28, display: 'flex', gap: 12 }}>
-          <Link href="/chat" style={{ padding: '12px 18px', background: 'var(--cm-accent)', color: 'white', borderRadius: 10, fontWeight: 500 }}>
+          <Link href="/dashboard" style={{ padding: '12px 18px', background: 'var(--cm-accent)', color: 'white', borderRadius: 10, fontWeight: 500 }}>
+            Open dashboard
+          </Link>
+          <Link href="/chat" style={{ padding: '12px 18px', border: '1px solid var(--cm-border)', borderRadius: 10, color: 'var(--cm-fg)' }}>
             Open chat
           </Link>
-          <a href="https://github.com/Sanjays2402/clawmind" style={{ padding: '12px 18px', border: '1px solid var(--cm-border)', borderRadius: 10, color: 'var(--cm-fg)' }}>
-            Read the docs
-          </a>
         </div>
       </section>
       <Features />

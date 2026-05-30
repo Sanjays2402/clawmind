@@ -2,6 +2,6 @@
 const nextConfig = {
   reactStrictMode: true,
   transpilePackages: ['@clawmind/ui'],
-  experimental: { typedRoutes: true },
+  experimental: { typedRoutes: false },
 };
 export default nextConfig;
