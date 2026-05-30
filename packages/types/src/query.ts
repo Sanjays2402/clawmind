@@ -7,5 +7,6 @@ export const QuerySchema = z.object({
   k: z.number().int().min(1).max(50).default(8),
   mmrLambda: z.number().min(0).max(1).default(0.5),
   hybridAlpha: z.number().min(0).max(1).default(0.5),
+  expand: z.boolean().default(true),
 });
 export type Query = z.infer<typeof QuerySchema>;

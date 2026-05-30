@@ -4,3 +4,4 @@ export * from './rerank.js';
 export * from './citations.js';
 export * from './pipeline.js';
 export * from './prompt-context.js';
+export * from './expand.js';

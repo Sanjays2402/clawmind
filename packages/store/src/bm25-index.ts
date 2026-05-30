@@ -69,6 +69,16 @@ export class BM25Index {
 
   size() { return this.docs.length; }
 
+  /** Iterate vocabulary terms with their document frequency. */
+  *vocab(): IterableIterator<[string, number]> {
+    for (const [t, f] of this.df) yield [t, f];
+  }
+
+  /** Document frequency for a term, or 0 if unseen. */
+  documentFrequency(term: string): number {
+    return this.df.get(term) ?? 0;
+  }
+
   private recomputeAvg() {
     this.avgLen = this.docs.length ? this.docs.reduce((s, d) => s + d.len, 0) / this.docs.length : 0;
   }
