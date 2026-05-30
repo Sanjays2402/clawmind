@@ -22,7 +22,9 @@ export const ingestRoutes: FastifyPluginAsync = async (app) => {
           manifest: c.manifest, embed: c.embed, embedModel: c.env.CLAWMIND_EMBED_MODEL,
         });
       }
-      return { ok: true, ...stats };
+      app.corpusVersion.bump();
+      app.answerCache.clear();
+      return { ok: true, ...stats, corpusVersion: app.corpusVersion.value };
     },
   });
 

@@ -6,6 +6,8 @@ import { searchCommand } from './commands/search.js';
 import { reindexCommand } from './commands/reindex.js';
 import { watchCommand } from './commands/watch.js';
 import { statusCommand } from './commands/status.js';
+import { feedbackCommand } from './commands/feedback.js';
+import { digestCommand } from './commands/digest.js';
 
 const program = new Command();
 program
@@ -19,6 +21,8 @@ program.addCommand(searchCommand());
 program.addCommand(reindexCommand());
 program.addCommand(watchCommand());
 program.addCommand(statusCommand());
+program.addCommand(feedbackCommand());
+program.addCommand(digestCommand());
 
 program.parseAsync(process.argv).catch((err) => {
   // eslint-disable-next-line no-console

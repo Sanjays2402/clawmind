@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsync } from 'fastify';
-import { ask, askStream } from '@clawmind/rag';
+import { ask, askStream, cacheKey } from '@clawmind/rag';
 import { QuerySchema } from '@clawmind/types';
 import { nanoid } from 'nanoid';
 import { recordHistory } from '../services/history.js';
@@ -9,14 +9,35 @@ export const askRoutes: FastifyPluginAsync = async (app) => {
   app.post('/ask', {
     schema: { body: QuerySchema },
     preHandler: app.requireAuth,
-    handler: async (req) => {
+    handler: async (req, reply) => {
+      const key = cacheKey(req.body, app.clawmind.llm.id, app.corpusVersion.value);
+      const cached = app.answerCache.get(key);
+      if (cached) {
+        reply.header('x-clawmind-cache', 'hit');
+        return { id: nanoid(10), ...cached, cached: true };
+      }
+      reply.header('x-clawmind-cache', 'miss');
       const result = await ask(app.rag, req.body);
+      app.answerCache.set(key, result);
       const id = nanoid(10);
       await recordHistory(app.clawmind.dataDir, {
         id, ts: Date.now(), userId: req.user!.id, query: req.body.q,
         answer: result.text, sources: result.sources, model: result.model,
       });
       return { id, ...result };
+    },
+  });
+
+  app.get('/ask/cache/stats', {
+    preHandler: app.requireAuth,
+    handler: async () => ({ ...app.answerCache.stats(), corpusVersion: app.corpusVersion.value }),
+  });
+
+  app.post('/ask/cache/clear', {
+    preHandler: app.requireRole('owner'),
+    handler: async () => {
+      app.answerCache.clear();
+      return { ok: true };
     },
   });
 
