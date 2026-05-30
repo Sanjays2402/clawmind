@@ -89,6 +89,33 @@ export interface PinEntry {
   pinnedBy: string;
 }
 
+export interface ConversationListItem {
+  id: string;
+  title: string;
+  updatedAt: number;
+  turns: number;
+  archivedAt: number | null;
+}
+
+export interface ConversationTurn {
+  id?: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  ts?: number;
+  sources?: Source[];
+  model?: string;
+}
+
+export interface Conversation {
+  id: string;
+  userId: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  archivedAt?: number | null;
+  turns: ConversationTurn[];
+}
+
 export interface ApiKey {
   id: string;
   userId: string;
@@ -192,6 +219,34 @@ export const api = {
   keyIssue: (input: { label: string; role?: 'owner' | 'reader'; scopes?: string[]; ttlMs?: number | null }) =>
     j<{ key: ApiKey; secret: string }>('/v1/keys', { method: 'POST', body: JSON.stringify(input) }),
   keyRevoke: (id: string) => j<{ ok: boolean }>(`/v1/keys/${id}`, { method: 'DELETE' }),
+
+  // Conversations
+  conversationsList: (archived = false) =>
+    j<{ items: ConversationListItem[] }>(`/v1/conversations${archived ? '?archived=true' : ''}`).then((r) => r.items),
+  conversationCreate: (title?: string) =>
+    j<{ conversation: Conversation }>('/v1/conversations', {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    }).then((r) => r.conversation),
+  conversationGet: (id: string) =>
+    j<{ conversation: Conversation }>(`/v1/conversations/${id}`).then((r) => r.conversation),
+  conversationRename: (id: string, title: string) =>
+    j<{ conversation: { id: string; title: string; updatedAt: number } }>(`/v1/conversations/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }).then((r) => r.conversation),
+  conversationArchive: (id: string) =>
+    j<{ id: string; archivedAt: number }>(`/v1/conversations/${id}/archive`, { method: 'POST' }),
+  conversationUnarchive: (id: string) =>
+    j<{ id: string; archivedAt: null }>(`/v1/conversations/${id}/unarchive`, { method: 'POST' }),
+  conversationDelete: (id: string) =>
+    j<{ ok: boolean }>(`/v1/conversations/${id}`, { method: 'DELETE' }),
+  conversationAsk: (id: string, q: string, k = 6) =>
+    j<{ id: string; conversationId: string; rewrittenQuery?: string; text: string; sources: Source[]; model?: string }>(
+      `/v1/conversations/${id}/ask`,
+      { method: 'POST', body: JSON.stringify({ q, k }) },
+    ),
+  conversationExportUrl: (id: string) => `${BASE}/v1/conversations/${id}/export.md`,
 };
 
 async function streamPost(
