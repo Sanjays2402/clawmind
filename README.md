@@ -322,6 +322,29 @@ images built from `infra/docker/*.Dockerfile`. The API is stateless apart
 from the LanceDB and BM25 files under `CLAWMIND_DATA_DIR`, which the chart
 mounts from a PersistentVolumeClaim.
 
+Container images:
+
+- `infra/docker/api.Dockerfile` is a real multi-stage build. The `deps`
+  and `build` stages install the full pnpm workspace and compile the api
+  with `tsc`. A separate `prod` stage re-installs production-only deps
+  (`pnpm install --prod --frozen-lockfile --ignore-scripts`) so no
+  devDependency leaks. `pnpm --filter @clawmind/api deploy --prod`
+  flattens the api package plus its workspace deps into `/out`, and the
+  final `runtime` stage copies only `package.json`, `node_modules`, and
+  `dist` into a fresh `node:20-alpine`. Source, tsconfig, turbo, pnpm,
+  and the lockfile do not exist in the shipped image.
+- The runtime image runs as uid 10001 (`USER cm`), uses `tini` as PID 1
+  so signals reach Node and zombies get reaped, and ships a container
+  `HEALTHCHECK` against `/live`. `NODE_ENV=production` and
+  `CLAWMIND_API_HOST=0.0.0.0` are baked in so the container boots
+  cleanly under Kubernetes without extra env wiring.
+- `apps/api/test/api-dockerfile.test.ts` freezes these properties in CI
+  (no docker daemon required) so a future edit that re-introduces source
+  or drops the non-root user fails the build.
+- Build locally with
+  `docker build -f infra/docker/api.Dockerfile -t clawmind-api:dev .`
+  from the repo root.
+
 Health endpoints:
 
 - `GET /live` is the Kubernetes liveness target. Always returns 200 with
