@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
 import { api, fmtBytes, fmtRelative } from '@/lib/api';
-import { IconDatabase, IconChartBar, IconFolder, IconSpark, IconArrowRight } from '@clawmind/ui';
+import { IconDatabase, IconChartBar, IconFolder, IconSpark, IconArrowRight, IconStethoscope, IconCheck, IconWarning } from '@clawmind/ui';
 
 export const dynamic = 'force-dynamic';
 
@@ -11,6 +11,7 @@ type LoadResult = {
   history: Awaited<ReturnType<typeof api.history>>;
   sources: Awaited<ReturnType<typeof api.sourcesList>> | null;
   ingest: Awaited<ReturnType<typeof api.ingestStatus>> | null;
+  doctor: Awaited<ReturnType<typeof api.doctor>> | null;
   errors: string[];
 };
 
@@ -19,18 +20,19 @@ async function load(): Promise<LoadResult> {
   const safe = async <T,>(label: string, p: Promise<T>): Promise<T | null> => {
     try { return await p; } catch (e) { errors.push(`${label}: ${(e as Error).message}`); return null; }
   };
-  const [health, stats, historyRes, sources, ingest] = await Promise.all([
+  const [health, stats, historyRes, sources, ingest, doctor] = await Promise.all([
     safe('health', api.health()),
     safe('stats', api.stats()),
     safe('history', api.history()),
     safe('sources', api.sourcesList({ limit: 5, sort: 'recent' })),
     safe('ingest', api.ingestStatus()),
+    safe('doctor', api.doctor()),
   ]);
-  return { health, stats, history: historyRes ?? [], sources, ingest, errors };
+  return { health, stats, history: historyRes ?? [], sources, ingest, doctor, errors };
 }
 
 export default async function Dashboard() {
-  const { health, stats, history, sources, ingest, errors } = await load();
+  const { health, stats, history, sources, ingest, doctor, errors } = await load();
 
   const totalDocs = stats?.totals.files ?? ingest?.documents ?? 0;
   const totalChunks = stats?.totals.chunks ?? ingest?.chunks ?? 0;
@@ -113,6 +115,35 @@ export default async function Dashboard() {
         </section>
 
         <section style={{ marginTop: 28 }}>
+          <Panel title="Index health" href="/doctor" linkLabel="Open doctor">
+            {!doctor ? (
+              <EmptyHint text="Could not reach the doctor endpoint." href="/doctor" cta="Retry" />
+            ) : doctor.findings.length === 0 ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--cm-muted)', fontSize: 14 }}>
+                <IconCheck /> All stores in sync. {fmtNum(doctor.counts.manifestDocs)} files, {fmtNum(doctor.counts.manifestChunks)} chunks.
+              </div>
+            ) : (
+              <ul style={listReset}>
+                {topFindings(doctor.findings).map((f, i) => (
+                  <li key={`${f.code}-${i}`} style={rowItem}>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 500 }}>
+                        <IconWarning />
+                        <span style={{ fontFamily: 'var(--font-geist-mono)', fontSize: 11, color: 'var(--cm-muted)' }}>{f.code}</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.message}</span>
+                      </div>
+                    </div>
+                    <Link href={`/doctor?focus=${encodeURIComponent(f.code)}`} style={{ color: 'var(--cm-muted)', display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                      Inspect <IconArrowRight />
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Panel>
+        </section>
+
+        <section style={{ marginTop: 28 }}>
           <Panel title="Namespaces" href="/stats" linkLabel="Detailed stats">
             {!stats || stats.byNamespace.length === 0 ? (
               <EmptyHint text="No namespaces indexed yet." href="/ingest" cta="Ingest something" />
@@ -136,6 +167,11 @@ export default async function Dashboard() {
 
 function fmtNum(n: number): string {
   return n.toLocaleString();
+}
+
+function topFindings(findings: { severity: 'info' | 'warn' | 'error'; code: string; message: string; hint?: string }[]) {
+  const order: Record<string, number> = { error: 0, warn: 1, info: 2 };
+  return [...findings].sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9)).slice(0, 4);
 }
 
 function StatCard({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub: string }) {

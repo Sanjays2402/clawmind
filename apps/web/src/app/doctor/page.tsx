@@ -6,8 +6,9 @@
 // safe to refresh; the compact action always previews via dryRun first so
 // the destructive call only ever runs on numbers the user just looked at.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { TopNav } from '@/components/TopNav';
 import { api, fmtRelative, type DoctorReport, type CompactReport } from '@/lib/api';
 import {
@@ -27,6 +28,8 @@ export default function DoctorPage() {
   const [data, setData] = useState<DoctorReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const params = useSearchParams();
+  const focus = params?.get('focus') ?? null;
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -88,7 +91,7 @@ export default function DoctorPage() {
           <>
             <StatusBanner ok={data.ok} ts={data.generatedAt} />
             <CountsGrid counts={data.counts} />
-            <FindingsList findings={data.findings} />
+            <FindingsList findings={data.findings} focus={focus} />
             <CompactCard onChanged={() => void load()} />
           </>
         )}
@@ -147,7 +150,18 @@ function CountsGrid({ counts }: { counts: DoctorReport['counts'] }) {
   );
 }
 
-function FindingsList({ findings }: { findings: DoctorReport['findings'] }) {
+function FindingsList({ findings, focus }: { findings: DoctorReport['findings']; focus: string | null }) {
+  // Group by severity so errors surface first regardless of API ordering.
+  const order: Record<string, number> = { error: 0, warn: 1, info: 2 };
+  const sorted = [...findings].sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
+
+  const focusRef = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    if (focus && focusRef.current) {
+      focusRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }, [focus, sorted.length]);
+
   if (findings.length === 0) {
     return (
       <div className="mt-5">
@@ -159,18 +173,23 @@ function FindingsList({ findings }: { findings: DoctorReport['findings'] }) {
     );
   }
 
-  // Group by severity so errors surface first regardless of API ordering.
-  const order: Record<string, number> = { error: 0, warn: 1, info: 2 };
-  const sorted = [...findings].sort((a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9));
-
   return (
     <section className="mt-5">
       <h2 className="text-sm font-medium text-cm-muted">
         Findings ({findings.length})
       </h2>
       <ul className="mt-2 flex flex-col gap-2">
-        {sorted.map((f, i) => (
-          <li key={`${f.code}-${i}`} className="cm-card p-4">
+        {sorted.map((f, i) => {
+          const isFocus = focus === f.code;
+          return (
+            <li
+              key={`${f.code}-${i}`}
+              ref={isFocus ? focusRef : undefined}
+              className={[
+                'cm-card p-4 transition-colors',
+                isFocus ? 'ring-1 ring-cm-accent' : '',
+              ].join(' ')}
+            >
             <div className="flex items-start gap-3">
               <SeverityChip severity={f.severity} />
               <div className="min-w-0 flex-1">
@@ -184,8 +203,9 @@ function FindingsList({ findings }: { findings: DoctorReport['findings'] }) {
                 {hintAction(f.code)}
               </div>
             </div>
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
