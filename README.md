@@ -131,6 +131,8 @@ All env vars are loaded via `envalid` in `packages/config`. See `.env.example`.
 | `CLAWMIND_SENTRY_ENVIRONMENT` | `development` | Sentry environment tag |
 | `CLAWMIND_SENTRY_RELEASE` | empty | Release tag, usually the git sha |
 | `CLAWMIND_SENTRY_TRACES_SAMPLE_RATE` | `0` | Sentry performance trace sampling |
+| `CLAWMIND_AUDIT_MAX_BYTES` | `33554432` | Rotate `audit.log` once it exceeds this many bytes; `0` disables in-process rotation |
+| `CLAWMIND_AUDIT_KEEP_FILES` | `5` | Rotated audit log generations to retain (`audit.log.1` .. `audit.log.N`) |
 
 ## Scripts
 
@@ -424,10 +426,16 @@ Audit log:
   the response shape is `{ total, events }`. The query itself is
   appended to the log with `action: audit.query`, so a reviewer
   inspecting the trail always leaves their own footprint in it.
-- For very large logs, rotate `audit.log` out of band (logrotate, a k8s
-  sidecar, or shipping to object storage). The query endpoint reads the
-  current file into memory and is intended for incident response rather
-  than analytics.
+- For very large logs, the `AuditLog` rotates `audit.log` in process.
+  Once the active file exceeds `CLAWMIND_AUDIT_MAX_BYTES` (default 32 MiB)
+  it is renamed to `audit.log.1`, older rotations shift up (`.1` -> `.2`,
+  ...), and anything past `CLAWMIND_AUDIT_KEEP_FILES` (default 5) is
+  deleted. Set `CLAWMIND_AUDIT_MAX_BYTES=0` to disable in-process
+  rotation and hand off to external tooling (logrotate, a k8s sidecar,
+  shipping to object storage). The query endpoint reads the active file
+  plus every retained rotation so a window that crosses a rotation
+  boundary still returns the right events; it is intended for incident
+  response rather than analytics and caps a single response at 1000 rows.
 
 Rate limits:
 

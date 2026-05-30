@@ -89,7 +89,10 @@ export async function buildApp() {
   const bm25 = await BM25Index.load(`${bm25Dir(env)}/bm25.json`);
   const manifest = new IngestManifest(manifestPath(env));
   await manifest.load();
-  const audit = new AuditLog(auditPath(env));
+  const audit = new AuditLog(auditPath(env), {
+    maxBytes: env.CLAWMIND_AUDIT_MAX_BYTES,
+    keepFiles: env.CLAWMIND_AUDIT_KEEP_FILES,
+  });
   const llm = buildDefaultLLM(env);
 
   app.decorate('clawmind', {

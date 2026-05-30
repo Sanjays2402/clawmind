@@ -37,6 +37,14 @@ export function loadEnv() {
     CLAWMIND_SENTRY_ENVIRONMENT: str({ default: 'development' }),
     CLAWMIND_SENTRY_RELEASE: str({ default: '' }),
     CLAWMIND_SENTRY_TRACES_SAMPLE_RATE: num({ default: 0 }),
+
+    // Audit log rotation. The AuditLog rotates the active file once it
+    // exceeds CLAWMIND_AUDIT_MAX_BYTES and retains CLAWMIND_AUDIT_KEEP_FILES
+    // rotated siblings (`audit.log.1`, `audit.log.2`, ...). Set max bytes
+    // to 0 to disable rotation entirely. Defaults keep the active file
+    // under ~32 MiB and retain 5 generations, which is ~192 MiB worst case.
+    CLAWMIND_AUDIT_MAX_BYTES: num({ default: 32 * 1024 * 1024 }),
+    CLAWMIND_AUDIT_KEEP_FILES: num({ default: 5 }),
   });
 }
 
