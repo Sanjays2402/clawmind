@@ -11,14 +11,15 @@ export const askRoutes: FastifyPluginAsync = async (app) => {
     preHandler: app.requireAuth,
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     handler: async (req, reply) => {
-      const key = cacheKey(req.body, app.clawmind.llm.id, app.corpusVersion.value);
+      const body = { ...req.body, q: app.aliases.expandQuery(req.body.q) };
+      const key = cacheKey(body, app.clawmind.llm.id, app.corpusVersion.value);
       const cached = app.answerCache.get(key);
       if (cached) {
         reply.header('x-clawmind-cache', 'hit');
         return { id: nanoid(10), ...cached, cached: true };
       }
       reply.header('x-clawmind-cache', 'miss');
-      const result = await ask(app.rag, req.body);
+      const result = await ask(app.rag, body);
       app.answerCache.set(key, result);
       const id = nanoid(10);
       await recordHistory(app.clawmind.dataDir, {
@@ -54,7 +55,8 @@ export const askRoutes: FastifyPluginAsync = async (app) => {
       try {
         let buf = '';
         const sources: unknown[] = [];
-        for await (const evt of askStream(app.rag, req.body)) {
+        const body = { ...req.body, q: app.aliases.expandQuery(req.body.q) };
+        for await (const evt of askStream(app.rag, body)) {
           if (evt.type === 'token') buf += evt.value;
           if (evt.type === 'sources') sources.push(...(evt.value as unknown[]));
           send(evt);

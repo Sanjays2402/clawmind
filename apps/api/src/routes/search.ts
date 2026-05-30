@@ -19,13 +19,20 @@ export const searchRoutes: FastifyPluginAsync = async (app) => {
     preHandler: app.requireAuth,
     handler: async (req) => {
       const { highlight, snippetWidth, ...query } = req.body;
-      const hits = await retrieve(app.rag, query);
-      if (!highlight) return { hits };
+      // Rewrite "@alias/sub/file" tokens to the real path before retrieval
+      // runs so an alias acts as a query-time shortcut.
+      const expanded = { ...query, q: app.aliases.expandQuery(query.q) };
+      const hits = await retrieve(app.rag, expanded);
+      const decorated = hits.map((h) => {
+        const short = app.aliases.shorten(h.path);
+        return short ? { ...h, displayPath: short } : h;
+      });
+      if (!highlight) return { hits: decorated };
       // Combine the original query and the expanded query terms so synonyms
       // also light up in the snippet. We re-derive the expansion via the
       // same tokenizer here to keep the route stateless.
-      const terms = queryTerms(query.q);
-      const enriched = hits.map((h) => ({
+      const terms = queryTerms(expanded.q);
+      const enriched = decorated.map((h) => ({
         ...h,
         snippet: snippetFor(h, terms, snippetWidth),
       }));

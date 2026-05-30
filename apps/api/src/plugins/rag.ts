@@ -5,6 +5,9 @@ import { AnswerCache } from '@clawmind/rag';
 import { loadFeedback, boostFor, type FeedbackMap } from '../services/feedback.js';
 import { loadPins, pinBoostFor, type PinMap } from '../services/pins.js';
 import { loadMutes, mutePenaltyFor, type MuteMap } from '../services/mutes.js';
+import {
+  loadAliases, expandQueryAliases, shortenPath, type AliasMap,
+} from '../services/aliases.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -12,6 +15,12 @@ declare module 'fastify' {
     feedback: { reload(): Promise<void>; current(): FeedbackMap };
     pins: { reload(): Promise<void>; current(): PinMap };
     mutes: { reload(): Promise<void>; current(): MuteMap };
+    aliases: {
+      reload(): Promise<void>;
+      current(): AliasMap;
+      expandQuery(q: string): string;
+      shorten(path: string): string | null;
+    };
     answerCache: AnswerCache;
     corpusVersion: { value: number; bump(): number };
   }
@@ -22,6 +31,7 @@ const plugin: FastifyPluginAsync = async (app) => {
   let fb: FeedbackMap = await loadFeedback(c.dataDir);
   let pins: PinMap = await loadPins(c.dataDir);
   let mutes: MuteMap = await loadMutes(c.dataDir);
+  let aliases: AliasMap = await loadAliases(c.dataDir);
   app.decorate('feedback', {
     reload: async () => { fb = await loadFeedback(c.dataDir); },
     current: () => fb,
@@ -33,6 +43,12 @@ const plugin: FastifyPluginAsync = async (app) => {
   app.decorate('mutes', {
     reload: async () => { mutes = await loadMutes(c.dataDir); },
     current: () => mutes,
+  });
+  app.decorate('aliases', {
+    reload: async () => { aliases = await loadAliases(c.dataDir); },
+    current: () => aliases,
+    expandQuery: (q: string) => expandQueryAliases(aliases, q),
+    shorten: (path: string) => shortenPath(aliases, path),
   });
   app.decorate('rag', {
     bm25: c.bm25,
