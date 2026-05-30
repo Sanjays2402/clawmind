@@ -67,34 +67,23 @@ export function ChatShell({
   }
 
   return (
-    <main className="min-h-screen flex flex-col">
+    <main className="min-h-screen flex flex-col bg-cm-bg">
       <TopNav />
-      <div className="grid flex-1 grid-cols-1 lg:grid-cols-[220px_1fr_320px]">
-        <aside className="hidden border-r border-cm-border p-4 lg:flex lg:flex-col lg:gap-3">
-          <div className="text-xs uppercase tracking-wide text-cm-muted">Namespaces</div>
-          <NamespacePicker value={namespaces} onChange={setNamespaces} />
-        </aside>
 
-        <section className="flex flex-col">
-          <div className="flex-1 overflow-auto px-4 py-6 sm:px-8">
-            {!answer && !loading && !error && (
-              <div className="mx-auto max-w-xl pt-[12vh] text-center text-cm-muted">
-                <div className="text-lg font-medium text-cm-fg">What would you like to know?</div>
-                <div className="mt-1.5 text-sm">
-                  Try: what did I commit last Tuesday on snip?
-                </div>
-              </div>
-            )}
-            {loading && answer === '' && (
-              <div className="flex justify-center pt-12"><Spinner /></div>
-            )}
-            {error && (
-              <div className="mx-auto max-w-xl rounded-md border border-cm-danger/40 bg-cm-danger/5 p-3 text-sm text-cm-danger">
-                {error}
-              </div>
-            )}
-            {answer && <ChatStream text={answer} sources={sources} onCite={setActiveSource} />}
-          </div>
+      {/* Breadcrumb namespace header */}
+      <div className="border-b border-cm-border">
+        <div className="mx-auto flex w-full max-w-[1180px] items-center justify-between gap-4 px-6 py-3 sm:px-10">
+          <NamespacePicker value={namespaces} onChange={setNamespaces} variant="breadcrumb" />
+          <span className="cm-mono text-[11px] text-cm-faint">
+            cmd + enter to ask &middot; tab to cycle prompts
+          </span>
+        </div>
+      </div>
+
+      {/* Two-column reading layout: wide answer column, narrow source rail */}
+      <div className="mx-auto grid w-full max-w-[1180px] flex-1 grid-cols-1 gap-10 px-6 pb-24 pt-8 sm:px-10 lg:grid-cols-[minmax(0,720px)_minmax(260px,320px)]">
+        <section className="min-w-0">
+          {/* Composer sits at the TOP, Reflect/Mem style */}
           <Composer
             value={question}
             onChange={setQuestion}
@@ -102,12 +91,62 @@ export function ChatShell({
             loading={loading}
             onStop={() => { cancelRef.current = true; setLoading(false); }}
           />
+
+          <div className="mt-8">
+            {!answer && !loading && !error && (
+              <EmptyReading />
+            )}
+            {loading && answer === '' && (
+              <div className="flex items-center gap-3 text-sm text-cm-muted">
+                <Spinner /> reading the workspace
+              </div>
+            )}
+            {error && (
+              <div className="rounded-md border border-cm-border bg-cm-paper p-4 text-sm text-cm-danger">
+                {error}
+              </div>
+            )}
+            {answer && (
+              <ChatStream
+                text={answer}
+                sources={sources}
+                activeId={activeSource?.id ?? null}
+                onCite={setActiveSource}
+              />
+            )}
+          </div>
         </section>
 
-        <aside className="border-t border-cm-border p-4 lg:border-l lg:border-t-0 lg:overflow-auto">
+        <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start">
           <SourcesPane sources={sources} active={activeSource} onSelect={setActiveSource} />
         </aside>
       </div>
     </main>
+  );
+}
+
+function EmptyReading() {
+  return (
+    <div className="max-w-[640px]">
+      <h1 className="cm-display text-[44px] text-cm-fg" style={{ fontWeight: 500 }}>
+        A quiet place to ask
+        <span className="cm-display-soft text-cm-accent"> your workspace</span>
+        <span className="text-cm-faint">.</span>
+      </h1>
+      <p className="mt-5 text-[15px] leading-relaxed text-cm-fg-soft">
+        Type a question above. Answers arrive in plain prose with numbered marks
+        in the margin, so you can follow each claim back to the file it came from.
+      </p>
+      <div className="mt-7 border-t border-cm-border pt-5">
+        <div className="cm-mono text-[11px] uppercase tracking-wider text-cm-faint">
+          A few things to try
+        </div>
+        <ul className="mt-3 space-y-2 text-[14px] text-cm-fg-soft">
+          <li>what did I commit last Tuesday on snip</li>
+          <li>summarise the design notes I left in memory this week</li>
+          <li>where did I first sketch the citation rail idea</li>
+        </ul>
+      </div>
+    </div>
   );
 }

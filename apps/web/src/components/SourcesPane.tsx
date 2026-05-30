@@ -1,5 +1,5 @@
 'use client';
-import { EmptyState, IconFolder } from '@clawmind/ui';
+import { EmptyState } from '@clawmind/ui';
 
 interface SnippetSpan { start: number; end: number }
 interface Snippet { text: string; spans: SnippetSpan[] }
@@ -24,34 +24,92 @@ export function SourcesPane({
   onSelect: (s: Source) => void;
 }) {
   if (sources.length === 0) {
-    return <EmptyState title="No sources yet" hint="Sources appear here once you ask something." />;
+    return (
+      <div>
+        <RailHeader count={0} />
+        <EmptyState title="The margin is empty" hint="Sources will gather here as the answer takes shape." />
+      </div>
+    );
   }
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      <div style={{ fontSize: 12, color: 'var(--cm-muted)', textTransform: 'uppercase', letterSpacing: 1 }}>Sources</div>
-      {sources.map((s, i) => (
-        <button
-          key={s.id + i}
-          onClick={() => onSelect(s)}
-          style={{
-            textAlign: 'left',
-            padding: 12,
-            border: '1px solid ' + (active?.id === s.id ? 'var(--cm-accent)' : 'var(--cm-border)'),
-            borderRadius: 10,
-            background: 'var(--cm-subtle)',
-            color: 'var(--cm-fg)',
-            cursor: 'pointer',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--cm-muted)', fontFamily: 'var(--cm-font-mono)' }}>
-            <IconFolder size={12} />
-            <span>[^{i + 1}] {(s.displayPath ?? s.path).split('/').slice(-2).join('/')}:{s.startLine}</span>
-          </div>
-          <div style={{ marginTop: 6, fontSize: 13, lineHeight: 1.45 }}>
-            {renderSnippet(s)}
-          </div>
-        </button>
-      ))}
+    <div>
+      <RailHeader count={sources.length} />
+      <ol style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 10 }}>
+        {sources.map((s, i) => {
+          const isActive = active?.id === s.id;
+          const display = s.displayPath ?? s.path;
+          return (
+            <li key={s.id + i} id={'cm-source-' + s.id}>
+              <button
+                type="button"
+                onClick={() => onSelect(s)}
+                style={{
+                  width: '100%',
+                  textAlign: 'left',
+                  padding: '12px 13px',
+                  border: '1px solid ' + (isActive ? 'var(--cm-cite-line)' : 'var(--cm-border)'),
+                  borderRadius: 8,
+                  background: isActive ? 'var(--cm-cite-bg)' : 'var(--cm-paper)',
+                  color: 'var(--cm-fg)',
+                  cursor: 'pointer',
+                  transition: 'border-color 120ms ease, background 120ms ease',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <span
+                    className="cm-cite-pill"
+                    style={{ position: 'relative', cursor: 'default', flexShrink: 0 }}
+                  >
+                    {i + 1}
+                  </span>
+                  <span
+                    className="cm-mono"
+                    style={{
+                      fontSize: 11.5,
+                      color: 'var(--cm-cite)',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      direction: 'rtl',
+                      textAlign: 'left',
+                    }}
+                    title={display + ':' + s.startLine}
+                  >
+                    {display}:{s.startLine}
+                  </span>
+                </div>
+                <div style={{ marginTop: 7, fontSize: 13, lineHeight: 1.55, color: 'var(--cm-fg-soft)' }}>
+                  {renderSnippet(s)}
+                </div>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
+function RailHeader({ count }: { count: number }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+      <h2
+        className="cm-mono"
+        style={{
+          margin: 0,
+          fontSize: 11,
+          letterSpacing: 1.2,
+          textTransform: 'uppercase',
+          color: 'var(--cm-faint)',
+        }}
+      >
+        Margin
+      </h2>
+      {count > 0 && (
+        <span className="cm-mono" style={{ fontSize: 11, color: 'var(--cm-faint)' }}>
+          {count} source{count === 1 ? '' : 's'}
+        </span>
+      )}
     </div>
   );
 }
