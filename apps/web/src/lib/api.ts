@@ -315,7 +315,49 @@ export const api = {
     const qs = params.toString();
     return j<StaleResult>(`/v1/sources/stale${qs ? `?${qs}` : ''}`);
   },
+
+  // Doctor: cross-store consistency report. Read-only, safe to refresh.
+  doctor: () => j<DoctorReport>('/v1/doctor'),
+
+  // Maintenance: compact prunes manifest, BM25, and LanceDB entries whose
+  // source files no longer exist. Always preview with dryRun before the
+  // destructive call so users see what they are about to drop. Owner-only
+  // server-side, so non-owners will get a 4xx surfaced as an error.
+  maintenanceCompact: (dryRun: boolean) =>
+    j<CompactReport>('/v1/maintenance/compact', {
+      method: 'POST',
+      body: JSON.stringify({ dryRun }),
+    }),
 };
+
+export type DoctorSeverity = 'info' | 'warn' | 'error';
+
+export interface DoctorFinding {
+  severity: DoctorSeverity;
+  code: string;
+  message: string;
+  hint?: string;
+}
+
+export interface DoctorReport {
+  ok: boolean;
+  generatedAt: number;
+  counts: {
+    manifestDocs: number;
+    manifestChunks: number;
+    bm25Chunks: number;
+    lanceChunks: number;
+  };
+  findings: DoctorFinding[];
+}
+
+export interface CompactReport {
+  dryRun: boolean;
+  scanned: number;
+  kept: number;
+  removed: number;
+  removedPaths?: string[];
+}
 
 export interface TagSummary {
   tag: string;

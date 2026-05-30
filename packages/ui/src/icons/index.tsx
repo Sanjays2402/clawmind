@@ -224,6 +224,13 @@ export const IconAt = (p: IconProps) => (
 );
 
 // ClockCountdown: used for the stale-sources diagnostic page.
+export const IconStethoscope = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="200" cy="144" r="24" opacity="0.2" />
+    <path d="M200 112a32 32 0 0 0-8 63v17a48 48 0 0 1-96 0v-9.41a64.07 64.07 0 0 0 56-63.49V40a8 8 0 0 0-8-8h-24a8 8 0 0 0 0 16h16v72a48 48 0 0 1-96 0V48h16a8 8 0 0 0 0-16H32a8 8 0 0 0-8 8v79.1a64.07 64.07 0 0 0 56 63.49V192a64 64 0 0 0 128 0v-17a32 32 0 0 0-8-63Zm0 48a16 16 0 1 1 16-16 16 16 0 0 1-16 16Z" />
+  </svg>
+);
+
 export const IconClockCountdown = (p: IconProps) => (
   <svg {...base(p)}>
     <circle cx="128" cy="128" r="96" opacity="0.2" />
