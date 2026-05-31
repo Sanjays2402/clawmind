@@ -170,8 +170,25 @@ export default function ConversationDetailPage({ params }: PageProps) {
                   href={api.conversationExportUrl(conv.id)}
                   className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-transparent px-3 py-2 text-[13px] text-cm-fg no-underline hover:bg-cm-paper"
                   download
+                  title="Download as Markdown"
                 >
-                  <IconDownload /> Export .md
+                  <IconDownload /> .md
+                </a>
+                <a
+                  href={api.conversationExportJsonUrl(conv.id)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-transparent px-3 py-2 text-[13px] text-cm-fg no-underline hover:bg-cm-paper"
+                  download
+                  title="Download as JSON"
+                >
+                  <IconDownload /> .json
+                </a>
+                <a
+                  href={api.conversationExportCsvUrl(conv.id)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-transparent px-3 py-2 text-[13px] text-cm-fg no-underline hover:bg-cm-paper"
+                  download
+                  title="Download as CSV"
+                >
+                  <IconDownload /> .csv
                 </a>
                 {!conv.archivedAt && (
                   <button

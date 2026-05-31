@@ -345,6 +345,8 @@ export const api = {
     onEvent: (e: { type: string; value: unknown }) => void,
   ) => streamPost(`${BASE}/v1/conversations/${id}/ask/stream`, body, onEvent),
   conversationExportUrl: (id: string) => `${BASE}/v1/conversations/${id}/export.md`,
+  conversationExportJsonUrl: (id: string) => `${BASE}/v1/conversations/${id}/export.json`,
+  conversationExportCsvUrl: (id: string) => `${BASE}/v1/conversations/${id}/export.csv`,
 
   // Tags: workspace-wide labels on source paths. Reads are open to any auth'd
   // user; writes require owner role and the UI surfaces the resulting 403

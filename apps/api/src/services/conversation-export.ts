@@ -56,6 +56,109 @@ function renderTurn(turn: ConversationTurn, opts: ExportOptions): string {
   return parts.join('\n');
 }
 
+// Stable JSON shape for `/conversations/:id/export.json`. We keep the
+// outer envelope versioned so callers can detect breaking changes without
+// having to inspect every nested field.
+export interface ConversationJsonExport {
+  version: 1;
+  exportedAt: number;
+  conversation: {
+    id: string;
+    title: string;
+    createdAt: number;
+    updatedAt: number;
+    turns: Array<{
+      id: string;
+      role: 'user' | 'assistant';
+      content: string;
+      ts: number;
+      model?: string;
+      sources?: Array<{
+        id: string;
+        path: string;
+        title?: string;
+        startLine: number;
+        endLine: number;
+        excerpt?: string;
+        score?: number;
+      }>;
+    }>;
+  };
+}
+
+export function conversationToJson(conv: Conversation, opts: ExportOptions = {}): ConversationJsonExport {
+  const base = opts.stripBasePath;
+  return {
+    version: 1,
+    exportedAt: Date.now(),
+    conversation: {
+      id: conv.id,
+      title: conv.title,
+      createdAt: conv.createdAt,
+      updatedAt: conv.updatedAt,
+      turns: conv.turns.map((t) => ({
+        id: t.id,
+        role: t.role,
+        content: t.content,
+        ts: t.ts,
+        ...(t.model ? { model: t.model } : {}),
+        ...(t.role === 'assistant' && t.sources && t.sources.length > 0
+          ? {
+              sources: t.sources.map((s) => ({
+                id: s.id,
+                path: trimPath(s.path, base),
+                ...(s.title ? { title: s.title } : {}),
+                startLine: s.startLine,
+                endLine: s.endLine,
+                ...(s.excerpt ? { excerpt: s.excerpt } : {}),
+                ...(typeof s.score === 'number' ? { score: s.score } : {}),
+              })),
+            }
+          : {}),
+      })),
+    },
+  };
+}
+
+// RFC 4180 CSV escape. Wraps in quotes when the value contains a comma,
+// quote, CR, or LF, and doubles internal quotes. Newlines are preserved
+// inside quoted fields so the message body survives a round trip.
+function csvCell(value: string | number | undefined | null): string {
+  if (value === undefined || value === null) return '';
+  const s = String(value);
+  if (/[",\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+export function conversationToCsv(conv: Conversation, opts: ExportOptions = {}): string {
+  const base = opts.stripBasePath;
+  const header = ['turn_id', 'role', 'ts_iso', 'model', 'content', 'source_paths'];
+  const rows: string[] = [header.join(',')];
+  for (const t of conv.turns) {
+    const iso = new Date(t.ts).toISOString();
+    const sources =
+      t.role === 'assistant' && t.sources && t.sources.length > 0
+        ? t.sources
+            .map((s) => {
+              const p = trimPath(s.path, base);
+              return s.startLine === s.endLine ? `${p}:${s.startLine}` : `${p}:${s.startLine}-${s.endLine}`;
+            })
+            .join(' | ')
+        : '';
+    rows.push(
+      [
+        csvCell(t.id),
+        csvCell(t.role),
+        csvCell(iso),
+        csvCell(t.model ?? ''),
+        csvCell(t.content),
+        csvCell(sources),
+      ].join(','),
+    );
+  }
+  return rows.join('\r\n') + '\r\n';
+}
+
 export function conversationToMarkdown(conv: Conversation, opts: ExportOptions = {}): string {
   const fmt = opts.formatDate ?? defaultFormatDate;
   const header = [

@@ -146,6 +146,18 @@ curl -N -X POST http://127.0.0.1:7410/v1/conversations/$CID/ask/stream \
 
 For Docker, see `infra/docker/docker-compose.dev.yml` which brings up `redis`, `embed`, `api`, and `web`.
 
+### Export a conversation
+
+Every conversation can be downloaded in three formats from the toolbar on `/conversations/<id>`, or fetched directly:
+
+```sh
+curl -OJ http://127.0.0.1:7410/v1/conversations/$CID/export.md
+curl -OJ http://127.0.0.1:7410/v1/conversations/$CID/export.json
+curl -OJ http://127.0.0.1:7410/v1/conversations/$CID/export.csv
+```
+
+Markdown is for humans, JSON keeps the full structured payload with sources and scores, and CSV is one row per turn for spreadsheet review.
+
 ### Webhooks
 
 Wire your own service into ClawMind without polling. Register a receiver at <http://127.0.0.1:7412/webhooks>, pick the events you care about, and copy the signing secret (shown once). Every event becomes a real HTTPS POST signed with `X-ClawMind-Signature: t=<unix-ms>,v1=<hex(hmac_sha256(secret, t + "." + body))>`. Failures on 5xx or network errors retry up to three times with exponential backoff, and every attempt lands in the delivery log table on the same page.
@@ -268,6 +280,8 @@ Conversations:
 - `PATCH /v1/conversations/:id` (rename)
 - `DELETE /v1/conversations/:id`
 - `GET /v1/conversations/:id/export.md`
+- `GET /v1/conversations/:id/export.json`
+- `GET /v1/conversations/:id/export.csv`
 - `POST /v1/conversations/:id/archive` | `/unarchive`
 - `POST /v1/conversations/:id/fork`
 - `POST /v1/conversations/:id/ask`

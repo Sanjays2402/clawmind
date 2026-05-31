@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { conversationToMarkdown } from '../src/services/conversation-export.js';
+import { conversationToMarkdown, conversationToJson, conversationToCsv } from '../src/services/conversation-export.js';
 import type { Conversation } from '../src/services/conversations.js';
 import type { Source } from '@clawmind/types';
 
@@ -71,5 +71,58 @@ describe('conversationToMarkdown', () => {
     const c = conv({ turns: [{ id: 't', role: 'user', content: 'x', ts: 0 }] });
     const md = conversationToMarkdown(c, { formatDate: fmt });
     expect(md.endsWith('\n')).toBe(true);
+  });
+});
+
+describe('conversationToJson', () => {
+  it('emits a versioned envelope with normalized turn data', () => {
+    const c = conv({
+      turns: [
+        { id: 'u', role: 'user', content: 'hi', ts: 100 },
+        {
+          id: 'a',
+          role: 'assistant',
+          content: 'hello',
+          ts: 200,
+          model: 'hermes-agent',
+          sources: [src({ id: 's1', path: '/abs/workspace/a.md', title: 'A', startLine: 5, endLine: 5 })],
+        },
+      ],
+    });
+    const out = conversationToJson(c, { stripBasePath: '/abs/workspace' });
+    expect(out.version).toBe(1);
+    expect(out.conversation.id).toBe('c1');
+    expect(out.conversation.turns).toHaveLength(2);
+    const assistant = out.conversation.turns[1];
+    expect(assistant.model).toBe('hermes-agent');
+    expect(assistant.sources?.[0].path).toBe('a.md');
+    expect(out.conversation.turns[0].sources).toBeUndefined();
+  });
+});
+
+describe('conversationToCsv', () => {
+  it('produces an RFC 4180 row per turn with quoted content', () => {
+    const c = conv({
+      turns: [
+        { id: 'u', role: 'user', content: 'has, comma\nand newline', ts: 0 },
+        {
+          id: 'a',
+          role: 'assistant',
+          content: 'plain answer',
+          ts: 1000,
+          model: 'm',
+          sources: [
+            src({ id: 's1', path: '/abs/workspace/a.md', startLine: 1, endLine: 1, title: null }),
+            src({ id: 's2', path: '/abs/workspace/b.md', startLine: 2, endLine: 3, title: null }),
+          ],
+        },
+      ],
+    });
+    const csv = conversationToCsv(c, { stripBasePath: '/abs/workspace' });
+    const lines = csv.split('\r\n');
+    expect(lines[0]).toBe('turn_id,role,ts_iso,model,content,source_paths');
+    expect(csv).toContain('"has, comma\nand newline"');
+    expect(csv).toContain('a.md:1 | b.md:2-3');
+    expect(csv.endsWith('\r\n')).toBe(true);
   });
 });

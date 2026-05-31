@@ -15,7 +15,7 @@ import {
   renameConversation,
   setConversationArchived,
 } from '../services/conversations.js';
-import { conversationToMarkdown } from '../services/conversation-export.js';
+import { conversationToMarkdown, conversationToJson, conversationToCsv } from '../services/conversation-export.js';
 import { expand } from '@clawmind/config';
 import { buildPrompt } from '@clawmind/llm';
 import { Scopes } from '../scopes.js';
@@ -77,6 +77,36 @@ export const conversationRoutes: FastifyPluginAsyncZod = async (app) => {
         .header('content-type', 'text/markdown; charset=utf-8')
         .header('content-disposition', `attachment; filename="clawmind-${conv.id}.md"`)
         .send(md);
+    },
+  });
+
+  app.get<{ Params: { id: string } }>('/conversations/:id/export.json', {
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
+    handler: async (req, reply) => {
+      const conv = await loadConversation(app.clawmind.dataDir, req.params.id);
+      if (!conv || conv.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });
+      const payload = conversationToJson(conv, {
+        stripBasePath: expand(app.clawmind.env.CLAWMIND_WORKSPACE),
+      });
+      reply
+        .header('content-type', 'application/json; charset=utf-8')
+        .header('content-disposition', `attachment; filename="clawmind-${conv.id}.json"`)
+        .send(payload);
+    },
+  });
+
+  app.get<{ Params: { id: string } }>('/conversations/:id/export.csv', {
+    preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
+    handler: async (req, reply) => {
+      const conv = await loadConversation(app.clawmind.dataDir, req.params.id);
+      if (!conv || conv.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });
+      const csv = conversationToCsv(conv, {
+        stripBasePath: expand(app.clawmind.env.CLAWMIND_WORKSPACE),
+      });
+      reply
+        .header('content-type', 'text/csv; charset=utf-8')
+        .header('content-disposition', `attachment; filename="clawmind-${conv.id}.csv"`)
+        .send(csv);
     },
   });
 
