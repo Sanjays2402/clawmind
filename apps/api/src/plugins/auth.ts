@@ -4,7 +4,8 @@ import { verifySecret, hasScope, ipAllowedByKey } from '../services/api-keys.js'
 import { recordUsage } from '../services/api-key-usage.js';
 import { consume as consumeKeyBucket } from '../services/api-key-rate-limit.js';
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
-import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid } from '../services/sessions.js';
+import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid, getBySid as getSessionBySid, revokeBySid as revokeSessionBySid } from '../services/sessions.js';
+import { getPolicyCached as getSessionPolicyCached, evaluateSession as evaluateSessionPolicy } from '../services/session-policy.js';
 import { getStatus as getMfaStatus } from '../services/mfa.js';
 import { verifyCookie as verifyTrustedDeviceCookie, TRUSTED_DEVICE_COOKIE } from '../services/mfa-trusted-devices.js';
 import {
@@ -196,6 +197,43 @@ const plugin: FastifyPluginAsync = async (app) => {
           if (await sessionIsRevoked(app.clawmind.dataDir, sid)) {
             await req.session.destroy();
             return reply.code(401).send({ error: 'session revoked' });
+          }
+          // Workspace session-lifetime policy. If the owner has set a
+          // maximum lifetime or idle timeout, evaluate the registry
+          // record for this sid against the policy. A session that has
+          // aged out is permanently revoked (not just signed out for
+          // this one request) so the cookie cannot be replayed.
+          const policy = await getSessionPolicyCached(app.clawmind.dataDir);
+          if (policy.maxLifetimeMinutes > 0 || policy.idleTimeoutMinutes > 0) {
+            const rec = await getSessionBySid(app.clawmind.dataDir, sid).catch(() => null);
+            if (rec && !rec.revokedAt) {
+              const decision = evaluateSessionPolicy(
+                policy,
+                { createdAt: rec.createdAt, lastSeenAt: rec.lastSeenAt },
+                Date.now(),
+              );
+              if (!decision.ok) {
+                await revokeSessionBySid(app.clawmind.dataDir, sid).catch(() => undefined);
+                await app.clawmind.audit.write({
+                  actor: rec.userId,
+                  action: 'session.policy.expired',
+                  resource: req.url,
+                  meta: {
+                    reason: decision.reason,
+                    limitMinutes: decision.limitMinutes,
+                    ageMinutes: decision.ageMinutes,
+                    ip: req.ip,
+                    requestId: req.id,
+                  },
+                }).catch(() => undefined);
+                await req.session.destroy();
+                return reply.code(401).send({
+                  error: 'session expired',
+                  reason: decision.reason,
+                  limitMinutes: decision.limitMinutes,
+                });
+              }
+            }
           }
           // Best-effort last-seen update; never block the request on it.
           void touchSession(app.clawmind.dataDir, sid).catch(() => undefined);

@@ -335,6 +335,21 @@ export interface MfaPolicyLimits {
   defaultGraceDays: number;
 }
 
+export interface SessionPolicy {
+  workspaceId: string;
+  maxLifetimeMinutes: number;
+  idleTimeoutMinutes: number;
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export interface SessionPolicyLimits {
+  maxLifetimeMinutes: number;
+  maxIdleMinutes: number;
+  defaultLifetimeMinutes: number;
+  defaultIdleMinutes: number;
+}
+
 export type MemberRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface MemberRecord {
@@ -877,6 +892,14 @@ export const api = {
     }).then((r) => r.policy),
   mfaPolicyDisable: () =>
     j<{ policy: MfaPolicy }>('/v1/mfa-policy', { method: 'DELETE' }).then((r) => r.policy),
+
+  sessionPolicyGet: () =>
+    j<{ policy: SessionPolicy; limits: SessionPolicyLimits }>('/v1/session-policy'),
+  sessionPolicySet: (input: { maxLifetimeMinutes: number; idleTimeoutMinutes: number }) =>
+    j<{ policy: SessionPolicy }>('/v1/session-policy', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.policy),
 
   // Multi-factor auth. The /settings/mfa page walks the user through
   // enrollment (start, scan, confirm) and surfaces step-up state for

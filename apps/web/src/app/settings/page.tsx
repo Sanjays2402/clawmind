@@ -429,6 +429,7 @@ function ShortcutsCard() {
     { href: '/settings/legal-hold', label: 'Legal hold', description: 'Suppress deletion across the workspace during litigation or investigation.', Icon: IconShield },
     { href: '/settings/workspace-freeze', label: 'Workspace freeze', description: 'Pause every mutating endpoint while keeping reads and exports available.', Icon: IconShield },
     { href: '/settings/mfa-policy', label: 'MFA enforcement', description: 'Require every member to enrol multi-factor auth before any write is accepted.', Icon: IconShield },
+    { href: '/settings/session-policy', label: 'Session lifetime', description: 'Cap how long a signed-in browser session lives and how long it can sit idle.', Icon: IconClockCountdown },
     { href: '/settings/workspace-export', label: 'Workspace export (GDPR)', description: 'Owner-only tenant-wide data export as JSON or ZIP. Required for exit and data-portability obligations.', Icon: IconShield },
     { href: '/settings/policies', label: 'Workspace policies', description: 'Publish TOS, DPA, and AUP versions and track per-user acceptance.', Icon: IconBook },
     { href: '/settings/maintenance', label: 'Storage maintenance', description: 'Compact dangling rows and bulk forget indexed sources by glob.', Icon: IconShield },

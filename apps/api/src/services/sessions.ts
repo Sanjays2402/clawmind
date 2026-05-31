@@ -203,6 +203,32 @@ export async function revokeAllForUser(
   return { revoked };
 }
 
+export async function getBySid(
+  dataDir: string,
+  sid: string,
+): Promise<SessionRecord | null> {
+  const sidHash = hashSid(sid);
+  const file = await readRegistry(dataDir);
+  return file.sessions.find((s) => s.sidHash === sidHash) ?? null;
+}
+
+// Revoke a specific session by its raw sid. Used by the session-policy
+// enforcement plugin so a session that has aged past the workspace cap
+// is killed permanently the moment it tries to make a request, not just
+// signed out for this one process.
+export async function revokeBySid(
+  dataDir: string,
+  sid: string,
+): Promise<{ revoked: boolean }> {
+  const sidHash = hashSid(sid);
+  const file = await readRegistry(dataDir);
+  const rec = file.sessions.find((s) => s.sidHash === sidHash);
+  if (!rec || rec.revokedAt) return { revoked: false };
+  rec.revokedAt = Date.now();
+  await writeRegistry(dataDir, file);
+  return { revoked: true };
+}
+
 export async function removeBySid(dataDir: string, sid: string): Promise<void> {
   const sidHash = hashSid(sid);
   const file = await readRegistry(dataDir);

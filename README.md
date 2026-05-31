@@ -821,6 +821,31 @@ curl -s -X DELETE -H "Authorization: Bearer $CLAWMIND_KEY" \
 
 Every enable, disable, and every blocked write is written to the hash-chained audit log (`mfa-policy.enable`, `mfa-policy.disable`, `mfa-policy.denied`) so a compliance reviewer can prove the property was in force for any time window. Gated by the new `mfa-policy:read` / `mfa-policy:admin` API key scopes.
 
+### Workspace session lifetime policy
+
+Every enterprise security questionnaire asks whether the workspace can cap how long a signed-in browser session stays valid and how long it can sit idle. Per-user sign-out is necessary but not sufficient: until the workspace itself guarantees the property for every member, the answer is "we hope so". An owner can now set two caps at <http://127.0.0.1:7412/settings/session-policy>:
+
+- `maxLifetimeMinutes` is the absolute cap from session creation. Older sessions are revoked on the next request and the user has to sign in again.
+- `idleTimeoutMinutes` is the cap from the session's last seen request. Idle laptops time out without depending on the cookie's natural expiry.
+
+Either value at `0` means "unset" for that axis, matching the convention used by the other policy files in this repo. A session that has aged past the policy is permanently revoked the moment it tries to make a request, not just signed out for that one process, so the cookie cannot be replayed. The auth preHandler does the check on every request behind a 1 second cache, so flipping the switch in one tab is visible across the workspace within a second. API key callers are exempt by design; rotate or revoke keys instead.
+
+Try it:
+
+```sh
+# read the current policy (admin+)
+curl -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  http://127.0.0.1:7410/v1/session-policy
+
+# 1 day max lifetime, 1 hour idle timeout (owner + MFA step-up)
+curl -X PUT -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"maxLifetimeMinutes":1440,"idleTimeoutMinutes":60}' \
+  http://127.0.0.1:7410/v1/session-policy
+```
+
+Every update writes a before/after diff to the hash-chained audit log under `session-policy.update`, and every revocation triggered by the policy writes `session.policy.expired` with the reason (`lifetime-exceeded` or `idle-timeout`), the limit, and the request id, so a compliance reviewer can prove the property was in force for any time window. Gated by the new `session-policy:read` / `session-policy:admin` API key scopes.
+
 ### Workspace policy acceptance (TOS / DPA / AUP)
 
 Procurement and SOC2 reviewers consistently ask for proof that every user has been shown and has affirmatively accepted the current Terms of Service, Data Processing Addendum, and Acceptable Use Policy. ClawMind ships this as a first-class workflow: an owner publishes a versioned policy, and every authenticated request is gated until each user has accepted the latest required version. Refusing or skipping returns `HTTP 451 Unavailable For Legal Reasons` with the unmet policy ids so a UI or script can recover deterministically.

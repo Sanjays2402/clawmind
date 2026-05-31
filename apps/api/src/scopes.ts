@@ -164,6 +164,9 @@ export const Scopes = {
   MfaPolicyRead: 'mfa-policy:read',
   MfaPolicyManage: 'mfa-policy:admin',
 
+  SessionPolicyRead: 'session-policy:read',
+  SessionPolicyManage: 'session-policy:admin',
+
   // Tenant-wide GDPR / data-portability export. Per-user export already
   // lives under LifecycleManage; this is the owner-only "everything in
   // the workspace" path required by enterprise exit clauses. A narrow
