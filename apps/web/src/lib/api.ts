@@ -132,6 +132,16 @@ export interface ConversationListItem {
   updatedAt: number;
   turns: number;
   archivedAt: number | null;
+  snippet?: string | null;
+  matchedTurn?: number | null;
+}
+
+export interface ConversationSearchResult {
+  items: ConversationListItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  q: string;
 }
 
 export interface ConversationTurn {
@@ -398,6 +408,15 @@ export const api = {
   // Conversations
   conversationsList: (archived = false) =>
     j<{ items: ConversationListItem[] }>(`/v1/conversations${archived ? '?archived=true' : ''}`).then((r) => r.items),
+  conversationsSearch: (opts: { q?: string; archived?: boolean; limit?: number; offset?: number } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.q) params.set('q', opts.q);
+    if (opts.archived) params.set('archived', 'true');
+    if (opts.limit != null) params.set('limit', String(opts.limit));
+    if (opts.offset != null) params.set('offset', String(opts.offset));
+    const qs = params.toString();
+    return j<ConversationSearchResult>(`/v1/conversations${qs ? `?${qs}` : ''}`);
+  },
   conversationCreate: (title?: string) =>
     j<{ conversation: Conversation }>('/v1/conversations', {
       method: 'POST',

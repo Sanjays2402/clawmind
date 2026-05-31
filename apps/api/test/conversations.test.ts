@@ -7,6 +7,7 @@ import {
   forkConversation,
   appendTurn, toChatMessages, rewriteFollowUp, MAX_TURNS, MAX_CONTEXT_TURNS,
   renameConversation, setConversationArchived,
+  searchConversations, snippetAround,
 } from '../src/services/conversations.js';
 
 let dir: string;
@@ -249,5 +250,51 @@ describe('setConversationArchived', () => {
 
   it('returns null on a missing conversation', async () => {
     expect(await setConversationArchived(dir, 'u1', 'nope', true)).toBeNull();
+  });
+
+  describe('searchConversations', () => {
+    it('matches titles, returns snippet for turn matches, ranks title hits first, isolates users, paginates', async () => {
+      const a = await createConversation(dir, 'u1', 'Snip pipeline notes');
+      await new Promise((r) => setTimeout(r, 5));
+      const b = await createConversation(dir, 'u1', 'Vacation planning');
+      await appendTurn(dir, b.id, { role: 'user', content: 'I need a snip of bash that copies files' });
+      await new Promise((r) => setTimeout(r, 5));
+      const c = await createConversation(dir, 'u1', 'Unrelated thread');
+      await appendTurn(dir, c.id, { role: 'user', content: 'nothing to see here' });
+      await createConversation(dir, 'u2', 'Snip secrets'); // must not leak across users
+
+      const all = await searchConversations(dir, 'u1', { q: 'snip' });
+      expect(all.total).toBe(2);
+      expect(all.items.map((h) => h.conversation.id)).toEqual([a.id, b.id]);
+      expect(all.items[0].matchedTurn).toBeNull();
+      expect(all.items[0].snippet).toBeNull();
+      expect(all.items[1].matchedTurn).toBe(0);
+      expect(all.items[1].snippet).toContain('snip');
+
+      const empty = await searchConversations(dir, 'u1', { q: 'zzznomatchzzz' });
+      expect(empty.total).toBe(0);
+      expect(empty.items).toEqual([]);
+
+      const noQ = await searchConversations(dir, 'u1');
+      expect(noQ.total).toBe(3);
+      // Default sort is updatedAt desc; c was created last with a turn appended
+      expect(noQ.items[0].conversation.id).toBe(c.id);
+
+      const page1 = await searchConversations(dir, 'u1', { limit: 2, offset: 0 });
+      const page2 = await searchConversations(dir, 'u1', { limit: 2, offset: 2 });
+      expect(page1.items.length).toBe(2);
+      expect(page2.items.length).toBe(1);
+      expect(page1.total).toBe(3);
+      expect(page2.total).toBe(3);
+    });
+
+    it('snippetAround returns null when needle is absent and clips long text with ellipses', () => {
+      expect(snippetAround('hello world', 'zzz')).toBeNull();
+      const text = 'a'.repeat(200) + ' MIDDLE ' + 'b'.repeat(200);
+      const out = snippetAround(text, 'middle');
+      expect(out).toContain('MIDDLE');
+      expect(out!.startsWith('\u2026')).toBe(true);
+      expect(out!.endsWith('\u2026')).toBe(true);
+    });
   });
 });

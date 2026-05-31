@@ -6,7 +6,7 @@ import { QuerySchema } from '@clawmind/types';
 import {
   createConversation,
   loadConversation,
-  listConversations,
+  searchConversations,
   deleteConversation,
   forkConversation,
   appendTurn,
@@ -26,24 +26,41 @@ import { Scopes } from '../scopes.js';
 // last few turns as conversation context.
 
 export const conversationRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get<{ Querystring: { archived?: string } }>('/conversations', {
+  app.get<{ Querystring: { archived?: string; q?: string; limit?: string; offset?: string } }>('/conversations', {
     schema: {
       querystring: z.object({
         archived: z.enum(['true', 'false']).optional(),
+        q: z.string().max(200).optional(),
+        limit: z.string().regex(/^\d+$/).optional(),
+        offset: z.string().regex(/^\d+$/).optional(),
       }),
     },
     preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
     handler: async (req) => {
       const archived = req.query.archived === 'true';
-      const items = await listConversations(app.clawmind.dataDir, req.user!.id, { archived });
+      const q = (req.query.q ?? '').trim();
+      const limit = Math.min(Math.max(parseInt(req.query.limit ?? '50', 10) || 50, 1), 200);
+      const offset = Math.max(parseInt(req.query.offset ?? '0', 10) || 0, 0);
+      const { items, total } = await searchConversations(app.clawmind.dataDir, req.user!.id, {
+        q,
+        archived,
+        limit,
+        offset,
+      });
       return {
-        items: items.map((c) => ({
+        items: items.map(({ conversation: c, snippet, matchedTurn }) => ({
           id: c.id,
           title: c.title,
           updatedAt: c.updatedAt,
           turns: c.turns.length,
           archivedAt: c.archivedAt ?? null,
+          snippet: snippet ?? null,
+          matchedTurn,
         })),
+        total,
+        limit,
+        offset,
+        q,
       };
     },
   });

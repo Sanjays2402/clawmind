@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState, useTransition } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
 import { api, fmtRelative, type ConversationListItem } from '@/lib/api';
@@ -18,32 +18,99 @@ import {
 
 type Status = 'loading' | 'ok' | 'error' | 'empty';
 
+const PAGE_SIZE = 25;
+
+function highlight(text: string, q: string): React.ReactNode {
+  const needle = q.trim();
+  if (!needle) return text;
+  const lower = text.toLowerCase();
+  const ql = needle.toLowerCase();
+  const out: React.ReactNode[] = [];
+  let i = 0;
+  let pos = lower.indexOf(ql, i);
+  let key = 0;
+  while (pos !== -1) {
+    if (pos > i) out.push(text.slice(i, pos));
+    out.push(
+      <mark key={`m${key++}`} style={{ background: 'var(--cm-accent-soft)', color: 'inherit', padding: '0 2px', borderRadius: 3 }}>
+        {text.slice(pos, pos + needle.length)}
+      </mark>,
+    );
+    i = pos + needle.length;
+    pos = lower.indexOf(ql, i);
+  }
+  if (i < text.length) out.push(text.slice(i));
+  return out;
+}
+
 export default function ConversationsPage() {
   const [items, setItems] = useState<ConversationListItem[]>([]);
+  const [total, setTotal] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [status, setStatus] = useState<Status>('loading');
   const [err, setErr] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [query, setQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [title, setTitle] = useState('');
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [, start] = useTransition();
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Debounce the query so we don't hammer the API on every keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setDebouncedQuery(query.trim());
+      setOffset(0);
+    }, 200);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  // Focus the search box with `/` like Linear/GitHub.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   const reload = useCallback(async () => {
     setStatus('loading');
     setErr(null);
     try {
-      const list = await api.conversationsList(showArchived);
-      setItems(list);
-      setStatus(list.length === 0 ? 'empty' : 'ok');
+      const res = await api.conversationsSearch({
+        q: debouncedQuery || undefined,
+        archived: showArchived,
+        limit: PAGE_SIZE,
+        offset,
+      });
+      setItems(res.items);
+      setTotal(res.total);
+      setStatus(res.items.length === 0 ? 'empty' : 'ok');
     } catch (e) {
       setErr((e as Error).message);
       setStatus('error');
     }
-  }, [showArchived]);
+  }, [showArchived, debouncedQuery, offset]);
 
   useEffect(() => {
     reload();
   }, [reload]);
+
+  const pageInfo = useMemo(() => {
+    if (total === 0) return null;
+    const from = offset + 1;
+    const to = Math.min(offset + items.length, total);
+    return `${from}-${to} of ${total}`;
+  }, [items.length, offset, total]);
+
+  const hasPrev = offset > 0;
+  const hasMore = offset + items.length < total;
 
   const create = (e: React.FormEvent) => {
     e.preventDefault();
@@ -153,10 +220,56 @@ export default function ConversationsPage() {
           </div>
         </header>
 
+        <div
+          style={{
+            marginTop: 20,
+            display: 'flex',
+            gap: 8,
+            padding: 10,
+            border: '1px solid var(--cm-border)',
+            borderRadius: 12,
+            alignItems: 'center',
+            position: 'relative',
+          }}
+        >
+          <input
+            ref={searchRef}
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search titles and messages...   (press / to focus)"
+            aria-label="Search conversations"
+            style={{
+              flex: 1,
+              padding: '8px 10px',
+              border: 'none',
+              outline: 'none',
+              background: 'transparent',
+              color: 'var(--cm-fg)',
+              fontSize: 14,
+            }}
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              style={{ ...ghostBtn, padding: '4px 8px' }}
+              aria-label="Clear search"
+            >
+              Clear
+            </button>
+          )}
+          {pageInfo && (
+            <span style={{ fontSize: 12, color: 'var(--cm-muted)', whiteSpace: 'nowrap' }}>
+              {pageInfo}
+            </span>
+          )}
+        </div>
+
         <form
           onSubmit={create}
           style={{
-            marginTop: 20,
+            marginTop: 12,
             display: 'flex',
             gap: 8,
             padding: 12,
@@ -212,11 +325,19 @@ export default function ConversationsPage() {
           <div style={{ marginTop: 24 }}>
             <EmptyState
               icon={<IconChat />}
-              title={showArchived ? 'No archived conversations' : 'No conversations yet'}
+              title={
+                debouncedQuery
+                  ? `No matches for "${debouncedQuery}"`
+                  : showArchived
+                    ? 'No archived conversations'
+                    : 'No conversations yet'
+              }
               body={
-                showArchived
-                  ? 'Conversations you archive will show up here.'
-                  : 'Start a new thread above, or ask a one-shot question from the chat page.'
+                debouncedQuery
+                  ? 'Try a different word, clear the search, or toggle archived threads.'
+                  : showArchived
+                    ? 'Conversations you archive will show up here.'
+                    : 'Start a new thread above, or ask a one-shot question from the chat page.'
               }
             />
           </div>
@@ -255,12 +376,25 @@ export default function ConversationsPage() {
                           textDecoration: 'none',
                         }}
                       >
-                        {c.title || 'Untitled'}
+                        {highlight(c.title || 'Untitled', debouncedQuery)}
                       </Link>
                       <div style={{ marginTop: 4, fontSize: 12, color: 'var(--cm-muted)' }}>
                         {c.turns} turns · updated {fmtRelative(c.updatedAt)}
                         {c.archivedAt ? ` · archived ${fmtRelative(c.archivedAt)}` : ''}
                       </div>
+                      {c.snippet && (
+                        <div
+                          style={{
+                            marginTop: 6,
+                            fontSize: 13,
+                            color: 'var(--cm-fg)',
+                            opacity: 0.85,
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          {highlight(c.snippet, debouncedQuery)}
+                        </div>
+                      )}
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                       <button
@@ -299,6 +433,34 @@ export default function ConversationsPage() {
               );
             })}
           </ul>
+        )}
+
+        {status === 'ok' && (hasPrev || hasMore) && (
+          <div
+            style={{
+              marginTop: 16,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 8,
+            }}
+          >
+            <button
+              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+              disabled={!hasPrev}
+              style={{ ...ghostBtn, opacity: hasPrev ? 1 : 0.5 }}
+            >
+              ← Previous
+            </button>
+            <span style={{ fontSize: 12, color: 'var(--cm-muted)' }}>{pageInfo}</span>
+            <button
+              onClick={() => setOffset(offset + PAGE_SIZE)}
+              disabled={!hasMore}
+              style={{ ...ghostBtn, opacity: hasMore ? 1 : 0.5 }}
+            >
+              Next →
+            </button>
+          </div>
         )}
       </main>
     </div>

@@ -91,6 +91,89 @@ export async function listConversations(
 }
 
 /**
+ * Build a short snippet (~140 chars) around the first occurrence of `q`
+ * inside `text`, with the match preserved verbatim and ellipses where the
+ * surrounding text was clipped. Returns `null` when `q` is not found.
+ */
+export function snippetAround(text: string, q: string, radius = 60): string | null {
+  if (!text || !q) return null;
+  const lower = text.toLowerCase();
+  const idx = lower.indexOf(q.toLowerCase());
+  if (idx < 0) return null;
+  const start = Math.max(0, idx - radius);
+  const end = Math.min(text.length, idx + q.length + radius);
+  const head = start > 0 ? '\u2026' : '';
+  const tail = end < text.length ? '\u2026' : '';
+  return head + text.slice(start, end).replace(/\s+/g, ' ').trim() + tail;
+}
+
+export interface ConversationSearchHit {
+  conversation: Conversation;
+  snippet: string | null;
+  matchedTurn: number | null; // index into turns, or null if title-only match
+}
+
+/**
+ * Search a user's conversations by free-text. Matches a conversation when
+ * `q` (case-insensitive) appears in the title or in any turn's content.
+ * Results are sorted by updatedAt desc with title hits ranked above turn
+ * hits. Supports `limit` + `offset` for pagination and always returns the
+ * unpaged `total` so the UI can render "showing X of Y".
+ */
+export async function searchConversations(
+  dataDir: string,
+  userId: string,
+  opts: { q?: string; archived?: boolean; limit?: number; offset?: number } = {},
+): Promise<{ items: ConversationSearchHit[]; total: number }> {
+  const { q = '', archived = false, limit = 50, offset = 0 } = opts;
+  const d = dir(dataDir);
+  let files: string[] = [];
+  try {
+    files = await readdir(d);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { items: [], total: 0 };
+    throw err;
+  }
+  const all = await Promise.all(
+    files.filter((n) => n.endsWith('.json')).map(async (n) => {
+      const raw = await readFile(join(d, n), 'utf8');
+      return JSON.parse(raw) as Conversation;
+    }),
+  );
+  const owned = all
+    .filter((c) => c.userId === userId)
+    .filter((c) => (archived ? !!c.archivedAt : !c.archivedAt));
+
+  const needle = q.trim().toLowerCase();
+  type Ranked = ConversationSearchHit & { titleHit: boolean };
+  let hits: Ranked[];
+  if (!needle) {
+    hits = owned.map((c) => ({ conversation: c, snippet: null, matchedTurn: null, titleHit: false }));
+  } else {
+    hits = [];
+    for (const c of owned) {
+      const titleHit = c.title.toLowerCase().includes(needle);
+      let snippet: string | null = null;
+      let matchedTurn: number | null = null;
+      for (let i = 0; i < c.turns.length; i++) {
+        const s = snippetAround(c.turns[i].content, needle);
+        if (s) { snippet = s; matchedTurn = i; break; }
+      }
+      if (titleHit || snippet) {
+        hits.push({ conversation: c, snippet, matchedTurn, titleHit });
+      }
+    }
+  }
+  hits.sort((a, b) => {
+    if (a.titleHit !== b.titleHit) return a.titleHit ? -1 : 1;
+    return b.conversation.updatedAt - a.conversation.updatedAt;
+  });
+  const total = hits.length;
+  const page = hits.slice(offset, offset + limit).map(({ titleHit: _t, ...rest }) => rest);
+  return { items: page, total };
+}
+
+/**
  * Rename a conversation. Returns the updated conversation, or `null` when
  * it does not exist or is not owned by `userId`. The title is trimmed and
  * capped at the same 120-char limit used for fresh conversations.

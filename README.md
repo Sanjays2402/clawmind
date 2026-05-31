@@ -16,7 +16,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Saved searches with snapshot history so you can diff results over time
 - Pins, mutes, and aliases to bias or exclude paths from retrieval
 - Tags on files, browsable as facets
-- Conversations: multi-turn threads with archive, fork, rename, and Markdown export
+- Conversations: multi-turn threads with archive, fork, rename, Markdown export, and full-text search across titles and message content with highlighted snippets, paginated results, and a `/`-to-focus search box
 - History export: download every past ask as `.json`, `.csv`, or `.md`, with the same search and namespace filters the History page is showing
 - Feedback (thumbs / notes) on answers, used to mark good or bad chunks
 - Digests: scheduled recurring queries (e.g. "what changed this week in projects/")
@@ -122,6 +122,12 @@ Or browse <http://127.0.0.1:7412/history> to search every past question, expand 
 
 ```bash
 curl 'http://127.0.0.1:7410/v1/history?q=kernel&namespaces=memory&limit=20'
+```
+
+Or open <http://127.0.0.1:7412/conversations> to find any past thread by title or by something you (or the assistant) said inside it. The search box is debounced, hits show a highlighted snippet of the matching turn, results paginate at 25 per page, and pressing `/` from anywhere on the page jumps focus into the search field. The same endpoint backs every query:
+
+```bash
+curl 'http://127.0.0.1:7410/v1/conversations?q=snip&limit=25&offset=0'
 ```
 
 Or open <http://127.0.0.1:7412/welcome> on a fresh account for the three-step first-run guide. The page reads per-user progress from `/v1/onboarding`, marks each step done as you complete the underlying product action (ingest a source, ask a question, create an API key), and surfaces a one-click button to index the bundled sample pack so a brand new install can be useful in under a minute. The same endpoint powers a future home-page nudge, and progress survives logout:
