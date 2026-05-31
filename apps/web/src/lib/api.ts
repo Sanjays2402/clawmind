@@ -598,6 +598,23 @@ export interface ActiveSession {
   current: boolean;
 }
 
+export interface SignInRecord {
+  id: string;
+  actor: string;
+  method: string;
+  outcome: 'success' | 'failure' | 'logout';
+  ip: string;
+  userAgent: string;
+  reason?: string;
+  at: number;
+}
+
+export interface SignInListResult {
+  records: SignInRecord[];
+  nextCursor: string | null;
+  total: number;
+}
+
 export interface OnboardingProgress {
   completed: OnboardingStep[];
   next: OnboardingStep | null;
@@ -1008,6 +1025,29 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ keepCurrent }),
     }),
+
+  // Sign-in activity log. The self-view paginates newest-first; the admin
+  // view exposes failed attempts and probes that did not resolve to a
+  // user. Both share the same response shape.
+  signInLogList: (params: { outcome?: 'success' | 'failure' | 'logout'; method?: string; limit?: number; cursor?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.outcome) q.set('outcome', params.outcome);
+    if (params.method) q.set('method', params.method);
+    if (params.limit) q.set('limit', String(params.limit));
+    if (params.cursor) q.set('cursor', params.cursor);
+    const qs = q.toString();
+    return j<SignInListResult>(`/v1/sign-in-log${qs ? `?${qs}` : ''}`);
+  },
+  signInLogListAll: (params: { outcome?: 'success' | 'failure' | 'logout'; method?: string; actor?: string; limit?: number; cursor?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.outcome) q.set('outcome', params.outcome);
+    if (params.method) q.set('method', params.method);
+    if (params.actor) q.set('actor', params.actor);
+    if (params.limit) q.set('limit', String(params.limit));
+    if (params.cursor) q.set('cursor', params.cursor);
+    const qs = q.toString();
+    return j<SignInListResult>(`/v1/sign-in-log/all${qs ? `?${qs}` : ''}`);
+  },
 
   // Workspace members and RBAC. The 4-role hierarchy is enforced server
   // side; the UI surfaces who has access, who invited them, and lets an

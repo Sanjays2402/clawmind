@@ -422,6 +422,7 @@ function ShortcutsCard() {
     { href: '/settings/webhook-allowlist', label: 'Webhook allowlist', description: 'Restrict outbound webhook deliveries to approved hostnames.', Icon: IconWebhook },
     { href: '/settings/webhook-events-allowlist', label: 'Webhook event allowlist', description: 'Restrict which webhook event subjects can be subscribed to at all.', Icon: IconWebhook },
     { href: '/settings/sessions', label: 'Active sessions', description: 'See where you are signed in and force-logout any browser.', Icon: IconKey },
+    { href: '/settings/sign-in-log', label: 'Sign-in activity', description: 'Audit every login attempt, including failures and probes. Admins see the full workspace feed.', Icon: IconShield },
     { href: '/settings/members', label: 'Members and RBAC', description: 'Invite teammates and assign owner, admin, member, or viewer.', Icon: IconShield },
     { href: '/settings/access-reviews', label: 'Access reviews', description: 'Periodic recertification of who has access. Required for SOC2 CC6.3 and ISO 27001 A.9.2.5.', Icon: IconShield },
     { href: '/settings/role-elevation', label: 'Role elevation', description: 'Break-glass time-bound privilege grants with four-eyes approval and full audit. Required for SOC2 CC6.3 privileged access.', Icon: IconClockCountdown },

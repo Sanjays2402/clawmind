@@ -10,6 +10,7 @@ import {
 } from '../services/api-key-bruteforce.js';
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
 import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid, getBySid as getSessionBySid, revokeBySid as revokeSessionBySid } from '../services/sessions.js';
+import { recordSignIn } from '../services/sign-in-log.js';
 import { getPolicyCached as getSessionPolicyCached, evaluateSession as evaluateSessionPolicy } from '../services/session-policy.js';
 import { getStatus as getMfaStatus } from '../services/mfa.js';
 import { verifyCookie as verifyTrustedDeviceCookie, TRUSTED_DEVICE_COOKIE } from '../services/mfa-trusted-devices.js';
@@ -504,18 +505,34 @@ const plugin: FastifyPluginAsync = async (app) => {
         code,
       }),
     }).then((r) => r.json()) as { access_token?: string };
-    if (!tokenRes.access_token) return reply.code(400).send({ error: 'oauth failed' });
+    if (!tokenRes.access_token) {
+      await recordSignIn(app.clawmind.dataDir, {
+        actor: 'anonymous', method: 'github', outcome: 'failure',
+        ip: req.ip, userAgent: req.headers['user-agent'],
+        reason: 'oauth token exchange failed',
+      }).catch(() => undefined);
+      return reply.code(400).send({ error: 'oauth failed' });
+    }
     const ghUser = await fetch('https://api.github.com/user', {
       headers: { authorization: `Bearer ${tokenRes.access_token}`, accept: 'application/json' },
     }).then((r) => r.json()) as { login: string; id: number };
     const allowed = env.CLAWMIND_ALLOWED_GITHUB_USERS.split(',').map((s) => s.trim()).filter(Boolean);
     if (allowed.length && !allowed.includes(ghUser.login)) {
+      await recordSignIn(app.clawmind.dataDir, {
+        actor: `gh:${ghUser.login}`, method: 'github', outcome: 'failure',
+        ip: req.ip, userAgent: req.headers['user-agent'],
+        reason: 'user not on allowlist',
+      }).catch(() => undefined);
       return reply.code(403).send({ error: 'not allowed' });
     }
     req.session.userId = `gh:${ghUser.id}`;
     req.session.github = ghUser.login;
     req.session.authMethod = 'github';
     await app.clawmind.audit.write({ actor: req.session.userId, action: 'login', resource: 'github' });
+    await recordSignIn(app.clawmind.dataDir, {
+      actor: req.session.userId, method: 'github', outcome: 'success',
+      ip: req.ip, userAgent: req.headers['user-agent'],
+    }).catch(() => undefined);
     const sid = (req.session as unknown as { sessionId?: string }).sessionId;
     if (sid) {
       const policy = await getSessionPolicyCached(app.clawmind.dataDir).catch(() => null);
@@ -547,9 +564,14 @@ const plugin: FastifyPluginAsync = async (app) => {
 
   app.post('/auth/logout', async (req, reply) => {
     const sid = (req.session as unknown as { sessionId?: string }).sessionId;
+    const actor = req.session.userId ?? 'anonymous';
     if (sid) {
       await removeBySid(app.clawmind.dataDir, sid).catch(() => undefined);
     }
+    await recordSignIn(app.clawmind.dataDir, {
+      actor, method: req.session.authMethod ?? 'session', outcome: 'logout',
+      ip: req.ip, userAgent: req.headers['user-agent'],
+    }).catch(() => undefined);
     await req.session.destroy();
     reply.send({ ok: true });
   });
@@ -630,6 +652,11 @@ const plugin: FastifyPluginAsync = async (app) => {
           resource: 'oidc',
           meta: { reason: 'state mismatch' },
         });
+        await recordSignIn(app.clawmind.dataDir, {
+          actor: 'anonymous', method: 'oidc', outcome: 'failure',
+          ip: req.ip, userAgent: req.headers['user-agent'],
+          reason: 'state mismatch',
+        }).catch(() => undefined);
         return reply.code(400).send({ error: 'state mismatch' });
       }
       try {
@@ -647,6 +674,10 @@ const plugin: FastifyPluginAsync = async (app) => {
             emailVerified: result.emailVerified,
           },
         });
+        await recordSignIn(app.clawmind.dataDir, {
+          actor: result.userId, method: 'oidc', outcome: 'success',
+          ip: req.ip, userAgent: req.headers['user-agent'],
+        }).catch(() => undefined);
         const sid = (req.session as unknown as { sessionId?: string }).sessionId;
         if (sid) {
           const policy = await getSessionPolicyCached(app.clawmind.dataDir).catch(() => null);
@@ -683,6 +714,11 @@ const plugin: FastifyPluginAsync = async (app) => {
           resource: 'oidc',
           meta: { reason: msg },
         });
+        await recordSignIn(app.clawmind.dataDir, {
+          actor: 'anonymous', method: 'oidc', outcome: 'failure',
+          ip: req.ip, userAgent: req.headers['user-agent'],
+          reason: msg,
+        }).catch(() => undefined);
         return reply.code(401).send({ error: msg });
       }
     },

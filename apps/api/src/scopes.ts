@@ -297,6 +297,15 @@ export const Scopes = {
   RoleElevationRead: 'role-elevation:read',
   RoleElevationRequest: 'role-elevation:write',
   RoleElevationManage: 'role-elevation:admin',
+
+  // Sign-in activity log. The self-view (SignInLogRead) lets a user audit
+  // their own login history from any client, which is the table-stakes
+  // "recent sign-ins" surface every enterprise security review asks for.
+  // SignInLogReadAll is admin+ because the full feed includes failed
+  // login attempts against arbitrary identifiers (probing); exposing it
+  // to the wider org would itself be a low-grade information leak.
+  SignInLogRead: 'sign-in-log:read',
+  SignInLogReadAll: 'sign-in-log:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

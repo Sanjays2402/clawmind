@@ -10,6 +10,22 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Sign-in activity log: every login attempt against the API is recorded in a focused, append-only log so a security reviewer doesn't have to grep the global audit chain during an incident. Each record carries the canonical actor, the auth method (`github`, `oidc`, ...), the outcome (`success`, `failure`, `logout`), the source IP, a truncated user-agent, and an optional reason on failure. The self-view at `GET /v1/sign-in-log` is scoped to the caller and is gated by `sign-in-log:read`; the workspace view at `GET /v1/sign-in-log/all` is admin+ and gated by `sign-in-log:admin` because the full feed exposes probing attempts that never resolved to a user. Both endpoints paginate newest-first with a stable cursor. State lives at `data/sign-in-log.json` capped at 5000 rows. The web console renders the same data at `/settings/sign-in-log` with outcome filters and a one-click toggle between the self and workspace views.
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # My recent sign-ins (session cookie required)
+  curl -sS --cookie 'cm.sid=...' http://localhost:8787/v1/sign-in-log
+
+  # Workspace-wide failures only (admin+ API key)
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    'http://localhost:8787/v1/sign-in-log/all?outcome=failure&limit=50'
+
+  # Open the activity view in a browser
+  open http://localhost:3000/settings/sign-in-log
+  ```
+
 - Security Incident Disclosure Log: enterprise procurement (SOC 2 CC7.4, ISO 27001 A.5.24, NIST IR-6) wants a published, machine-readable timeline of past incidents with severity, scope, customer-data impact, and resolution. The public list at `GET /v1/incidents` and the rendered page at `/incidents` are unauthenticated so a buyer's vendor-review tool can crawl them without credentials. Each incident carries `severity` (low / medium / high / critical), `status` (investigating, identified, monitoring, resolved), `startedAt`, `resolvedAt`, `affectedComponents`, a boolean `customerDataImpacted` rendered prominently because it is the single most-asked-about field in any questionnaire, and a chronological update timeline. Operator-only fields (`privateNotes`, `updatedBy`) are stripped from the public projection. Writes are owner-only with MFA step-up: `POST /v1/incidents`, `PUT /v1/incidents/:id`, and `DELETE /v1/incidents/:id` all support a `?dry_run=true` validate-only mode and land an `incidents.create` / `incidents.update` / `incidents.delete` row in the hash-chained audit log with the severity, status, and customer-data-impact bit (never the private notes). State lives at `data/incidents.json`, the admin list at `GET /v1/incidents/admin` is gated by `incidents:read` (admin+), and every write is gated by `incidents:admin` (owner + MFA).
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
