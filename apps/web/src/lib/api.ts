@@ -254,6 +254,31 @@ export interface IpAllowlistInput {
   rules: Array<{ cidr: string; label?: string }>;
 }
 
+export interface WebhookAllowedHost {
+  host: string;
+  label: string;
+  createdAt: number;
+}
+
+export interface WebhookAllowlistRecord {
+  userId: string;
+  enabled: boolean;
+  hosts: WebhookAllowedHost[];
+  updatedAt: number;
+  createdAt: number;
+}
+
+export interface WebhookAllowlistLimits {
+  maxHosts: number;
+  maxLabel: number;
+  maxHostLen: number;
+}
+
+export interface WebhookAllowlistInput {
+  enabled: boolean;
+  hosts: Array<{ host: string; label?: string }>;
+}
+
 export interface RetentionPolicy {
   userId: string;
   historyDays: number | null;
@@ -703,6 +728,20 @@ export const api = {
     j<{ record: IpAllowlistRecord; limits: IpAllowlistLimits }>('/v1/ip-allowlist'),
   ipAllowlistPut: (input: IpAllowlistInput) =>
     j<{ record: IpAllowlistRecord }>('/v1/ip-allowlist', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.record),
+
+  // Workspace-managed outbound webhook destination allowlist. When
+  // enabled, every webhook URL (at registration, update, and on every
+  // delivery attempt) must match an allowed host pattern. Get is
+  // admins+; Put is owner-only with MFA step-up.
+  webhookAllowlistGet: () =>
+    j<{ record: WebhookAllowlistRecord; limits: WebhookAllowlistLimits }>(
+      '/v1/webhook-allowlist',
+    ),
+  webhookAllowlistPut: (input: WebhookAllowlistInput) =>
+    j<{ record: WebhookAllowlistRecord }>('/v1/webhook-allowlist', {
       method: 'PUT',
       body: JSON.stringify(input),
     }).then((r) => r.record),

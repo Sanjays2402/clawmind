@@ -4,6 +4,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { nanoid } from 'nanoid';
 import { notify } from './notifications.js';
 import { assertPublicUrl, parseSafeUrl, UnsafeUrlError, type UrlGuardOptions } from './url-guard.js';
+import { checkWebhookUrl } from './webhook-allowlist.js';
 
 // Module-level guard options. The server overwrites this at boot from env
 // (allowPrivate + allowedPorts). Defaults are deny-by-default in production
@@ -201,6 +202,11 @@ export async function createWebhook(
     if (err instanceof UnsafeUrlError) throw new Error(`unsafe url: ${err.message}`);
     throw err;
   }
+  // Workspace-managed destination allowlist (egress). Owners can lock
+  // outbound webhooks down to an approved host set; reject at registration
+  // when a URL would never pass delivery.
+  const allow = await checkWebhookUrl(dataDir, userId, url);
+  if (!allow.allowed) throw new Error(`blocked by webhook allowlist: ${allow.reason}`);
   if (events.length === 0) throw new Error('events must not be empty');
   for (const e of events) {
     if (!(WEBHOOK_EVENTS as readonly string[]).includes(e)) {
@@ -242,6 +248,8 @@ export async function updateWebhook(
       if (err instanceof UnsafeUrlError) throw new Error(`unsafe url: ${err.message}`);
       throw err;
     }
+    const allow = await checkWebhookUrl(dataDir, userId, patch.url);
+    if (!allow.allowed) throw new Error(`blocked by webhook allowlist: ${allow.reason}`);
     cur.url = patch.url;
   }
   if (patch.events !== undefined) {
@@ -347,6 +355,18 @@ export async function deliverOnce(
       lastErr = err instanceof UnsafeUrlError
         ? `blocked: ${err.message}`
         : (err as Error).message || 'url guard failed';
+      lastStatus = null;
+      ok = false;
+      break;
+    }
+    // Workspace allowlist re-check. Owners can tighten the allowed-host
+    // set after a webhook was registered; we must not keep firing at a
+    // receiver that is no longer approved. Like the SSRF check above,
+    // this is treated as a hard config failure, not a retriable error.
+    const allowCheck = await checkWebhookUrl(dataDir, webhook.userId, webhook.url);
+    if (!allowCheck.allowed) {
+      clearTimeout(timer);
+      lastErr = `blocked by webhook allowlist: ${allowCheck.reason}`;
       lastStatus = null;
       ok = false;
       break;

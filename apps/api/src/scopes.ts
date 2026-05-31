@@ -71,6 +71,16 @@ export const Scopes = {
   WebhooksRead: 'webhooks:read',
   WebhooksManage: 'webhooks:admin',
 
+  // Workspace-managed outbound webhook destination allowlist (egress).
+  // Owners can lock outbound webhooks down to an approved set of
+  // hostnames / suffix patterns, enforced at create, update, and on
+  // every delivery attempt. Read is granted to admins+ so a delegated
+  // operator can audit the closed list; Write is owner-only with MFA
+  // step-up because tightening it can immediately stop in-flight
+  // deliveries to a revoked receiver.
+  WebhookAllowlistRead: 'webhook-allowlist:read',
+  WebhookAllowlistWrite: 'webhook-allowlist:write',
+
   UsageRead: 'usage:read',
 
   OnboardingRead: 'onboarding:read',

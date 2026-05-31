@@ -25,6 +25,7 @@ import { snapshotRoutes } from './snapshots.js';
 import { lifecycleRoutes } from './lifecycle.js';
 import { auditRoutes } from './audit.js';
 import { webhookRoutes } from './webhooks.js';
+import { webhookAllowlistRoutes } from './webhook-allowlist.js';
 import { usageRoutes } from './usage.js';
 import { batchRoutes } from './batch.js';
 import { onboardingRoutes } from './onboarding.js';
@@ -71,6 +72,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(lifecycleRoutes, { prefix: '/v1' });
   await app.register(auditRoutes, { prefix: '/v1' });
   await app.register(webhookRoutes, { prefix: '/v1' });
+  await app.register(webhookAllowlistRoutes, { prefix: '/v1' });
   await app.register(usageRoutes, { prefix: '/v1' });
   await app.register(batchRoutes, { prefix: '/v1' });
   await app.register(onboardingRoutes, { prefix: '/v1' });
