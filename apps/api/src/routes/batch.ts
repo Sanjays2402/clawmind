@@ -6,6 +6,7 @@ import { Scopes } from '../scopes.js';
 import { recordHistory } from '../services/history.js';
 import { recordUsage } from '../services/usage.js';
 import { enforceQuotaGate } from '../lib/quota-gate.js';
+import { getPolicy as getPiiPolicy, applyRedaction as applyPii } from '../services/pii-redaction.js';
 import {
   BATCH_LIMITS,
   extractRows,
@@ -69,10 +70,59 @@ export const batchRoutes: FastifyPluginAsyncZod = async (app) => {
       let okCount = 0;
       let errCount = 0;
 
+      // Load the PII policy once for the whole batch instead of
+      // re-reading the file per row. The shape of the policy cannot
+      // change mid-batch since we await it here before iterating.
+      const piiPolicy = await getPiiPolicy(app.clawmind.dataDir);
+      let piiRedactedRows = 0;
+      let piiBlockedRows = 0;
+
       for (const row of rows) {
         const t0 = Date.now();
+        const piiResult = applyPii(row.q, piiPolicy);
+        if (piiResult.blockedBy) {
+          piiBlockedRows++;
+          await app.clawmind.audit.write({
+            actor: req.user!.id,
+            action: 'pii-redaction.blocked',
+            resource: '/v1/ask/batch',
+            meta: {
+              blockedBy: piiResult.blockedBy,
+              matches: piiResult.matches.map((m) => ({
+                class: m.className,
+                action: m.action,
+                count: m.count,
+              })),
+            },
+          });
+          results.push({
+            q: '[REDACTED]',
+            tag: row.tag,
+            ok: false,
+            error: `pii-blocked: ${piiResult.blockedBy}`,
+            durationMs: Date.now() - t0,
+          });
+          errCount++;
+          continue;
+        }
+        const q = piiResult.redacted;
+        if (piiResult.matches.length > 0) {
+          piiRedactedRows++;
+          await app.clawmind.audit.write({
+            actor: req.user!.id,
+            action: 'pii-redaction.redacted',
+            resource: '/v1/ask/batch',
+            meta: {
+              matches: piiResult.matches.map((m) => ({
+                class: m.className,
+                action: m.action,
+                count: m.count,
+              })),
+            },
+          });
+        }
         try {
-          const expanded = app.aliases.expandQuery(row.q);
+          const expanded = app.aliases.expandQuery(q);
           const result = await ask(app.rag, {
             q: expanded,
             k: k ?? 8,
@@ -86,13 +136,13 @@ export const batchRoutes: FastifyPluginAsyncZod = async (app) => {
             id,
             ts: Date.now(),
             userId: req.user!.id,
-            query: row.q,
+            query: q,
             answer: result.text,
             sources: result.sources,
             model: result.model,
           });
           results.push({
-            q: row.q,
+            q,
             tag: row.tag,
             ok: true,
             answer: result.text,
@@ -103,7 +153,7 @@ export const batchRoutes: FastifyPluginAsyncZod = async (app) => {
           okCount++;
         } catch (err) {
           results.push({
-            q: row.q,
+            q,
             tag: row.tag,
             ok: false,
             error: (err as Error).message,

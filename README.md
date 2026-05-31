@@ -10,6 +10,25 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Workspace PII redaction policy: owner-managed detector classes (email, phone, SSN, credit card, IPv4 plus custom labelled regex) enforced on every inbound query to `/v1/ask`, `/v1/ask/stream`, `/v1/search`, `/v1/explain` and `/v1/ask/batch` before retrieval or the LLM run. Each class can be `off`, `redact` (rewrite matches in place as `[REDACTED:class]`), or `block` (reject with 422 `pii-blocked`). Credit card matches are Luhn-validated to suppress false positives from order IDs, and SSN / credit_card default to `block` because a partial redaction that misses a single digit still leaks the secret. The policy file lives at `data/pii-redaction.json`, `GET /v1/pii-redaction` is admin+, `PUT /v1/pii-redaction` is owner only with MFA step-up, and every redaction or block writes a `pii-redaction.redacted` / `pii-redaction.blocked` row into the hash-chained audit log with class names and counts only, never the matched substring or the raw query. Gated by the new `pii-redaction:read` / `pii-redaction:admin` API-key scopes.
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # Read the current policy (admin+)
+  curl -sS http://localhost:8787/v1/pii-redaction \
+    -H "Authorization: Bearer $CLAWMIND_KEY"
+
+  # Demo: send a query containing an SSN. The policy default rejects with 422.
+  curl -sS -i -X POST http://localhost:8787/v1/ask \
+    -H "Authorization: Bearer $CLAWMIND_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"q":"lookup patient 123-45-6789 history"}'
+
+  # Browse the settings page in a browser
+  open http://localhost:3000/settings/pii-redaction
+  ```
+
 - Workspace CORS origin allowlist: owner-managed list of additional browser origins permitted to call the API on top of the static `CLAWMIND_API_CORS_ORIGIN` baseline. Enterprise customers who embed ClawMind in their own dashboard at `app.acme.com` add the origin themselves rather than file a support ticket, while the vendor still controls the default. The list is read once per CORS preflight from `data/workspace-origin-allowlist.json` (bounded to 64 origins), `GET /v1/workspace-origin-allowlist` is admin+, `PUT /v1/workspace-origin-allowlist` is owner only with MFA step-up, and every change writes a `workspace-origin-allowlist.update` row into the hash-chained audit log with the added and removed origins. Server-to-server callers (no Origin header) are unaffected since CORS only matters to browsers. Gated by the new `origin-allowlist:read` / `origin-allowlist:write` API key scopes.
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):

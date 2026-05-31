@@ -1722,6 +1722,23 @@ export const api = {
       method: 'DELETE',
     }).then((r) => r.rule),
 
+  // Workspace PII redaction policy. Owner-managed detector classes
+  // (email/phone/ssn/credit_card/ipv4 plus custom regex) enforced
+  // before retrieval and the LLM on /v1/ask, /v1/ask/stream,
+  // /v1/search, /v1/explain and /v1/ask/batch. 'redact' rewrites
+  // matches in place; 'block' rejects the request with 422
+  // 'pii-blocked'.
+  piiRedactionGet: () =>
+    j<{ policy: PiiRedactionPolicy }>('/v1/pii-redaction').then((r) => r.policy),
+  piiRedactionPut: (input: {
+    builtins?: Partial<Record<PiiBuiltinClass, PiiAction>>;
+    custom?: Array<{ id?: string; label: string; pattern: string; action: PiiAction }>;
+  }) =>
+    j<{ policy: PiiRedactionPolicy }>('/v1/pii-redaction', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.policy),
+
   // API-key brute-force throttle. Surfaces the currently locked source
   // IPs, recent failed attempts, and the policy parameters so an admin
   // can demo "failed-key probing is blocked at the front door".
@@ -1912,6 +1929,25 @@ export interface SubProcessorRegistry {
   intro: string;
   contactEmail: string | null;
   entries: SubProcessor[];
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export type PiiAction = 'off' | 'redact' | 'block';
+export type PiiBuiltinClass = 'email' | 'phone' | 'ssn' | 'credit_card' | 'ipv4';
+export interface PiiCustomRule {
+  id: string;
+  label: string;
+  pattern: string;
+  action: PiiAction;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+export interface PiiRedactionPolicy {
+  version: 1;
+  builtins: Record<PiiBuiltinClass, PiiAction>;
+  custom: PiiCustomRule[];
   updatedAt: number;
   updatedBy: string | null;
 }

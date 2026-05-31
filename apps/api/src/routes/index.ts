@@ -55,6 +55,7 @@ import { offboardingRoutes } from './offboarding.js';
 import { workspaceQuotaRoutes } from './workspace-quota.js';
 import { apiKeyBruteForceRoutes } from './api-key-bruteforce.js';
 import { subProcessorsRoutes } from './sub-processors.js';
+import { piiRedactionRoutes } from './pii-redaction.js';
 import { dataResidencyRoutes } from './data-residency.js';
 import { dsrRoutes } from './dsr.js';
 import { workspaceIpAllowlistRoutes } from './workspace-ip-allowlist.js';
@@ -119,6 +120,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(workspaceQuotaRoutes, { prefix: '/v1' });
   await app.register(apiKeyBruteForceRoutes, { prefix: '/v1' });
   await app.register(subProcessorsRoutes, { prefix: '/v1' });
+  await app.register(piiRedactionRoutes, { prefix: '/v1' });
   await app.register(dataResidencyRoutes, { prefix: '/v1' });
   await app.register(dsrRoutes, { prefix: '/v1' });
   await app.register(workspaceIpAllowlistRoutes, { prefix: '/v1' });

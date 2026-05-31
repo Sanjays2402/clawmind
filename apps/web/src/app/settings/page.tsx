@@ -435,6 +435,8 @@ function ShortcutsCard() {
     { href: '/settings/api-key-policy', label: 'API key policy', description: 'Cap key lifetime, require expiry, limit active keys per user, forbid wildcard scopes, and flag overdue rotations.', Icon: IconKey },
     { href: '/settings/workspace-export', label: 'Workspace export (GDPR)', description: 'Owner-only tenant-wide data export as JSON or ZIP. Required for exit and data-portability obligations.', Icon: IconShield },
     { href: '/settings/query-blocklist', label: 'Query blocklist', description: 'Block literal or regex patterns from reaching retrieval or the model on ask, search, and explain.', Icon: IconShield },
+    { href: '/settings/pii-redaction', label: 'PII redaction', description: 'Scrub or block email, phone, SSN, credit card, IP, and custom regex matches before any query reaches retrieval or the LLM.', Icon: IconShield },
+    { href: '/settings/pii-redaction', label: 'PII redaction', description: 'Redact or block secrets such as emails, SSNs and credit cards before any query reaches the LLM.', Icon: IconShield },
     { href: '/settings/policies', label: 'Workspace policies', description: 'Publish TOS, DPA, and AUP versions and track per-user acceptance.', Icon: IconBook },
     { href: '/settings/maintenance', label: 'Storage maintenance', description: 'Compact dangling rows and bulk forget indexed sources by glob.', Icon: IconShield },
     { href: '/settings/notifications', label: 'Notification preferences', description: 'Pick which inbox alerts you want to receive.', Icon: IconSettings },

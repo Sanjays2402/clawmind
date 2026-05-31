@@ -268,6 +268,14 @@ export const Scopes = {
   // public, internet-facing page that procurement teams cite by URL.
   TrustRead: 'trust:read',
   TrustManage: 'trust:admin',
+
+  // Workspace PII redaction policy. Read is admin+ so a compliance
+  // operator can see which detector classes are active without being
+  // able to weaken them. Manage is owner-only with MFA step-up because
+  // turning a class to 'off' immediately allows secrets to flow to the
+  // LLM provider on the next /v1/ask call.
+  PiiRedactionRead: 'pii-redaction:read',
+  PiiRedactionManage: 'pii-redaction:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

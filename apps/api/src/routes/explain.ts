@@ -3,6 +3,7 @@ import { retrieveExplain } from '@clawmind/rag';
 import { QuerySchema } from '@clawmind/types';
 import { Scopes } from '../scopes.js';
 import { enforceQueryBlocklist } from '../lib/query-blocklist-gate.js';
+import { enforcePiiRedaction } from '../lib/pii-redaction-gate.js';
 
 // POST /v1/explain
 //
@@ -18,6 +19,9 @@ export const explainRoutes: FastifyPluginAsyncZod = async (app) => {
     preHandler: [app.requireAuth, app.requireScope(Scopes.Search)],
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     handler: async (req, reply) => {
+      const pii = await enforcePiiRedaction(app, reply, req.user!.id, '/v1/explain', req.body.q);
+      if (!pii.ok) return;
+      req.body.q = pii.query!;
       if (!(await enforceQueryBlocklist(app, reply, req.user!.id, '/v1/explain', req.body.q))) return;
       const body = { ...req.body, q: app.aliases.expandQuery(req.body.q) };
       const result = await retrieveExplain(app.rag, body);

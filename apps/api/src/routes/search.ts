@@ -6,6 +6,7 @@ import { Scopes } from '../scopes.js';
 import { recordUsage } from '../services/usage.js';
 import { enforceQuotaGate } from '../lib/quota-gate.js';
 import { enforceQueryBlocklist } from '../lib/query-blocklist-gate.js';
+import { enforcePiiRedaction } from '../lib/pii-redaction-gate.js';
 
 const SearchBody = QuerySchema.extend({
   /** When true (default), include a `snippet` with highlighted term spans. */
@@ -22,6 +23,9 @@ export const searchRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     preHandler: [app.requireAuth, app.requireScope(Scopes.Search)],
     handler: async (req, reply) => {
+      const pii = await enforcePiiRedaction(app, reply, req.user!.id, '/v1/search', req.body.q);
+      if (!pii.ok) return;
+      req.body.q = pii.query!;
       if (!(await enforceQueryBlocklist(app, reply, req.user!.id, '/v1/search', req.body.q))) return;
       const gate = await enforceQuotaGate(app, reply, req.user!.id, 1);
       if (!gate.ok) return;
