@@ -81,4 +81,28 @@ describe('session registry', () => {
     const list = await listForUser(dir, 'alice', undefined);
     expect(list.length).toBeLessThanOrEqual(MAX_SESSIONS_PER_USER);
   });
+
+  it('enforces a workspace concurrent-session cap by evicting the oldest as a tombstone', async () => {
+    // Cap of 2 concurrent sessions for alice. First two log in fine.
+    const first = await recordLogin(dir, { sid: 'sid-1', userId: 'alice', ip: '1.1.1.1', userAgent: 'a', maxConcurrent: 2 });
+    const second = await recordLogin(dir, { sid: 'sid-2', userId: 'alice', ip: '1.1.1.2', userAgent: 'b', maxConcurrent: 2 });
+    expect(first.evicted).toHaveLength(0);
+    expect(second.evicted).toHaveLength(0);
+
+    // Third login must evict the oldest (sid-1) as a tombstone so the
+    // user can see in the sessions UI that another sign-in took the seat.
+    const third = await recordLogin(dir, { sid: 'sid-3', userId: 'alice', ip: '1.1.1.3', userAgent: 'c', maxConcurrent: 2 });
+    expect(third.evicted).toHaveLength(1);
+    expect(third.evicted[0]!.sidHash).toBe(hashSid('sid-1'));
+
+    // The evicted session is treated as revoked everywhere downstream.
+    expect(await isRevoked(dir, 'sid-1')).toBe(true);
+    expect(await isRevoked(dir, 'sid-2')).toBe(false);
+    expect(await isRevoked(dir, 'sid-3')).toBe(false);
+
+    // Another user's sessions are never touched by alice's cap.
+    const bob = await recordLogin(dir, { sid: 'bob-1', userId: 'bob', ip: '2.2.2.2', maxConcurrent: 2 });
+    expect(bob.evicted).toHaveLength(0);
+    expect(await isRevoked(dir, 'bob-1')).toBe(false);
+  });
 });

@@ -37,12 +37,21 @@ export const MAX_LIFETIME_MIN = 60 * 24 * 90;   // 90 days
 export const MAX_IDLE_MIN = 60 * 24 * 30;       // 30 days
 export const DEFAULT_LIFETIME_MIN = 60 * 24 * 7;  // 7 days
 export const DEFAULT_IDLE_MIN = 60 * 8;           // 8 hours
+// Hard upper bound on the per-user concurrent-session cap a workspace
+// owner can configure. Matches the existing MAX_SESSIONS_PER_USER ceiling
+// in services/sessions.ts so the registry never has to grow beyond what
+// the cap allows. 0 means "unset" (no per-user cap beyond the hard one).
+export const MAX_CONCURRENT_SESSIONS = 50;
 
 export interface SessionPolicy {
   workspaceId: string;
   // 0 disables that axis.
   maxLifetimeMinutes: number;
   idleTimeoutMinutes: number;
+  // 0 means "unset" (fall back to the hard registry cap). When > 0, a
+  // login that would push a user past the cap evicts that user's oldest
+  // active session before recording the new one.
+  maxConcurrentSessions: number;
   updatedAt: number;
   updatedBy: string | null;
 }
@@ -61,8 +70,22 @@ function empty(workspaceId: string, now: number): SessionPolicy {
     workspaceId,
     maxLifetimeMinutes: 0,
     idleTimeoutMinutes: 0,
+    maxConcurrentSessions: 0,
     updatedAt: now,
     updatedBy: null,
+  };
+}
+
+function normalizePolicy(p: Partial<SessionPolicy> & { workspaceId: string }, now: number): SessionPolicy {
+  // Tolerate older policy files written before maxConcurrentSessions
+  // existed by defaulting the missing field to 0 (unset).
+  return {
+    workspaceId: p.workspaceId,
+    maxLifetimeMinutes: typeof p.maxLifetimeMinutes === 'number' ? p.maxLifetimeMinutes : 0,
+    idleTimeoutMinutes: typeof p.idleTimeoutMinutes === 'number' ? p.idleTimeoutMinutes : 0,
+    maxConcurrentSessions: typeof p.maxConcurrentSessions === 'number' ? p.maxConcurrentSessions : 0,
+    updatedAt: typeof p.updatedAt === 'number' ? p.updatedAt : now,
+    updatedBy: typeof p.updatedBy === 'string' ? p.updatedBy : null,
   };
 }
 
@@ -114,13 +137,14 @@ export async function getPolicy(
   workspaceId: string = DEFAULT_WORKSPACE,
 ): Promise<SessionPolicy> {
   const all = await loadAll(dataDir);
-  return all.policies.find((p) => p.workspaceId === workspaceId)
-    ?? empty(workspaceId, Date.now());
+  const found = all.policies.find((p) => p.workspaceId === workspaceId);
+  return found ? normalizePolicy(found, Date.now()) : empty(workspaceId, Date.now());
 }
 
 export interface UpdateInput {
   maxLifetimeMinutes?: number;
   idleTimeoutMinutes?: number;
+  maxConcurrentSessions?: number;
 }
 
 export async function setPolicy(
@@ -129,8 +153,19 @@ export async function setPolicy(
   input: UpdateInput,
   workspaceId: string = DEFAULT_WORKSPACE,
 ): Promise<SessionPolicy> {
-  const maxLifetimeMinutes = normInt(input.maxLifetimeMinutes, 'maxLifetimeMinutes', MAX_LIFETIME_MIN);
-  const idleTimeoutMinutes = normInt(input.idleTimeoutMinutes, 'idleTimeoutMinutes', MAX_IDLE_MIN);
+  // Partial-update semantics: an absent field preserves the existing
+  // value rather than resetting it to 0. The route layer validates that
+  // at least one knob was provided.
+  const current = await getPolicy(dataDir, workspaceId);
+  const maxLifetimeMinutes = input.maxLifetimeMinutes === undefined
+    ? current.maxLifetimeMinutes
+    : normInt(input.maxLifetimeMinutes, 'maxLifetimeMinutes', MAX_LIFETIME_MIN);
+  const idleTimeoutMinutes = input.idleTimeoutMinutes === undefined
+    ? current.idleTimeoutMinutes
+    : normInt(input.idleTimeoutMinutes, 'idleTimeoutMinutes', MAX_IDLE_MIN);
+  const maxConcurrentSessions = input.maxConcurrentSessions === undefined
+    ? current.maxConcurrentSessions
+    : normInt(input.maxConcurrentSessions, 'maxConcurrentSessions', MAX_CONCURRENT_SESSIONS);
   if (maxLifetimeMinutes > 0 && idleTimeoutMinutes > 0 && idleTimeoutMinutes > maxLifetimeMinutes) {
     throw new SessionPolicyValidationError(
       'idleTimeoutMinutes',
@@ -143,6 +178,7 @@ export async function setPolicy(
     workspaceId,
     maxLifetimeMinutes,
     idleTimeoutMinutes,
+    maxConcurrentSessions,
     updatedAt: now,
     updatedBy: actorUserId,
   };

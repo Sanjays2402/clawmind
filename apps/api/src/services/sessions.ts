@@ -85,8 +85,8 @@ function pruneExpired(file: RegistryFile, now: number): RegistryFile {
 
 export async function recordLogin(
   dataDir: string,
-  args: { sid: string; userId: string; ip: string; userAgent?: string },
-): Promise<SessionRecord> {
+  args: { sid: string; userId: string; ip: string; userAgent?: string; maxConcurrent?: number },
+): Promise<{ record: SessionRecord; evicted: SessionRecord[] }> {
   const now = Date.now();
   const sidHash = hashSid(args.sid);
   let file = await readRegistry(dataDir);
@@ -99,21 +99,40 @@ export async function recordLogin(
     createdAt: now,
     lastSeenAt: now,
   };
-  // Drop any prior entry for the same sid (re-login on same cookie) then
-  // cap per-user to avoid unbounded growth from a runaway client.
+  // Drop any prior entry for the same sid (re-login on same cookie).
   const others = file.sessions.filter((s) => s.sidHash !== sidHash);
   const mine = others.filter((s) => s.userId === args.userId && !s.revokedAt);
-  if (mine.length >= MAX_SESSIONS_PER_USER) {
-    // Drop the oldest non-revoked session for this user.
+  // Resolve the effective cap: the workspace policy may set a tighter
+  // limit than the hard registry ceiling. 0 means "unset", fall back to
+  // the hard ceiling. The new session will count toward the cap, so the
+  // existing sessions must fit in (cap - 1).
+  const policyCap = args.maxConcurrent && args.maxConcurrent > 0 ? args.maxConcurrent : MAX_SESSIONS_PER_USER;
+  const effectiveCap = Math.min(policyCap, MAX_SESSIONS_PER_USER);
+  const evicted: SessionRecord[] = [];
+  let working = others;
+  if (mine.length >= effectiveCap) {
     mine.sort((a, b) => a.lastSeenAt - b.lastSeenAt);
-    const drop = new Set(mine.slice(0, mine.length - MAX_SESSIONS_PER_USER + 1).map((s) => s.sidHash));
-    file.sessions = others.filter((s) => !drop.has(s.sidHash));
-  } else {
-    file.sessions = others;
+    const evictCount = mine.length - effectiveCap + 1;
+    const toEvict = mine.slice(0, evictCount);
+    const evictHashes = new Set(toEvict.map((s) => s.sidHash));
+    if (args.maxConcurrent && args.maxConcurrent > 0 && args.maxConcurrent <= MAX_SESSIONS_PER_USER) {
+      // Policy-driven eviction: leave a tombstone so the evicted user
+      // sees "another sign-in took your seat" instead of a silent logout.
+      for (const s of working) {
+        if (evictHashes.has(s.sidHash) && !s.revokedAt) {
+          s.revokedAt = now;
+          evicted.push({ ...s });
+        }
+      }
+    } else {
+      // Hard registry-ceiling eviction: delete to keep the file bounded.
+      working = working.filter((s) => !evictHashes.has(s.sidHash));
+    }
   }
+  file.sessions = working;
   file.sessions.push(rec);
   await writeRegistry(dataDir, file);
-  return rec;
+  return { record: rec, evicted };
 }
 
 export async function touch(dataDir: string, sid: string): Promise<void> {

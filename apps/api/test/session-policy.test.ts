@@ -61,6 +61,7 @@ describe('session-policy service', () => {
         workspaceId: 'default',
         maxLifetimeMinutes: 0,
         idleTimeoutMinutes: 0,
+      maxConcurrentSessions: 0,
         updatedAt: 0,
         updatedBy: null,
       },
@@ -75,6 +76,7 @@ describe('session-policy service', () => {
       workspaceId: 'default',
       maxLifetimeMinutes: 60,
       idleTimeoutMinutes: 0,
+      maxConcurrentSessions: 0,
       updatedAt: 0,
       updatedBy: null,
     };
@@ -94,6 +96,7 @@ describe('session-policy service', () => {
       workspaceId: 'default',
       maxLifetimeMinutes: 0,
       idleTimeoutMinutes: 10,
+      maxConcurrentSessions: 0,
       updatedAt: 0,
       updatedBy: null,
     };
@@ -111,6 +114,7 @@ describe('session-policy service', () => {
       workspaceId: 'default',
       maxLifetimeMinutes: 60,
       idleTimeoutMinutes: 30,
+      maxConcurrentSessions: 0,
       updatedAt: 0,
       updatedBy: null,
     };
@@ -122,5 +126,18 @@ describe('session-policy service', () => {
     );
     expect(both.ok).toBe(false);
     if (!both.ok) expect(both.reason).toBe('lifetime-exceeded');
+  });
+
+  it('persists maxConcurrentSessions and validates the upper bound', async () => {
+    const p = await setPolicy(dir, 'owner-1', { maxConcurrentSessions: 3 });
+    expect(p.maxConcurrentSessions).toBe(3);
+    // Partial update of a single field preserves the others.
+    invalidateCache();
+    const q = await setPolicy(dir, 'owner-1', { maxLifetimeMinutes: 60 });
+    expect(q.maxConcurrentSessions).toBe(3);
+    expect(q.maxLifetimeMinutes).toBe(60);
+    await expect(
+      setPolicy(dir, 'owner-1', { maxConcurrentSessions: 9999 }),
+    ).rejects.toBeInstanceOf(SessionPolicyValidationError);
   });
 });

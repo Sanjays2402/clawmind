@@ -41,6 +41,7 @@ export default function SessionPolicyPage() {
 
   const [lifetime, setLifetime] = useState<number>(0);
   const [idle, setIdle] = useState<number>(0);
+  const [concurrent, setConcurrent] = useState<number>(0);
   const [saving, setSaving] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
@@ -54,6 +55,7 @@ export default function SessionPolicyPage() {
       setLimits(res.limits);
       setLifetime(res.policy.maxLifetimeMinutes);
       setIdle(res.policy.idleTimeoutMinutes);
+      setConcurrent(res.policy.maxConcurrentSessions ?? 0);
     } catch (err) {
       if (err instanceof ApiError && err.status === 403) {
         setError('You need admin or owner access to view the session policy.');
@@ -77,6 +79,7 @@ export default function SessionPolicyPage() {
       const next = await api.sessionPolicySet({
         maxLifetimeMinutes: lifetime,
         idleTimeoutMinutes: idle,
+        maxConcurrentSessions: concurrent,
       });
       setPolicy(next);
       setSavedAt(Date.now());
@@ -103,10 +106,11 @@ export default function SessionPolicyPage() {
     setActionError(null);
     setSaving(true);
     try {
-      const next = await api.sessionPolicySet({ maxLifetimeMinutes: 0, idleTimeoutMinutes: 0 });
+      const next = await api.sessionPolicySet({ maxLifetimeMinutes: 0, idleTimeoutMinutes: 0, maxConcurrentSessions: 0 });
       setPolicy(next);
       setLifetime(0);
       setIdle(0);
+      setConcurrent(0);
       setSavedAt(Date.now());
     } catch (err) {
       const msg =
@@ -172,6 +176,10 @@ export default function SessionPolicyPage() {
                 <div>
                   <dt className="text-[var(--text-muted)]">Idle timeout</dt>
                   <dd className="font-medium">{fmtMinutes(policy.idleTimeoutMinutes)}</dd>
+                </div>
+                <div>
+                  <dt className="text-[var(--text-muted)]">Max concurrent sessions per user</dt>
+                  <dd className="font-medium">{policy.maxConcurrentSessions > 0 ? policy.maxConcurrentSessions : 'unset'}</dd>
                 </div>
                 <div>
                   <dt className="text-[var(--text-muted)]">Last updated</dt>
@@ -248,6 +256,24 @@ export default function SessionPolicyPage() {
                   />
                   <span className="mt-1 block text-xs text-[var(--text-muted)]">
                     Resolves to {fmtMinutes(idle)}. Max {fmtMinutes(limits.maxIdleMinutes)}.
+                  </span>
+                </label>
+
+                <label className="text-sm sm:col-span-2">
+                  <span className="mb-1 block text-[var(--text-muted)]">
+                    Max concurrent sessions per user (0 = unset)
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={limits.maxConcurrentSessions ?? 50}
+                    step={1}
+                    value={concurrent}
+                    onChange={(e) => setConcurrent(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
+                    className="w-full rounded-md border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 font-mono text-sm focus:border-[var(--accent)] focus:outline-none"
+                  />
+                  <span className="mt-1 block text-xs text-[var(--text-muted)]">
+                    When a user signs in past this cap, the oldest active session is signed out and an audit entry is written. Max {limits.maxConcurrentSessions ?? 50}.
                   </span>
                 </label>
               </div>

@@ -6,6 +6,7 @@ import {
   SessionPolicyValidationError,
   MAX_LIFETIME_MIN,
   MAX_IDLE_MIN,
+  MAX_CONCURRENT_SESSIONS,
   DEFAULT_LIFETIME_MIN,
   DEFAULT_IDLE_MIN,
 } from '../services/session-policy.js';
@@ -35,6 +36,12 @@ const PutBody = z
       .min(0)
       .max(MAX_IDLE_MIN)
       .optional(),
+    maxConcurrentSessions: z
+      .number()
+      .int()
+      .min(0)
+      .max(MAX_CONCURRENT_SESSIONS)
+      .optional(),
   })
   .strict();
 
@@ -52,6 +59,7 @@ export const sessionPolicyRoutes: FastifyPluginAsyncZod = async (app) => {
         limits: {
           maxLifetimeMinutes: MAX_LIFETIME_MIN,
           maxIdleMinutes: MAX_IDLE_MIN,
+          maxConcurrentSessions: MAX_CONCURRENT_SESSIONS,
           defaultLifetimeMinutes: DEFAULT_LIFETIME_MIN,
           defaultIdleMinutes: DEFAULT_IDLE_MIN,
         },
@@ -73,6 +81,7 @@ export const sessionPolicyRoutes: FastifyPluginAsyncZod = async (app) => {
         const next = await setPolicy(app.clawmind.dataDir, req.user!.id, {
           maxLifetimeMinutes: req.body.maxLifetimeMinutes,
           idleTimeoutMinutes: req.body.idleTimeoutMinutes,
+          maxConcurrentSessions: req.body.maxConcurrentSessions,
         });
         await app.clawmind.audit.write({
           actor: req.user!.id,
@@ -84,10 +93,12 @@ export const sessionPolicyRoutes: FastifyPluginAsyncZod = async (app) => {
             before: {
               maxLifetimeMinutes: prev.maxLifetimeMinutes,
               idleTimeoutMinutes: prev.idleTimeoutMinutes,
+              maxConcurrentSessions: prev.maxConcurrentSessions,
             },
             after: {
               maxLifetimeMinutes: next.maxLifetimeMinutes,
               idleTimeoutMinutes: next.idleTimeoutMinutes,
+              maxConcurrentSessions: next.maxConcurrentSessions,
             },
           },
         });

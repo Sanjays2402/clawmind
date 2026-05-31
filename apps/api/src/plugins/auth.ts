@@ -518,12 +518,29 @@ const plugin: FastifyPluginAsync = async (app) => {
     await app.clawmind.audit.write({ actor: req.session.userId, action: 'login', resource: 'github' });
     const sid = (req.session as unknown as { sessionId?: string }).sessionId;
     if (sid) {
-      await recordLogin(app.clawmind.dataDir, {
+      const policy = await getSessionPolicyCached(app.clawmind.dataDir).catch(() => null);
+      const { evicted } = await recordLogin(app.clawmind.dataDir, {
         sid,
         userId: req.session.userId,
         ip: req.ip,
         userAgent: req.headers['user-agent'],
+        maxConcurrent: policy?.maxConcurrentSessions ?? 0,
       });
+      for (const e of evicted) {
+        await app.clawmind.audit.write({
+          actor: req.session.userId,
+          action: 'session.evicted.concurrent-cap',
+          resource: 'session',
+          meta: {
+            ip: req.ip,
+            requestId: req.id,
+            cap: policy?.maxConcurrentSessions ?? 0,
+            evictedSessionId: e.sidHash.slice(0, 12),
+            evictedUserAgent: e.userAgent,
+            evictedIp: e.ip,
+          },
+        }).catch(() => undefined);
+      }
     }
     reply.redirect('/');
   });
@@ -632,12 +649,29 @@ const plugin: FastifyPluginAsync = async (app) => {
         });
         const sid = (req.session as unknown as { sessionId?: string }).sessionId;
         if (sid) {
-          await recordLogin(app.clawmind.dataDir, {
+          const policy = await getSessionPolicyCached(app.clawmind.dataDir).catch(() => null);
+          const { evicted } = await recordLogin(app.clawmind.dataDir, {
             sid,
             userId: result.userId,
             ip: req.ip,
             userAgent: req.headers['user-agent'],
+            maxConcurrent: policy?.maxConcurrentSessions ?? 0,
           });
+          for (const e of evicted) {
+            await app.clawmind.audit.write({
+              actor: result.userId,
+              action: 'session.evicted.concurrent-cap',
+              resource: 'session',
+              meta: {
+                ip: req.ip,
+                requestId: req.id,
+                cap: policy?.maxConcurrentSessions ?? 0,
+                evictedSessionId: e.sidHash.slice(0, 12),
+                evictedUserAgent: e.userAgent,
+                evictedIp: e.ip,
+              },
+            }).catch(() => undefined);
+          }
         }
         return reply.redirect(returnTo);
       } catch (err) {

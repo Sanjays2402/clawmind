@@ -419,6 +419,7 @@ export interface SessionPolicy {
   workspaceId: string;
   maxLifetimeMinutes: number;
   idleTimeoutMinutes: number;
+  maxConcurrentSessions: number;
   updatedAt: number;
   updatedBy: string | null;
 }
@@ -426,6 +427,7 @@ export interface SessionPolicy {
 export interface SessionPolicyLimits {
   maxLifetimeMinutes: number;
   maxIdleMinutes: number;
+  maxConcurrentSessions: number;
   defaultLifetimeMinutes: number;
   defaultIdleMinutes: number;
 }
@@ -1165,7 +1167,7 @@ export const api = {
 
   sessionPolicyGet: () =>
     j<{ policy: SessionPolicy; limits: SessionPolicyLimits }>('/v1/session-policy'),
-  sessionPolicySet: (input: { maxLifetimeMinutes: number; idleTimeoutMinutes: number }) =>
+  sessionPolicySet: (input: { maxLifetimeMinutes?: number; idleTimeoutMinutes?: number; maxConcurrentSessions?: number }) =>
     j<{ policy: SessionPolicy }>('/v1/session-policy', {
       method: 'PUT',
       body: JSON.stringify(input),
