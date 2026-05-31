@@ -24,6 +24,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Related-document lookup and basic stats / doctor endpoints
 - API keys with per-key rate limiting, GitHub OAuth or single-user mode
 - Outbound webhooks: register a URL, get signed POSTs on `ask.completed` and `ingest.completed`, with automatic retries and a delivery log
+- Batch ask: paste or upload a CSV of up to 100 questions, get a results table plus a one-click CSV download. Every row is saved to history and counts against the monthly quota.
 - Usage meter: per-user monthly request count, free-tier quota with 429 on overrun, and an in-app `/usage` page with reset countdown and upgrade CTA
 - Shareable read-only answer links
 - Installable PWA: web app manifest, offline shell, and in-app install prompt so the web UI lives on your home screen with quick shortcuts to Ask, Search, and Saved
@@ -125,6 +126,16 @@ Or open <http://127.0.0.1:7412> on a phone or in a Chromium browser and use the 
 
 ```bash
 curl -s http://127.0.0.1:7412/manifest.webmanifest | jq '{name, start_url, display}'
+```
+
+Or run a batch of questions through `/v1/ask/batch` and get a CSV file back. Paste up to 100 questions into <http://127.0.0.1:7412/batch> or send them straight from the shell. Every row is recorded in history and counts against your monthly quota, so a single curl gives you a reusable spreadsheet of grounded answers.
+
+```bash
+printf 'q\nWhat is ClawMind?\nHow does retrieval work?\nWhich embedding model is used?\n' \
+  | curl -s -X POST http://127.0.0.1:7410/v1/ask/batch \
+      -H 'content-type: text/csv' \
+      --data-binary @- \
+      -o results.csv && head -1 results.csv
 ```
 
 Or hit the streaming endpoint directly:

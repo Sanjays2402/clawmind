@@ -214,6 +214,23 @@ export const api = {
     j<{ hits: Source[] }>('/v1/search', { method: 'POST', body: JSON.stringify(body) }),
   ask: (body: { q: string; k?: number; namespaces?: string[] }) =>
     j<{ id: string; text: string; sources: Source[] }>('/v1/ask', { method: 'POST', body: JSON.stringify(body) }),
+  askBatch: (queries: string[], opts: { namespaces?: string[]; k?: number } = {}) =>
+    j<{
+      id: string;
+      total: number;
+      ok: number;
+      failed: number;
+      results: Array<{
+        q: string;
+        tag?: string;
+        ok: boolean;
+        answer?: string;
+        model?: string;
+        sources?: number;
+        error?: string;
+        durationMs: number;
+      }>;
+    }>('/v1/ask/batch', { method: 'POST', body: JSON.stringify({ queries, ...opts }) }),
   stream: (
     body: { q: string; k?: number; namespaces?: string[] },
     onEvent: (e: { type: string; value: unknown }) => void,
