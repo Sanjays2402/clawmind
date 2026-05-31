@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { compactStore, forgetSources } from '@clawmind/ingest';
 import { Scopes } from '../scopes.js';
 
@@ -13,7 +13,7 @@ const ForgetBody = z.object({
 // manifest, BM25, and LanceDB entries whose source files no longer exist on
 // disk. It is owner-only and writes an audit record on every non-dry run.
 
-export const maintenanceRoutes: FastifyPluginAsync = async (app) => {
+export const maintenanceRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/maintenance/compact', {
     schema: { body: Body },
     preHandler: [app.requireRole('owner'), app.requireScope(Scopes.Maintenance)],

@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { retrieveExplain } from '@clawmind/rag';
 import { QuerySchema } from '@clawmind/types';
 import { Scopes } from '../scopes.js';
@@ -11,7 +11,7 @@ import { Scopes } from '../scopes.js';
 // plus funnel counts at each stage. The LLM is not called. This powers
 // the web /explain page so a user can see exactly which signal pulled
 // each chunk into the answer.
-export const explainRoutes: FastifyPluginAsync = async (app) => {
+export const explainRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/explain', {
     schema: { body: QuerySchema },
     preHandler: [app.requireAuth, app.requireScope(Scopes.Search)],

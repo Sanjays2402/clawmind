@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { runDoctor } from '../services/doctor.js';
 import { Scopes } from '../scopes.js';
 
@@ -6,7 +6,7 @@ import { Scopes } from '../scopes.js';
 // and notes a stale index. Read-only; safe to expose to any authenticated
 // user since it returns only aggregate metadata.
 
-export const doctorRoutes: FastifyPluginAsync = async (app) => {
+export const doctorRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/doctor', {
     preHandler: [app.requireAuth, app.requireScope(Scopes.DoctorRead)],
     handler: async () => {

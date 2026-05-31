@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { Scopes } from '../scopes.js';
 
@@ -24,7 +24,7 @@ const querySchema = z.object({
   offset: z.coerce.number().int().min(0).optional(),
 });
 
-export const auditRoutes: FastifyPluginAsync = async (app) => {
+export const auditRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/admin/audit', {
     schema: { querystring: querySchema },
     preHandler: [

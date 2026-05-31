@@ -17,7 +17,7 @@ declare module 'fastify' {
 }
 
 const plugin: FastifyPluginAsync = async (app) => {
-  app.decorateRequest('captureException', null);
+  app.decorateRequest('captureException', null as any);
 
   app.addHook('onRequest', async (req) => {
     req.captureException = (err, extra) =>

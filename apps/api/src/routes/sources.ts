@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { readFile } from 'node:fs/promises';
 import { inferNamespace } from '@clawmind/ingest';
 import { Scopes } from '../scopes.js';
@@ -8,7 +8,7 @@ import { Scopes } from '../scopes.js';
 // web UI pull a snippet of any indexed file. Listing reads from the manifest
 // because that is the authoritative record of what's currently indexed.
 
-export const sourcesRoutes: FastifyPluginAsync = async (app) => {
+export const sourcesRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get<{
     Querystring: {
       q?: string;

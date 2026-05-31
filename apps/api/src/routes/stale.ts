@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { findStaleSources, DEFAULT_STALE_DAYS } from '../services/stale.js';
 import { Scopes } from '../scopes.js';
 
@@ -8,7 +8,7 @@ import { Scopes } from '../scopes.js';
 // first so an operator can prioritise the worst drift. Bounded by `limit`
 // so a huge corpus doesn't blow up the response payload.
 
-export const staleRoutes: FastifyPluginAsync = async (app) => {
+export const staleRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get<{ Querystring: { olderThanDays?: string; limit?: string } }>('/sources/stale', {
     schema: {
       querystring: z.object({

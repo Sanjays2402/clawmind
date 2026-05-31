@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { listSaved } from '../services/saved.js';
 import { retrieve } from '@clawmind/rag';
 import { runDigest, loadState, listDigestsForUser } from '../services/digests.js';
@@ -15,7 +15,7 @@ import { Scopes } from '../scopes.js';
 //   GET  /v1/digests            list latest state per saved search
 //   GET  /v1/digests/:id        full history for one saved search
 
-export const digestRoutes: FastifyPluginAsync = async (app) => {
+export const digestRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/digests', {
     preHandler: [app.requireAuth, app.requireScope(Scopes.DigestsRead)],
     handler: async (req) => {

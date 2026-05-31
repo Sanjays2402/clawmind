@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { listHistory, pruneHistory } from '../services/history.js';
 import { Scopes } from '../scopes.js';
 
@@ -17,7 +17,7 @@ const PruneQuery = z.object({
   keepPerUser: z.coerce.number().int().nonnegative().max(10000).optional(),
 });
 
-export const historyRoutes: FastifyPluginAsync = async (app) => {
+export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/history', {
     schema: { querystring: ListQuery },
     preHandler: [app.requireAuth, app.requireScope(Scopes.HistoryRead)],

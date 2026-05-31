@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { ingestRoot, startWatcher } from '@clawmind/ingest';
 import { expand } from '@clawmind/config';
 import { Scopes } from '../scopes.js';
 
 const BodySchema = z.object({ root: z.string().min(1), watch: z.boolean().default(false) });
 
-export const ingestRoutes: FastifyPluginAsync = async (app) => {
+export const ingestRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/ingest', {
     schema: { body: BodySchema },
     preHandler: [app.requireRole('owner'), app.requireScope(Scopes.Ingest)],

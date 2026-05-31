@@ -19,7 +19,7 @@ import { sentryPlugin } from './plugins/sentry.js';
 import { requestIdPlugin, pickRequestId } from './plugins/request-id.js';
 import { securityHeadersPlugin } from './plugins/security-headers.js';
 
-export async function buildApp() {
+export async function buildApp(): Promise<any> {
   const env = loadEnv();
   const logger = createLogger({ name: 'clawmind-api', level: env.CLAWMIND_LOG_LEVEL });
   await startTracing({
@@ -111,7 +111,7 @@ export async function buildApp() {
   await app.register(auditPlugin);
   await app.register(authPlugin);
   await app.register(ragPlugin);
-  await registerRoutes(app);
+  await registerRoutes(app as unknown as Parameters<typeof registerRoutes>[0]);
 
   return app;
 }

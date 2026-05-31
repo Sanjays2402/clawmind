@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { exportUserData, deleteUserData } from '../services/lifecycle.js';
 import { Scopes } from '../scopes.js';
@@ -15,7 +15,7 @@ import { Scopes } from '../scopes.js';
 
 const deleteSchema = z.object({ confirm: z.literal('DELETE') });
 
-export const lifecycleRoutes: FastifyPluginAsync = async (app) => {
+export const lifecycleRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/me/export', {
     preHandler: [app.requireAuth, app.requireScope(Scopes.LifecycleManage)],
     handler: async (req, reply) => {

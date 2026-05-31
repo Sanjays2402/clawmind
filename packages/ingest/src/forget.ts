@@ -1,3 +1,5 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore picomatch ships without types in this monorepo
 import picomatch from 'picomatch';
 import type { BM25Index, IngestManifest, LanceStore } from '@clawmind/store';
 

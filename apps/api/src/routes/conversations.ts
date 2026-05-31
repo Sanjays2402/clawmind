@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { nanoid } from 'nanoid';
 import { ask, askStream } from '@clawmind/rag';
 import { QuerySchema } from '@clawmind/types';
@@ -25,7 +25,7 @@ import { Scopes } from '../scopes.js';
 // so retrieval doesn't lose the topic, and the assistant prompt is fed the
 // last few turns as conversation context.
 
-export const conversationRoutes: FastifyPluginAsync = async (app) => {
+export const conversationRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get<{ Querystring: { archived?: string } }>('/conversations', {
     schema: {
       querystring: z.object({
@@ -150,7 +150,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
   // owned by the requesting user. The source is left untouched, so a user
   // can explore an alternate line of questioning without losing the
   // original thread.
-  app.post<{ Params: { id: string } }>('/conversations/:id/fork', {
+  app.post<{ Params: { id: string }; Body: { throughIndex: number; title?: string } }>('/conversations/:id/fork', {
     schema: {
       body: z.object({
         throughIndex: z.number().int().nonnegative(),
@@ -180,7 +180,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     },
   });
 
-  app.post<{ Params: { id: string } }>('/conversations/:id/ask', {
+  app.post<{ Params: { id: string }; Body: import('@clawmind/types').Query }>('/conversations/:id/ask', {
     schema: { body: QuerySchema },
     preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
     handler: async (req, reply) => {
@@ -202,7 +202,7 @@ export const conversationRoutes: FastifyPluginAsync = async (app) => {
     },
   });
 
-  app.post<{ Params: { id: string } }>('/conversations/:id/ask/stream', {
+  app.post<{ Params: { id: string }; Body: import('@clawmind/types').Query }>('/conversations/:id/ask/stream', {
     schema: { body: QuerySchema },
     preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
     handler: async (req, reply) => {

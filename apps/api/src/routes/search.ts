@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { retrieve, snippetFor, queryTerms } from '@clawmind/rag';
-import { QuerySchema } from '@clawmind/types';
+import { QuerySchema, type Query } from '@clawmind/types';
 import { Scopes } from '../scopes.js';
 
 const SearchBody = QuerySchema.extend({
@@ -11,8 +11,8 @@ const SearchBody = QuerySchema.extend({
   snippetWidth: z.number().int().min(60).max(800).optional().default(240),
 });
 
-export const searchRoutes: FastifyPluginAsync = async (app) => {
-  app.post('/search', {
+export const searchRoutes: FastifyPluginAsyncZod = async (app) => {
+  app.post<{ Body: Query & { highlight?: boolean; snippetWidth?: number } }>('/search', {
     schema: {
       body: SearchBody,
       response: { 200: z.object({ hits: z.array(z.any()) }) },

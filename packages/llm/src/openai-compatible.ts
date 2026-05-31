@@ -105,7 +105,7 @@ export class OpenAICompatibleProvider implements LLMProvider {
       }
       finished = true;
       queue.push({ delta: '', done: true });
-      resolveWait?.();
+      (resolveWait as (() => void) | null)?.();
     })().catch((err) => {
       queue.push({ delta: `\n[stream error: ${(err as Error).message}]`, done: true });
       finished = true;

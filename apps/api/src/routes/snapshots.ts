@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { listSaved } from '../services/saved.js';
 import { retrieve, buildSources } from '@clawmind/rag';
 import {
@@ -23,7 +23,7 @@ import { Scopes } from '../scopes.js';
 //   DELETE /v1/saved/:savedId/snapshots/:id            remove one
 //   POST   /v1/saved/:savedId/snapshots/:id/diff       diff fresh run vs this snapshot
 
-export const snapshotRoutes: FastifyPluginAsync = async (app) => {
+export const snapshotRoutes: FastifyPluginAsyncZod = async (app) => {
   async function ownedSaved(userId: string, savedId: string) {
     const saved = await listSaved(app.clawmind.dataDir, userId);
     return saved.find((s) => s.id === savedId) ?? null;

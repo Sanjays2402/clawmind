@@ -14,7 +14,7 @@ import {
 const MAX_ROUTE_LABEL_LEN = 80;
 
 function routeLabel(req: FastifyRequest): string {
-  const tpl = req.routeOptions?.url ?? req.routerPath;
+  const tpl = req.routeOptions?.url ?? (req as unknown as { routerPath?: string }).routerPath;
   if (!tpl) return 'unmatched';
   if (tpl.length > MAX_ROUTE_LABEL_LEN) return tpl.slice(0, MAX_ROUTE_LABEL_LEN);
   return tpl;

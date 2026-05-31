@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import {
   addAlias, loadAliases, removeAlias, ALIAS_NAME_RE,
 } from '../services/aliases.js';
@@ -13,7 +13,7 @@ import { Scopes } from '../scopes.js';
 //   POST   /v1/aliases         { name, path } add or replace
 //   DELETE /v1/aliases         { name } remove
 
-export const aliasesRoutes: FastifyPluginAsync = async (app) => {
+export const aliasesRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/aliases', {
     preHandler: [app.requireAuth, app.requireScope(Scopes.AliasesRead)],
     handler: async () => {

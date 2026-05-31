@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { loadFeedback, recordVote, clearVote, boostFor } from '../services/feedback.js';
 import { Scopes } from '../scopes.js';
 
@@ -11,7 +11,7 @@ import { Scopes } from '../scopes.js';
 //   DELETE /v1/feedback        { path }
 //   GET    /v1/feedback        list current entries (admin/debug)
 
-export const feedbackRoutes: FastifyPluginAsync = async (app) => {
+export const feedbackRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/feedback', {
     preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
     handler: async () => {

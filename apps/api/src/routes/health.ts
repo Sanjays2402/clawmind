@@ -1,7 +1,7 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { snapshot, renderProm, PROM_CONTENT_TYPE } from '@clawmind/telemetry';
 
-export const healthRoutes: FastifyPluginAsync = async (app) => {
+export const healthRoutes: FastifyPluginAsyncZod = async (app) => {
   // True liveness: only proves the event loop is responsive. Zero downstream
   // calls, zero allocations of consequence, so Kubernetes will not restart
   // the pod when the embed sidecar or LLM provider is slow or degraded.

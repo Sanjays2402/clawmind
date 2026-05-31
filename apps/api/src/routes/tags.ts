@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import {
   addTags, loadTags, normalizeTag, pathsByTag, removeTags, setTags, tagsFor,
 } from '../services/tags.js';
@@ -20,7 +20,7 @@ import { Scopes } from '../scopes.js';
 // All write routes require owner role because tags shape retrieval for every
 // user in the workspace.
 
-export const tagsRoutes: FastifyPluginAsync = async (app) => {
+export const tagsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/tags', {
     preHandler: [app.requireAuth, app.requireScope(Scopes.TagsRead)],
     handler: async () => {
@@ -59,7 +59,7 @@ export const tagsRoutes: FastifyPluginAsync = async (app) => {
     tags: z.array(z.string()).max(64).optional().default([]),
   });
 
-  app.put('/tags/by-path', {
+  app.put<{ Body: { path: string; tags: string[] } }>('/tags/by-path', {
     schema: { body: writeBody },
     preHandler: [app.requireRole('owner'), app.requireScope(Scopes.TagsWrite)],
     handler: async (req) => {

@@ -1,12 +1,12 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { ask, askStream, cacheKey } from '@clawmind/rag';
 import { QuerySchema } from '@clawmind/types';
 import { nanoid } from 'nanoid';
 import { recordHistory } from '../services/history.js';
 import { Scopes } from '../scopes.js';
 
-export const askRoutes: FastifyPluginAsync = async (app) => {
+export const askRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/ask', {
     schema: { body: QuerySchema },
     preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],

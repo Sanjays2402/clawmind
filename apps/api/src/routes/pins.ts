@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { addPin, loadPins, removePin } from '../services/pins.js';
 import { Scopes } from '../scopes.js';
 
@@ -11,7 +11,7 @@ import { Scopes } from '../scopes.js';
 //   POST   /v1/pins         { path, note? } add or replace a pin
 //   DELETE /v1/pins         { path } remove a pin
 
-export const pinsRoutes: FastifyPluginAsync = async (app) => {
+export const pinsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/pins', {
     preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
     handler: async () => {

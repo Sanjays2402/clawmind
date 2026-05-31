@@ -3,7 +3,7 @@ import { LanceStore, BM25Index, IngestManifest } from '@clawmind/store';
 import { MlxEmbedClient, OpenAIEmbedClient, FallbackEmbedProvider } from '@clawmind/embed';
 import { buildDefaultLLM } from '@clawmind/llm';
 
-export async function buildRuntime() {
+export async function buildRuntime(): Promise<any> {
   const env = loadEnv();
   const lance = new LanceStore({ dir: lancedbDir(env), dim: env.CLAWMIND_EMBED_DIM });
   await lance.init();

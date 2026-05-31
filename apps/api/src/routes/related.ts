@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { averageEmbedding, groupRelated } from '../services/related.js';
 import { Scopes } from '../scopes.js';
 
@@ -17,8 +17,8 @@ const RelatedQuery = z.object({
   namespaces: z.string().optional(), // comma-separated
 });
 
-export const relatedRoutes: FastifyPluginAsync = async (app) => {
-  app.get('/related', {
+export const relatedRoutes: FastifyPluginAsyncZod = async (app) => {
+  app.get<{ Querystring: { path: string; k: number; namespaces?: string } }>('/related', {
     schema: { querystring: RelatedQuery },
     preHandler: [app.requireAuth, app.requireScope(Scopes.RelatedRead)],
     handler: async (req, reply) => {

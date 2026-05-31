@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { issueKey, listKeys, revokeKey, redact, SCOPE_RE, WILDCARD_SCOPE } from '../services/api-keys.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 
@@ -23,7 +23,7 @@ const IssueBody = z.object({
   ttlMs: z.number().int().positive().max(365 * 24 * 60 * 60_000).nullable().optional(),
 });
 
-export const keyRoutes: FastifyPluginAsync = async (app) => {
+export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
   // Catalogue of every scope the server currently enforces. Useful for UIs
   // that render checkboxes when issuing a key. Auth-gated so it does not
   // leak from an internet-exposed instance.

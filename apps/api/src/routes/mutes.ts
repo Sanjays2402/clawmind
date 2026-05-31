@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { addMute, loadMutes, removeMute } from '../services/mutes.js';
 import { Scopes } from '../scopes.js';
 
@@ -13,7 +13,7 @@ import { Scopes } from '../scopes.js';
 //   POST   /v1/mutes         { path, reason? } add or replace a mute
 //   DELETE /v1/mutes         { path } remove a mute
 
-export const mutesRoutes: FastifyPluginAsync = async (app) => {
+export const mutesRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/mutes', {
     preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
     handler: async () => {
