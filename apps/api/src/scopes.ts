@@ -234,6 +234,17 @@ export const Scopes = {
   // until the request is routed to a compliant region.
   DataResidencyRead: 'data-residency:read',
   DataResidencyManage: 'data-residency:admin',
+
+  // Data Subject Request queue (GDPR Art. 15/17, CCPA §1798.110/.105).
+  // Read is admin+ so a compliance operator can pull the queue, audit
+  // SLA timers, and demonstrate intake exists during a procurement
+  // review. Manage is owner-only with MFA step-up at the route because
+  // moving a request to 'fulfilled' is a regulatory attestation and
+  // closes the legally required 30-day clock. The public submission
+  // endpoint (POST /v1/dsr/submit) is intentionally unauthenticated by
+  // design so non-members can exercise their statutory rights.
+  DsrRead: 'dsr:read',
+  DsrManage: 'dsr:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

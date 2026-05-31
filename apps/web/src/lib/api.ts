@@ -1708,7 +1708,58 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(body),
     }),
+
+  // Data Subject Request queue. POST /v1/dsr/submit is intentionally
+  // public (no auth) so non-members can exercise GDPR/CCPA rights; the
+  // verifyToken is returned exactly once and must be sent back through
+  // GET /v1/dsr/verify/:id/:token to move the row out of 'unverified'.
+  dsrSubmit: (body: {
+    subjectEmail: string;
+    kind: DsrKind;
+    details?: string | null;
+    workspaceId?: string | null;
+    // Honeypot field. Real users leave this blank; bots fill every input
+    // and trip the server-side trap. Optional on the wire.
+    website?: string;
+  }) =>
+    j<{ id: string; status: DsrStatus; verifyToken: string; verifyPath: string }>(
+      '/v1/dsr/submit',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  dsrVerify: (id: string, token: string) =>
+    j<{ request: { id: string; kind: DsrKind; status: DsrStatus; createdAt: number; verifiedAt: number | null; resolvedAt: number | null } }>(
+      `/v1/dsr/verify/${encodeURIComponent(id)}/${encodeURIComponent(token)}`,
+    ),
+  dsrList: (status?: DsrStatus) =>
+    j<{ requests: DsrRecord[] }>(
+      `/v1/dsr${status ? `?status=${encodeURIComponent(status)}` : ''}`,
+    ).then((r) => r.requests),
+  dsrGet: (id: string) =>
+    j<{ request: DsrRecord }>(`/v1/dsr/${encodeURIComponent(id)}`).then((r) => r.request),
+  dsrUpdate: (id: string, body: { status?: DsrStatus; note?: string | null }) =>
+    j<{ request: DsrRecord }>(`/v1/dsr/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }).then((r) => r.request),
 };
+
+export type DsrKind = 'access' | 'erasure' | 'rectification' | 'portability' | 'restriction';
+export type DsrStatus = 'unverified' | 'pending' | 'acknowledged' | 'fulfilled' | 'rejected';
+export interface DsrRecord {
+  id: string;
+  workspaceId: string;
+  subjectEmail: string;
+  kind: DsrKind;
+  details: string;
+  status: DsrStatus;
+  verifiedAt: number | null;
+  note: string | null;
+  resolvedBy: string | null;
+  resolvedAt: number | null;
+  createdAt: number;
+  updatedAt: number;
+  submitterIpHash: string | null;
+}
 
 export interface SubProcessor {
   id: string;

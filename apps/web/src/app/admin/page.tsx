@@ -364,6 +364,19 @@ export default function AdminPage() {
                 different head proves on disk tampering.
               </p>
             </Section>
+
+            <Section
+              title="Privacy requests"
+              icon={<IconShield size={16} />}
+              href="/settings/dsr"
+              status={{ tone: 'neutral', label: 'GDPR / CCPA queue' }}
+            >
+              <p className="text-xs text-[var(--muted)]">
+                Public intake at <span className="font-mono">/privacy/request</span>.
+                Admin triages access, erasure, rectification, portability, and restriction
+                requests with a 30-day SLA clock.
+              </p>
+            </Section>
           </div>
         )}
       </main>

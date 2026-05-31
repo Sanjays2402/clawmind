@@ -47,6 +47,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
     -d '{"monthlyLimit":10000,"perUserMonthlyLimit":500}'
   ```
 - Workspace quota policy: an owner-only `/settings/quota` page that sets a hard monthly ceiling on ask, search, and batch units across the whole workspace, plus an optional secondary per-member cap so one runaway integration cannot drain the shared budget. Setting the workspace ceiling to blank means unlimited (the enterprise / on-prem default); setting it to a number enforces the cap at the very front of `/v1/ask`, `/v1/ask/stream`, `/v1/search`, and `/v1/batch` so a single rogue API key cannot blow the budget regardless of which member owns it. Over-quota requests get `429 quota exceeded` with `x-clawmind-quota-scope: workspace|user`, `RateLimit-*` headers pointing at the next month boundary, and a body that includes both the per-user and workspace counters so the client can render the right banner. Backed by `GET /v1/workspace-quota` (admin+) and `PUT /v1/workspace-quota` (owner-only, MFA-stepped), gated by the new `workspace-quota:read` / `workspace-quota:admin` API key scopes, and every policy change writes to the hash-chained audit log with actor and the new limits.
+- Data subject requests (GDPR Art. 15/17, CCPA §1798.110/.105): a public unauthenticated `POST /v1/dsr/submit` lets a data subject (member or not) file access, erasure, rectification, portability, or restriction requests against the workspace. Submission returns a one-shot verification token; only requests confirmed via `GET /v1/dsr/verify/:id/:token` ever surface on the admin triage queue, blocking spoofed-email pollution of the backlog. Admin+ keys with the new `dsr:read` scope read the queue at `/v1/dsr` and the `/settings/dsr` console; owners with active MFA and `dsr:admin` transition rows through pending, acknowledged, fulfilled, or rejected, with `resolvedBy` / `resolvedAt` anchoring the legally required 30-day response clock. Submitter IP is stored as a truncated salted hash so the queue cannot be repurposed as a third-party tracking ledger; verification tokens are never persisted in plaintext; an inline honeypot drops obvious bot traffic with a fake 202; and every status change is recorded in the existing hash-chained audit log by the audit plugin so a SOC2 reviewer can reconstruct who decided what.
 - Sub-processor registry (GDPR Article 28): an owner-only `/settings/sub-processors` page that maintains the disclosure list your Data Processing Agreement points at. The public, unauthenticated `GET /v1/sub-processors` returns the citable JSON (entity name, purpose, region, public DPA link, status, disclosed-at) so customer counsel can review without needing an account; the operator console at `GET /v1/sub-processors/admin` surfaces internal notes and `updatedBy`. Add, update, retire, and restore are owner-only with MFA step-up and support `?dry_run=true` so a procurement reviewer can preview the change before publishing. Every mutation writes a `sub-processor.add|update|retire` row to the hash-chained audit log with a before/after diff in `meta`, and broadcasts a `sub-processor.changed` in-app notification to every workspace member so customers get the advance notice that most master agreements require. Retirement is a status flip rather than a hard delete so the registry stays a complete historical disclosure record. Backed by the new `sub-processors:read` / `sub-processors:admin` API key scopes and de-duplicates active entries by case-insensitive name.
 
   Try it locally (API on `http://localhost:8787`):
@@ -192,6 +193,32 @@ curl -sS -X PUT http://localhost:8787/v1/data-residency \
   -H "content-type: application/json" \
   -d '{"allowedRegions":["eu","uk"],"controller":"Acme GmbH, Frankfurt"}'
 ```
+
+## Try it: data subject requests (GDPR / CCPA)
+
+Public intake at `/privacy/request`. Anyone (workspace member or not) can file an access, erasure, rectification, portability, or restriction request without an account. The submission returns a one-shot verification token; only verified requests appear on the admin queue. Status changes are owner + MFA gated and written to the hash-chained audit log so a compliance reviewer can prove the 30-day response SLA from the queue alone.
+
+```bash
+# Public submission (no auth)
+curl -X POST http://localhost:8787/v1/dsr/submit \
+  -H 'content-type: application/json' \
+  -d '{"subjectEmail":"alice@example.com","kind":"erasure","details":"please delete"}'
+# => {"id":"dsr_...","status":"unverified","verifyToken":"...","verifyPath":"/v1/dsr/verify/..."}
+
+# Subject confirms control of the email
+curl http://localhost:8787/v1/dsr/verify/<id>/<token>
+
+# Admin reads the queue (admin+, scope dsr:read)
+curl -H "Authorization: Bearer $CLAWMIND_KEY" http://localhost:8787/v1/dsr
+
+# Owner (with MFA, scope dsr:admin) resolves
+curl -X PATCH http://localhost:8787/v1/dsr/<id> \
+  -H "Authorization: Bearer $CLAWMIND_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"status":"fulfilled","note":"exported via /v1/workspace-export then deleted"}'
+```
+
+Admin UI lives at `/settings/dsr`; the public form is `/privacy/request`.
 
 ## Stack
 
