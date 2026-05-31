@@ -1190,6 +1190,43 @@ curl -X PUT -H "Authorization: Bearer $CLAWMIND_API_KEY" \
 
 Gated by the new `api-key-policy:read` / `api-key-policy:admin` API key scopes; mutations require owner + MFA step-up to match the rest of the workspace-security family.
 
+### API key inactivity sweep
+
+SOC2 CC6.1 and ISO 27001 A.9.2.5 both require that credentials not used for an extended period are reviewed and revoked. ClawMind ships this as an opt-in workspace policy with a manual or scheduled sweep:
+
+- `idleDays`: revoke active keys whose last successful use is older than this. Anchor falls back from `lastUsedAt` to `rotatedAt` to `createdAt` so a freshly minted-but-unused key is never assumed eternally fresh.
+- `warnDays`: surface keys this close to the threshold without revoking. Powers the at-risk preview in the admin UI.
+
+Owner-only mutations are MFA-stepped. A `dry_run` preview returns the exact set the real sweep would revoke so an operator can sanity-check before pulling the trigger. Every sweep writes an audit-chain entry with the revoked key ids, and `lastSweepAt` / `lastSweepCount` are persisted on the policy so an auditor can prove the control is exercised.
+
+The `/v1/keys` list annotates each key with its inactivity status (`fresh` / `warn` / `expired`) and the projected `willRevokeAt`, so the canonical admin view shows dormant credentials without a second fetch. UI at <http://127.0.0.1:7412/settings/api-key-inactivity>.
+
+```bash
+# Read the policy, limits, and at-risk counts (admin+).
+curl -s -H "Authorization: Bearer $CLAWMIND_KEY" \
+  http://127.0.0.1:7410/v1/api-key-inactivity
+
+# Set a 90-day idle threshold with a 7-day warning window (owner + MFA).
+curl -s -X PUT -H "Authorization: Bearer $CLAWMIND_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"idleDays":90,"warnDays":7}' \
+  http://127.0.0.1:7410/v1/api-key-inactivity
+
+# Preview which keys the next sweep would revoke (no mutation).
+curl -s -X POST -H "Authorization: Bearer $CLAWMIND_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"dryRun":true}' \
+  http://127.0.0.1:7410/v1/api-key-inactivity/sweep
+
+# Actually revoke every key past the idle threshold (owner + MFA).
+curl -s -X POST -H "Authorization: Bearer $CLAWMIND_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{}' \
+  http://127.0.0.1:7410/v1/api-key-inactivity/sweep
+```
+
+Gated by the new `api-key-inactivity:read` / `api-key-inactivity:admin` scopes. Wire the sweep endpoint into a Helm CronJob or systemd timer for hands-off enforcement.
+
 ### Workspace policy acceptance (TOS / DPA / AUP)
 
 Procurement and SOC2 reviewers consistently ask for proof that every user has been shown and has affirmatively accepted the current Terms of Service, Data Processing Addendum, and Acceptable Use Policy. ClawMind ships this as a first-class workflow: an owner publishes a versioned policy, and every authenticated request is gated until each user has accepted the latest required version. Refusing or skipping returns `HTTP 451 Unavailable For Legal Reasons` with the unmet policy ids so a UI or script can recover deterministically.

@@ -451,6 +451,39 @@ export interface ApiKeyPolicyLimits {
   maxForcedRotationDays: number;
 }
 
+export interface ApiKeyInactivityPolicy {
+  workspaceId: string;
+  idleDays: number;
+  warnDays: number;
+  updatedAt: number;
+  updatedBy: string | null;
+  lastSweepAt: number | null;
+  lastSweepCount: number;
+}
+
+export interface ApiKeyInactivityLimits {
+  maxIdleDays: number;
+  maxWarnDays: number;
+}
+
+export interface ApiKeyInactivityAtRisk {
+  id: string;
+  userId: string;
+  label: string;
+  role: 'owner' | 'reader';
+  createdAt: number;
+  lastUsedAt: number | null;
+  ageDays: number;
+  status: 'warn' | 'expired';
+  willRevokeAt: number | null;
+}
+
+export interface ApiKeyInactivitySweepResult {
+  revokedIds: string[];
+  scannedAt: number;
+  dryRun: boolean;
+}
+
 export type Region = 'us' | 'eu' | 'uk' | 'ca' | 'au' | 'ap' | 'other';
 
 export interface DataResidencyPolicy {
@@ -1220,6 +1253,27 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(input),
     }).then((r) => r.policy),
+
+  apiKeyInactivityGet: () =>
+    j<{
+      policy: ApiKeyInactivityPolicy;
+      limits: ApiKeyInactivityLimits;
+      counts: { activeKeys: number; warnKeys: number; expiredKeys: number };
+    }>('/v1/api-key-inactivity'),
+  apiKeyInactivitySet: (input: { idleDays?: number; warnDays?: number }) =>
+    j<{ policy: ApiKeyInactivityPolicy }>('/v1/api-key-inactivity', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.policy),
+  apiKeyInactivityAtRisk: () =>
+    j<{ policy: ApiKeyInactivityPolicy; atRisk: ApiKeyInactivityAtRisk[] }>(
+      '/v1/api-key-inactivity/at-risk',
+    ),
+  apiKeyInactivitySweep: (input: { dryRun?: boolean } = {}) =>
+    j<ApiKeyInactivitySweepResult>('/v1/api-key-inactivity/sweep', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
 
   // Workspace data residency. GET returns the policy plus the current
   // server region so the admin page can show whether the connected

@@ -203,6 +203,14 @@ export const Scopes = {
   ApiKeyPolicyRead: 'api-key-policy:read',
   ApiKeyPolicyManage: 'api-key-policy:admin',
 
+  // Workspace API-key inactivity sweep policy. SOC2 CC6.1 control:
+  // auto-revoke API keys that have not been used in an owner-configured
+  // window. Read is admin+ so auditors can confirm the threshold and
+  // last sweep time; Manage is owner-only with MFA at the route because
+  // sweeping immediately invalidates credentials in flight.
+  ApiKeyInactivityRead: 'api-key-inactivity:read',
+  ApiKeyInactivityManage: 'api-key-inactivity:admin',
+
   // Tenant-wide GDPR / data-portability export. Per-user export already
   // lives under LifecycleManage; this is the owner-only "everything in
   // the workspace" path required by enterprise exit clauses. A narrow

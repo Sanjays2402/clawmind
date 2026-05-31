@@ -10,6 +10,10 @@ import {
   evaluateIssue as evaluateApiKeyIssue,
   needsRotation as keyNeedsRotation,
 } from '../services/api-key-policy.js';
+import {
+  getPolicyCached as getInactivityPolicy,
+  classifyKey as classifyKeyInactivity,
+} from '../services/api-key-inactivity.js';
 
 const UsageQuery = z.object({
   recent: z.coerce.number().int().positive().max(200).optional(),
@@ -50,15 +54,34 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
     handler: async (req) => {
       const keys = await listKeys(app.clawmind.dataDir, req.user!.id);
       const policy = await getApiKeyPolicy(app.clawmind.dataDir);
+      const inactivity = await getInactivityPolicy(app.clawmind.dataDir);
       const now = Date.now();
       // Annotate each key with whether the workspace rotation policy
       // says it is overdue. The list is the canonical surface admins
-      // see so they can act before an auditor flags it.
-      const items = keys.map((k) => ({
-        ...redact(k),
-        needsRotation: keyNeedsRotation(policy, k, now),
-      }));
-      return { items, policy: { forcedRotationDays: policy.forcedRotationDays } };
+      // see so they can act before an auditor flags it. The inactivity
+      // status field surfaces the same warning for the dormant-key
+      // sweep policy so the admin UI does not need a separate fetch.
+      const items = keys.map((k) => {
+        const c = classifyKeyInactivity(inactivity, k, now);
+        return {
+          ...redact(k),
+          needsRotation: keyNeedsRotation(policy, k, now),
+          inactivity: {
+            status: c.status,
+            ageDays: c.ageDays,
+            willRevokeAt: c.willRevokeAt,
+          },
+        };
+      });
+      return {
+        items,
+        policy: { forcedRotationDays: policy.forcedRotationDays },
+        inactivity: {
+          idleDays: inactivity.idleDays,
+          warnDays: inactivity.warnDays,
+          lastSweepAt: inactivity.lastSweepAt,
+        },
+      };
     },
   });
 
