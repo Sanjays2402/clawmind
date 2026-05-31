@@ -329,6 +329,17 @@ export const api = {
   // Usage and quota
   usage: () => j<UsageSummary>('/v1/usage'),
 
+  // Account lifecycle (GDPR). Exports every per-user record as JSON or
+  // erases them. Both are audit-logged on the server. The web client
+  // surfaces the export as a file download and the delete behind an
+  // explicit type-to-confirm prompt.
+  meExportUrl: () => `${BASE}/v1/me/export`,
+  meDeleteData: () =>
+    j<{ userId: string; deletedAt: number; removed: Record<string, number> }>(
+      '/v1/me/data',
+      { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) },
+    ),
+
   webhookEvents: () => j<{ events: WebhookEvent[] }>('/v1/webhooks/events').then((r) => r.events),
   webhooksList: () => j<{ items: Webhook[] }>('/v1/webhooks').then((r) => r.items),
   webhookCreate: (input: { url: string; events: WebhookEvent[] }) =>

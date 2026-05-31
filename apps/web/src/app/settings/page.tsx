@@ -1,45 +1,376 @@
 'use client';
-import { useEffect, useState } from 'react';
-import { ThemeToggle, Card, Badge } from '@clawmind/ui';
-import { api } from '@/lib/api';
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { TopNav } from '@/components/TopNav';
+import { api, API_BASE, type UsageSummary, ApiError } from '@/lib/api';
+import {
+  ThemeToggle,
+  EmptyState,
+  ErrorState,
+  Spinner,
+  IconSettings,
+  IconChartBar,
+  IconKey,
+  IconWebhook,
+  IconDownload,
+  IconTrash,
+  IconArrowRight,
+  IconWarning,
+  IconRefresh,
+} from '@clawmind/ui';
 
-export default function Settings() {
-  const [health, setHealth] = useState<Awaited<ReturnType<typeof api.health>> | null>(null);
-  useEffect(() => { api.health().then(setHealth).catch(() => setHealth(null)); }, []);
+interface HealthSummary {
+  embed: boolean;
+  llm: boolean;
+  docs: number;
+  chunks: number;
+}
+
+function fmtResetDate(resetsAt: number): string {
+  return new Date(resetsAt).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+export default function SettingsPage() {
+  const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [health, setHealth] = useState<HealthSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [u, h] = await Promise.all([
+        api.usage(),
+        api.health() as Promise<HealthSummary>,
+      ]);
+      setUsage(u);
+      setHealth(h);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   return (
-    <main style={{ maxWidth: 720, margin: '40px auto', padding: '0 24px', display: 'grid', gap: 16 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 600 }}>Settings</h1>
-      <Card>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontWeight: 500 }}>Appearance</div>
-            <div style={{ color: 'var(--cm-muted)', fontSize: 13 }}>Switch between dark and light.</div>
+    <div className="min-h-screen bg-[var(--bg)]">
+      <TopNav />
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <IconSettings size={22} />
+            <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Settings</h1>
           </div>
-          <ThemeToggle />
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg-muted)] hover:bg-[var(--bg-elev)] disabled:opacity-50"
+            aria-label="Refresh"
+          >
+            <IconRefresh size={14} />
+            Refresh
+          </button>
         </div>
-      </Card>
-      <Card>
-        <div style={{ fontWeight: 500, marginBottom: 8 }}>System status</div>
-        {!health ? (
-          <div style={{ color: 'var(--cm-muted)' }}>Loading...</div>
+
+        {loading && !usage ? (
+          <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
+            <Spinner /> Loading account
+          </div>
+        ) : error ? (
+          <ErrorState title="Could not load settings" message={error} onRetry={load} />
         ) : (
-          <div style={{ display: 'grid', gap: 8 }}>
-            <Row label="Embed provider"><Badge tone={health.embed ? 'success' : 'danger'}>{health.embed ? 'ok' : 'down'}</Badge></Row>
-            <Row label="LLM provider"><Badge tone={health.llm ? 'success' : 'danger'}>{health.llm ? 'ok' : 'down'}</Badge></Row>
-            <Row label="Documents"><Badge>{health.docs}</Badge></Row>
-            <Row label="Chunks"><Badge>{health.chunks}</Badge></Row>
+          <div className="grid gap-6">
+            <ProfileCard userId={usage?.userId ?? 'local'} plan={usage?.plan ?? 'free'} />
+            <UsageCard usage={usage} />
+            <AppearanceCard />
+            <SystemCard health={health} />
+            <ShortcutsCard />
+            <DataCard onChanged={load} />
           </div>
         )}
-      </Card>
-    </main>
+      </main>
+    </div>
+  );
+}
+
+function Section({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-5">
+      <div className="mb-3">
+        <h2 className="text-sm font-semibold text-[var(--fg)]">{title}</h2>
+        {description ? (
+          <p className="mt-0.5 text-xs text-[var(--fg-muted)]">{description}</p>
+        ) : null}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ProfileCard({ userId, plan }: { userId: string; plan: string }) {
+  return (
+    <Section title="Profile" description="The account every saved item, conversation, and API key is attached to.">
+      <dl className="grid gap-2 text-sm">
+        <Row label="User ID">
+          <code className="cm-mono text-[12px] text-[var(--fg)]">{userId}</code>
+        </Row>
+        <Row label="Plan">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-0.5 text-[12px] capitalize text-[var(--fg)]">
+            {plan}
+          </span>
+        </Row>
+      </dl>
+    </Section>
+  );
+}
+
+function UsageCard({ usage }: { usage: UsageSummary | null }) {
+  if (!usage) {
+    return (
+      <Section title="Usage" description="Free-tier quota for the current month.">
+        <EmptyState
+          icon={<IconChartBar size={20} />}
+          title="No usage yet"
+          body="Run an ask or search to start the counter."
+        />
+      </Section>
+    );
+  }
+  const pct = Math.min(100, (usage.used / Math.max(1, usage.limit)) * 100);
+  const over = usage.used >= usage.limit;
+  const near = usage.used / Math.max(1, usage.limit) >= 0.8;
+  const bar = over ? 'bg-red-500' : near ? 'bg-amber-500' : 'bg-violet-500';
+  return (
+    <Section
+      title="Usage"
+      description={`${usage.used.toLocaleString()} of ${usage.limit.toLocaleString()} requests used, resets ${fmtResetDate(
+        usage.resetsAt,
+      )}.`}
+    >
+      <div className="mb-3 h-2 w-full overflow-hidden rounded-full bg-[var(--bg)]">
+        <div
+          className={`h-full ${bar} transition-all`}
+          style={{ width: `${pct}%` }}
+          role="progressbar"
+          aria-valuenow={Math.round(pct)}
+          aria-valuemin={0}
+          aria-valuemax={100}
+        />
+      </div>
+      <div className="flex items-center justify-between text-xs text-[var(--fg-muted)]">
+        <span>
+          Ask {usage.byKind.ask.toLocaleString()} / Search {usage.byKind.search.toLocaleString()}
+        </span>
+        <Link
+          href="/usage"
+          className="inline-flex items-center gap-1 text-[var(--fg)] hover:underline"
+        >
+          Full breakdown <IconArrowRight size={12} />
+        </Link>
+      </div>
+      {over ? (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-[var(--fg)]">
+          <IconWarning size={14} />
+          <span>
+            Free quota reached. Usage resets {fmtResetDate(usage.resetsAt)}. Upgrade is on the roadmap.
+          </span>
+        </div>
+      ) : null}
+    </Section>
+  );
+}
+
+function AppearanceCard() {
+  return (
+    <Section title="Appearance" description="Theme preference stored locally in your browser.">
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-[var(--fg-muted)]">Dark or light mode</span>
+        <ThemeToggle />
+      </div>
+    </Section>
+  );
+}
+
+function SystemCard({ health }: { health: HealthSummary | null }) {
+  return (
+    <Section title="System status" description="Health of the providers powering this instance.">
+      <dl className="grid gap-2 text-sm">
+        <Row label="Embed provider">
+          <Status ok={!!health?.embed} />
+        </Row>
+        <Row label="LLM provider">
+          <Status ok={!!health?.llm} />
+        </Row>
+        <Row label="Documents">
+          <span className="cm-mono text-[12px]">{(health?.docs ?? 0).toLocaleString()}</span>
+        </Row>
+        <Row label="Chunks">
+          <span className="cm-mono text-[12px]">{(health?.chunks ?? 0).toLocaleString()}</span>
+        </Row>
+      </dl>
+    </Section>
+  );
+}
+
+function ShortcutsCard() {
+  const links: Array<{ href: string; label: string; description: string; Icon: typeof IconKey }> = [
+    { href: '/keys', label: 'API keys', description: 'Issue, scope, and rotate keys.', Icon: IconKey },
+    { href: '/webhooks', label: 'Webhooks', description: 'Outbound events on ask and ingest.', Icon: IconWebhook },
+    { href: '/usage', label: 'Usage details', description: 'Per-kind breakdown and reset timer.', Icon: IconChartBar },
+  ];
+  return (
+    <Section title="Account controls" description="Manage how this account talks to the outside world.">
+      <ul className="grid gap-1">
+        {links.map(({ href, label, description, Icon }) => (
+          <li key={href}>
+            <Link
+              href={href}
+              className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-[var(--bg)]"
+            >
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] text-[var(--fg-muted)]">
+                <Icon size={14} />
+              </span>
+              <span className="flex-1">
+                <span className="block text-[var(--fg)]">{label}</span>
+                <span className="block text-xs text-[var(--fg-muted)]">{description}</span>
+              </span>
+              <IconArrowRight size={14} className="text-[var(--fg-muted)]" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+function DataCard({ onChanged }: { onChanged: () => void }) {
+  const [confirm, setConfirm] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [done, setDone] = useState<null | { removed: Record<string, number> }>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const total = done
+    ? Object.values(done.removed).reduce((a, b) => a + (b ?? 0), 0)
+    : 0;
+
+  const onDelete = async () => {
+    if (confirm !== 'DELETE') return;
+    setDeleting(true);
+    setErr(null);
+    try {
+      const res = await api.meDeleteData();
+      setDone({ removed: res.removed });
+      setConfirm('');
+      onChanged();
+    } catch (e) {
+      if (e instanceof ApiError) {
+        setErr(`Delete failed (${e.status})`);
+      } else {
+        setErr(e instanceof Error ? e.message : 'delete failed');
+      }
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Section
+      title="Your data"
+      description="Export everything tied to this account, or erase it. Both actions are written to the server audit log."
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <a
+          href={`${API_BASE}/v1/me/export`}
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--bg)]"
+          download
+        >
+          <IconDownload size={14} />
+          Export my data (JSON)
+        </a>
+        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
+          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--fg)]">
+            <IconTrash size={14} className="text-red-500" />
+            Delete my data
+          </div>
+          <p className="mb-2 text-xs text-[var(--fg-muted)]">
+            Removes history, conversations, saved items, feedback votes, and API keys for this
+            account. Type DELETE to confirm.
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="DELETE"
+              aria-label="Type DELETE to confirm"
+              className="cm-mono w-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-[12px] outline-none focus:border-red-500"
+            />
+            <button
+              type="button"
+              onClick={onDelete}
+              disabled={confirm !== 'DELETE' || deleting}
+              className="inline-flex items-center gap-1.5 rounded-md bg-red-500 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {deleting ? <Spinner /> : <IconTrash size={12} />}
+              Erase
+            </button>
+          </div>
+          {err ? (
+            <div className="mt-2 text-xs text-red-500" role="alert">
+              {err}
+            </div>
+          ) : null}
+          {done ? (
+            <div className="mt-2 text-xs text-[var(--fg)]" role="status">
+              Removed {total} records: {Object.entries(done.removed)
+                .filter(([, v]) => v)
+                .map(([k, v]) => `${v} ${k}`)
+                .join(', ') || 'nothing to remove'}.
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </Section>
   );
 }
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 14 }}>
-      <span style={{ color: 'var(--cm-muted)' }}>{label}</span>
-      {children}
+    <div className="flex items-center justify-between gap-3">
+      <dt className="text-[var(--fg-muted)]">{label}</dt>
+      <dd>{children}</dd>
     </div>
+  );
+}
+
+function Status({ ok }: { ok: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[12px] ${
+        ok
+          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
+          : 'border-red-500/40 bg-red-500/10 text-red-500'
+      }`}
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-500' : 'bg-red-500'}`} />
+      {ok ? 'ok' : 'down'}
+    </span>
   );
 }
