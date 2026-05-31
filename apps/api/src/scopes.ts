@@ -157,6 +157,13 @@ export const Scopes = {
   PoliciesAccept: 'policies:write',
   PoliciesManage: 'policies:admin',
 
+  // Workspace-wide MFA enforcement policy. Read is admin+ so compliance
+  // operators can confirm the property is in force; Manage is owner-only
+  // with MFA step-up at the route because flipping the switch on can
+  // immediately gate every other session user out of writes.
+  MfaPolicyRead: 'mfa-policy:read',
+  MfaPolicyManage: 'mfa-policy:admin',
+
   // Tenant-wide GDPR / data-portability export. Per-user export already
   // lives under LifecycleManage; this is the owner-only "everything in
   // the workspace" path required by enterprise exit clauses. A narrow

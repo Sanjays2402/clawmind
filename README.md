@@ -799,6 +799,28 @@ curl -s -X DELETE -H "Authorization: Bearer $CLAWMIND_KEY" \
 
 While frozen, any blocked request emits a `workspace-freeze.denied` audit entry so support can correlate user-reported errors with the freeze. The freeze state surfaces in `GET /v1/admin/overview` so an enterprise reviewer can see a workspace pause from the same one screen they use for SSO, MFA, and IP allowlist status. Gated by the new `workspace-freeze:read` / `workspace-freeze:admin` API key scopes.
 
+### Workspace MFA enforcement
+
+Per-user MFA exists, but SOC 2 CC6.6 and most procurement questionnaires ask whether the workspace can *require* MFA for every member, not just hope each member enrols. An owner can now flip a single switch at <http://127.0.0.1:7412/settings/mfa-policy> and every signed-in human is required to have confirmed TOTP MFA before any mutating endpoint will accept their session. Non-MFA sessions receive `HTTP 412 Precondition Failed` with a stable `mfa_enrollment_required` body and an `enrollUrl` so SDKs route the user to `/settings/mfa` without parsing English. A configurable grace window (default 7 days, max 90) gives existing members time to enrol after the policy is enabled so flipping the switch never bricks a live workspace. API key callers are exempt by design: their security model is per-key scopes + per-key IP allowlist + per-key rate limits, all enforced elsewhere.
+
+```bash
+# Read current policy (admin+).
+curl -s -H "Authorization: Bearer $CLAWMIND_KEY" \
+  http://127.0.0.1:7410/v1/mfa-policy
+
+# Turn enforcement on with a 7-day grace window (owner-only, MFA step-up).
+curl -s -X PUT -H "Authorization: Bearer $CLAWMIND_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"enforced":true,"graceDays":7}' \
+  http://127.0.0.1:7410/v1/mfa-policy
+
+# Turn enforcement off.
+curl -s -X DELETE -H "Authorization: Bearer $CLAWMIND_KEY" \
+  http://127.0.0.1:7410/v1/mfa-policy
+```
+
+Every enable, disable, and every blocked write is written to the hash-chained audit log (`mfa-policy.enable`, `mfa-policy.disable`, `mfa-policy.denied`) so a compliance reviewer can prove the property was in force for any time window. Gated by the new `mfa-policy:read` / `mfa-policy:admin` API key scopes.
+
 ### Workspace policy acceptance (TOS / DPA / AUP)
 
 Procurement and SOC2 reviewers consistently ask for proof that every user has been shown and has affirmatively accepted the current Terms of Service, Data Processing Addendum, and Acceptable Use Policy. ClawMind ships this as a first-class workflow: an owner publishes a versioned policy, and every authenticated request is gated until each user has accepted the latest required version. Refusing or skipping returns `HTTP 451 Unavailable For Legal Reasons` with the unmet policy ids so a UI or script can recover deterministically.

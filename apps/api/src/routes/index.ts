@@ -36,6 +36,7 @@ import { collectionsRoutes } from './collections.js';
 import { ipAllowlistRoutes } from './ip-allowlist.js';
 import { sessionsRoutes } from './sessions.js';
 import { mfaRoutes } from './mfa.js';
+import { mfaPolicyRoutes } from './mfa-policy.js';
 import { retentionRoutes } from './retention.js';
 import { adminRoutes } from './admin.js';
 import { memberRoutes } from './members.js';
@@ -85,6 +86,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(ipAllowlistRoutes, { prefix: '/v1' });
   await app.register(sessionsRoutes, { prefix: '/v1' });
   await app.register(mfaRoutes, { prefix: '/v1' });
+  await app.register(mfaPolicyRoutes, { prefix: '/v1' });
   await app.register(retentionRoutes, { prefix: '/v1' });
   await app.register(adminRoutes, { prefix: '/v1' });
   await app.register(memberRoutes, { prefix: '/v1' });

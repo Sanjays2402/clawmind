@@ -319,6 +319,22 @@ export interface WorkspaceFreeze {
   updatedAt: number;
 }
 
+export interface MfaPolicy {
+  workspaceId: string;
+  enforced: boolean;
+  graceDays: number;
+  enforcedAt: number | null;
+  enforcedBy: string | null;
+  disabledAt: number | null;
+  disabledBy: string | null;
+  updatedAt: number;
+}
+
+export interface MfaPolicyLimits {
+  maxGraceDays: number;
+  defaultGraceDays: number;
+}
+
 export type MemberRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface MemberRecord {
@@ -847,6 +863,20 @@ export const api = {
     }).then((r) => r.freeze),
   workspaceFreezeRelease: () =>
     j<{ freeze: WorkspaceFreeze }>('/v1/workspace/freeze', { method: 'DELETE' }).then((r) => r.freeze),
+
+  // Workspace MFA enforcement policy. When enforced, every signed-in
+  // human must enrol TOTP MFA before any mutating endpoint will accept
+  // their session; the grace window gives existing users time to enrol
+  // after the policy is flipped on. API-key callers are exempt.
+  mfaPolicyGet: () =>
+    j<{ policy: MfaPolicy; limits: MfaPolicyLimits }>('/v1/mfa-policy'),
+  mfaPolicyEnable: (input: { graceDays?: number }) =>
+    j<{ policy: MfaPolicy }>('/v1/mfa-policy', {
+      method: 'PUT',
+      body: JSON.stringify({ enforced: true, ...input }),
+    }).then((r) => r.policy),
+  mfaPolicyDisable: () =>
+    j<{ policy: MfaPolicy }>('/v1/mfa-policy', { method: 'DELETE' }).then((r) => r.policy),
 
   // Multi-factor auth. The /settings/mfa page walks the user through
   // enrollment (start, scan, confirm) and surfaces step-up state for
