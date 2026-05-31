@@ -13,6 +13,10 @@ import {
 import { Scopes } from '../scopes.js';
 import { notify } from '../services/notifications.js';
 import { DryRunQuery, isDryRun, auditAction } from '../lib/dry-run.js';
+import {
+  getPolicyCached as getSharePolicy,
+  evaluate as evalSharePolicy,
+} from '../services/share-policy.js';
 
 // Public shares: any signed-in user can mint a /s/<id> link that anyone on
 // the internet can read without auth. We also let owners list and revoke
@@ -47,8 +51,37 @@ export const shareRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/share', {
     schema: { body: ShareBody },
     preHandler: [app.requireAuth, app.requireScope(Scopes.ShareWrite)],
-    handler: async (req) => {
-      const ttlDays = req.body.ttlDays;
+    handler: async (req, reply) => {
+      // Workspace-wide share policy gate. Owners can disable public
+      // sharing, require an explicit expiry, or cap the maximum TTL a
+      // member can mint. Denials are audit-logged so security teams can
+      // see what was attempted while the policy was in force.
+      const sp = await getSharePolicy(app.clawmind.dataDir);
+      const decision = evalSharePolicy(sp, { ttlDays: req.body.ttlDays });
+      if (!decision.ok) {
+        await app.clawmind.audit.write({
+          actor: req.user!.id,
+          action: 'share.create.denied',
+          resource: '/v1/share',
+          meta: {
+            ip: req.ip,
+            requestId: req.id,
+            reason: decision.reason,
+            requestedTtlDays: req.body.ttlDays ?? null,
+            policy: {
+              disableShares: sp.disableShares,
+              requireExpiry: sp.requireExpiry,
+              maxTtlDays: sp.maxTtlDays,
+            },
+          },
+        });
+        return reply.code(403).send({
+          error: 'share policy denied',
+          reason: decision.reason,
+          message: decision.message,
+        });
+      }
+      const ttlDays = decision.ttlDays;
       const ttlMs =
         ttlDays === null
           ? null

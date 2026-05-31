@@ -476,6 +476,19 @@ export interface SessionPolicyLimits {
   defaultIdleMinutes: number;
 }
 
+export interface SharePolicy {
+  workspaceId: string;
+  disableShares: boolean;
+  requireExpiry: boolean;
+  maxTtlDays: number;
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export interface SharePolicyLimits {
+  maxTtlDays: number;
+}
+
 export interface ApiKeyPolicy {
   workspaceId: string;
   maxTtlMinutes: number;
@@ -1330,6 +1343,14 @@ export const api = {
     j<{ policy: SessionPolicy; limits: SessionPolicyLimits }>('/v1/session-policy'),
   sessionPolicySet: (input: { maxLifetimeMinutes?: number; idleTimeoutMinutes?: number; maxConcurrentSessions?: number }) =>
     j<{ policy: SessionPolicy }>('/v1/session-policy', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.policy),
+
+  sharePolicyGet: () =>
+    j<{ policy: SharePolicy; limits: SharePolicyLimits }>('/v1/share-policy'),
+  sharePolicySet: (input: { disableShares?: boolean; requireExpiry?: boolean; maxTtlDays?: number }) =>
+    j<{ policy: SharePolicy }>('/v1/share-policy', {
       method: 'PUT',
       body: JSON.stringify(input),
     }).then((r) => r.policy),

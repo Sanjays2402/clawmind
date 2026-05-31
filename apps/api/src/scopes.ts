@@ -333,6 +333,14 @@ export const Scopes = {
   // and a mistake can lock the tenant out of their own data.
   EncryptionRead: 'encryption:read',
   EncryptionManage: 'encryption:admin',
+
+  // Workspace public-share policy. Read is admin+ so a compliance operator
+  // can confirm whether public sharing is disabled, capped, or expiry-
+  // required without being able to widen it. Manage is owner-only with
+  // MFA step-up at the route because tightening it can immediately reject
+  // the next /v1/share mint a member attempts.
+  SharePolicyRead: 'share-policy:read',
+  SharePolicyManage: 'share-policy:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

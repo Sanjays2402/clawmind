@@ -10,6 +10,31 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Workspace public share policy: enterprise leak reviews routinely ask "can a workspace owner stop members from minting a public share link, force every link to expire, or cap the maximum link lifetime?" `GET /v1/share-policy` (admin+) returns the active `disableShares`, `requireExpiry`, and `maxTtlDays` knobs; `PUT /v1/share-policy` (owner + MFA) updates them with partial-update semantics and writes a `share-policy.update` row with the full before/after to the hash-chained audit log. The policy is consulted on every `POST /v1/share` through a 1-second hot cache, so flipping the switch in one tab takes effect on the very next mint in another. Denied mints return 403 with a structured `reason` (`shares-disabled`, `expiry-required`, or `ttl-exceeds-cap`) and write a `share.create.denied` audit row that captures the requested TTL and the policy snapshot. The web console at `/settings/share-policy` exposes the three knobs with inline help, disabled-state cascading, and a save button that surfaces validation errors from the API. Read is gated by `share-policy:read` (admin+), writes by `share-policy:admin` (owner + MFA).
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # Read current policy (admin+ key)
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:8787/v1/share-policy
+
+  # Lock sharing down: must expire, max 7 days (owner + MFA required)
+  curl -sS -X PUT http://localhost:8787/v1/share-policy \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"requireExpiry": true, "maxTtlDays": 7}'
+
+  # Kill switch: disable public sharing entirely
+  curl -sS -X PUT http://localhost:8787/v1/share-policy \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"disableShares": true}'
+
+  # Open the policy console in a browser
+  open http://localhost:3000/settings/share-policy
+  ```
+
 - Customer-managed encryption keys (CMEK / BYOK): an owner-only `/settings/encryption` console that lets a tenant bring their own 32-byte key encryption key (base64 or hex), rotate the workspace data encryption key, and audit every key transition without the server ever logging key material. `GET /v1/encryption` returns the active KEK kind (`internal` or `customer`), a short SHA-256 fingerprint, the active DEK id, and the small roll of archived DEKs so wrapped artifacts stay decryptable across rotations; `POST /v1/encryption/kek` adopts a customer KEK and rewraps every DEK, `DELETE /v1/encryption/kek` returns the workspace to the internal KEK (requires the same KEK material so a rotation can never be done blind), and `POST /v1/encryption/rotate` mints a fresh DEK and archives the previous one. Read is gated by `encryption:read` (admin+) so a compliance operator can quote the active fingerprint in a DPA without being able to rotate; every mutation is `encryption:admin`, owner-only, and MFA-stepped, and writes an `encryption.kek.upload`, `encryption.kek.remove`, or `encryption.dek.rotate` row to the hash-chained audit log with the resulting key id and short fingerprint so a SIEM gets a tamper-evident trail of every key transition.
 
 - Workspace scheduled deletion: enterprise exit clauses (GDPR Article 17 "right to erasure" at the tenant level) require that a customer can put a documented, cancelable timer on the destruction of their entire workspace, see the countdown, and still pull a final export bundle while the clock runs. `POST /v1/workspace/deletion` (owner + MFA) schedules a wipe with a grace window clamped to `[1 hour, 90 days]` (default 7 days), persists `scheduledFor`, `scheduledBy`, the reason, and a ticket reference, and immediately flips the workspace into a pending state where every mutating endpoint outside the allowlist returns HTTP 423. The allowlist keeps reads, MFA step-up, sign-out, the workspace export download, and the deletion endpoint itself open so the customer can pull data and the owner can change their mind. `DELETE /v1/workspace/deletion` cancels and restores writes. After `scheduledFor` passes, an out-of-band operator script runs the actual wipe and posts to `/v1/workspace/deletion/complete` to anchor the completion in the hash-chained audit log. The web console at `/settings/workspace-deletion` shows a live countdown, a cancel button, and a `Mark wipe complete` action that only appears once the window has elapsed. Read is gated by `workspace-deletion:read` (admin+), and every mutation by `workspace-deletion:admin` (owner + MFA).

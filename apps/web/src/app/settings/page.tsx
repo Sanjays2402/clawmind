@@ -436,6 +436,7 @@ function ShortcutsCard() {
     { href: '/settings/workspace-deletion', label: 'Workspace deletion', description: 'Schedule a tenant-wide wipe with a cancelable grace window. Owner only.', Icon: IconTrash },
     { href: '/settings/mfa-policy', label: 'MFA enforcement', description: 'Require every member to enrol multi-factor auth before any write is accepted.', Icon: IconShield },
     { href: '/settings/session-policy', label: 'Session lifetime', description: 'Cap how long a signed-in browser session lives and how long it can sit idle.', Icon: IconClockCountdown },
+    { href: '/settings/share-policy', label: 'Public share policy', description: 'Disable public share links, require an explicit expiry, or cap the maximum link TTL across the workspace.', Icon: IconShield },
     { href: '/settings/api-key-policy', label: 'API key policy', description: 'Cap key lifetime, require expiry, limit active keys per user, forbid wildcard scopes, and flag overdue rotations.', Icon: IconKey },
     { href: '/settings/api-key-inactivity', label: 'API key inactivity sweep', description: 'Auto revoke API keys that have not been used in an owner configured window. SOC2 CC6.1 control with audit log and dry run preview.', Icon: IconClockCountdown },
     { href: '/settings/encryption', label: 'Encryption keys (CMEK)', description: 'Bring your own KEK, rotate the workspace DEK, and audit every key transition. Owner only with MFA step up.', Icon: IconKey },
