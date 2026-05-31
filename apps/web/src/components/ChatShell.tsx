@@ -6,6 +6,7 @@ import { NamespacePicker, Spinner, type Ns } from '@clawmind/ui';
 import { ChatStream } from './ChatStream';
 import { SourcesPane } from './SourcesPane';
 import { Composer } from './Composer';
+import { ShareAnswerButton } from './ShareAnswerButton';
 import { api } from '@/lib/api';
 
 interface Source {
@@ -107,12 +108,23 @@ export function ChatShell({
               </div>
             )}
             {answer && (
-              <ChatStream
-                text={answer}
-                sources={sources}
-                activeId={activeSource?.id ?? null}
-                onCite={setActiveSource}
-              />
+              <>
+                <ChatStream
+                  text={answer}
+                  sources={sources}
+                  activeId={activeSource?.id ?? null}
+                  onCite={setActiveSource}
+                />
+                {!loading && (
+                  <div className="mt-6 flex items-center justify-end gap-2 border-t border-cm-border pt-4">
+                    <ShareAnswerButton
+                      query={question}
+                      answer={answer}
+                      sources={sources}
+                    />
+                  </div>
+                )}
+              </>
             )}
           </div>
         </section>
