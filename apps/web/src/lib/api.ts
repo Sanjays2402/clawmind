@@ -361,6 +361,18 @@ export const api = {
   health: () =>
     j<{ ok: boolean; embed: boolean; llm: boolean; docs: number; chunks: number }>('/health'),
 
+  ssoConfig: () =>
+    j<{
+      enabled: boolean;
+      enforced: boolean;
+      issuer: string | null;
+      clientId: string | null;
+      redirectUri: string | null;
+      allowedDomains: string[];
+      scopes: string | null;
+      mode: 'single-user' | 'github' | 'oidc';
+    }>('/auth/sso/config'),
+
   // Search and ask
   search: (body: {
     q: string;

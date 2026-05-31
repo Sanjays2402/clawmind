@@ -3,6 +3,15 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { verifySecret, hasScope } from '../services/api-keys.js';
 import { recordUsage } from '../services/api-key-usage.js';
 import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid } from '../services/sessions.js';
+import {
+  settingsFromEnv as oidcSettingsFromEnv,
+  isConfigured as oidcIsConfigured,
+  discover as oidcDiscover,
+  buildAuthorizationRequest as oidcAuthRequest,
+  completeLogin as oidcCompleteLogin,
+  constantTimeStringEqual,
+  type OidcSettings,
+} from '../services/oidc.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -13,7 +22,16 @@ declare module 'fastify' {
       via?: 'session' | 'api-key';
       apiKeyId?: string;
       scopes?: string[] | null;
+      email?: string | null;
     };
+  }
+  interface Session {
+    userId?: string;
+    github?: string;
+    email?: string;
+    oidcState?: string;
+    oidcNonce?: string;
+    oidcReturnTo?: string;
   }
 }
 
@@ -90,6 +108,7 @@ const plugin: FastifyPluginAsync = async (app) => {
         github: req.session.github ?? null,
         role: 'owner',
         via: 'session',
+        email: req.session.email ?? null,
       };
     }
   });
@@ -178,6 +197,120 @@ const plugin: FastifyPluginAsync = async (app) => {
   });
 
   app.get('/auth/me', async (req) => ({ user: req.user ?? null }));
+
+  // ----- OIDC SSO -----
+  // /auth/sso/config exposes only non-secret status so the dashboard can
+  // render "SSO enforced for example.com" without ever shipping the client
+  // secret to the browser. The settings page polls this on load.
+  const oidcSettings: OidcSettings | null = oidcSettingsFromEnv(env);
+  const oidcEnforced = env.CLAWMIND_AUTH_MODE === 'oidc';
+
+  app.get('/auth/sso/config', async () => ({
+    enabled: oidcIsConfigured(oidcSettings),
+    enforced: oidcEnforced,
+    issuer: oidcSettings?.issuer ?? null,
+    clientId: oidcSettings?.clientId ?? null,
+    redirectUri: oidcSettings?.redirectUri ?? null,
+    allowedDomains: oidcSettings?.allowedDomains ?? [],
+    scopes: oidcSettings?.scopes ?? null,
+    mode: env.CLAWMIND_AUTH_MODE,
+  }));
+
+  app.get<{ Querystring: { return_to?: string } }>('/auth/oidc', async (req, reply) => {
+    if (!oidcIsConfigured(oidcSettings)) {
+      return reply.code(404).send({ error: 'oidc not configured' });
+    }
+    let doc;
+    try {
+      doc = await oidcDiscover(oidcSettings.issuer);
+    } catch (err) {
+      app.log.error({ err }, 'oidc discovery failed');
+      return reply.code(502).send({ error: 'oidc discovery failed' });
+    }
+    const ar = oidcAuthRequest(oidcSettings, doc);
+    req.session.oidcState = ar.state;
+    req.session.oidcNonce = ar.nonce;
+    // Only honour relative return_to paths so a crafted callback link cannot
+    // bounce the user to a malicious origin after login completes.
+    const returnTo = typeof req.query.return_to === 'string' ? req.query.return_to : '/';
+    req.session.oidcReturnTo = returnTo.startsWith('/') && !returnTo.startsWith('//') ? returnTo : '/';
+    reply.redirect(ar.url);
+  });
+
+  app.get<{ Querystring: { code?: string; state?: string; error?: string; error_description?: string } }>(
+    '/auth/oidc/callback',
+    async (req, reply) => {
+      if (!oidcIsConfigured(oidcSettings)) {
+        return reply.code(404).send({ error: 'oidc not configured' });
+      }
+      if (req.query.error) {
+        await app.clawmind.audit.write({
+          actor: 'anonymous',
+          action: 'sso.login.failed',
+          resource: 'oidc',
+          meta: { reason: req.query.error, description: req.query.error_description },
+        });
+        return reply.code(400).send({ error: req.query.error, description: req.query.error_description });
+      }
+      const code = req.query.code;
+      const state = req.query.state;
+      const expectedState = req.session.oidcState;
+      const expectedNonce = req.session.oidcNonce;
+      const returnTo = req.session.oidcReturnTo ?? '/';
+      // Single-use: clear immediately so a replayed callback link cannot
+      // re-establish a session from a leaked URL.
+      req.session.oidcState = undefined;
+      req.session.oidcNonce = undefined;
+      req.session.oidcReturnTo = undefined;
+      if (!code || !state || !expectedState || !expectedNonce) {
+        return reply.code(400).send({ error: 'missing code or state' });
+      }
+      if (!constantTimeStringEqual(state, expectedState)) {
+        await app.clawmind.audit.write({
+          actor: 'anonymous',
+          action: 'sso.login.failed',
+          resource: 'oidc',
+          meta: { reason: 'state mismatch' },
+        });
+        return reply.code(400).send({ error: 'state mismatch' });
+      }
+      try {
+        const result = await oidcCompleteLogin(oidcSettings, code, expectedNonce);
+        req.session.userId = result.userId;
+        req.session.email = result.email ?? undefined;
+        await app.clawmind.audit.write({
+          actor: result.userId,
+          action: 'sso.login',
+          resource: 'oidc',
+          meta: {
+            issuer: oidcSettings.issuer,
+            email: result.email,
+            emailVerified: result.emailVerified,
+          },
+        });
+        const sid = (req.session as unknown as { sessionId?: string }).sessionId;
+        if (sid) {
+          await recordLogin(app.clawmind.dataDir, {
+            sid,
+            userId: result.userId,
+            ip: req.ip,
+            userAgent: req.headers['user-agent'],
+          });
+        }
+        return reply.redirect(returnTo);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'oidc login failed';
+        app.log.warn({ err }, 'oidc callback rejected');
+        await app.clawmind.audit.write({
+          actor: 'anonymous',
+          action: 'sso.login.failed',
+          resource: 'oidc',
+          meta: { reason: msg },
+        });
+        return reply.code(401).send({ error: msg });
+      }
+    },
+  );
 };
 
 declare module 'fastify' {

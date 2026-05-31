@@ -21,11 +21,30 @@ export function loadEnv() {
     CLAWMIND_LLM_FALLBACK_URL: url({ default: 'http://127.0.0.1:4141/v1' }),
     CLAWMIND_LLM_FALLBACK_MODEL: str({ default: 'copilot-gpt-4o' }),
 
-    CLAWMIND_AUTH_MODE: str({ choices: ['single-user', 'github'], default: 'single-user' }),
+    CLAWMIND_AUTH_MODE: str({ choices: ['single-user', 'github', 'oidc'], default: 'single-user' }),
     CLAWMIND_SESSION_SECRET: str({ default: 'dev-secret-change-me-32bytesxxxxxxxxxxxx' }),
     GITHUB_CLIENT_ID: str({ default: '' }),
     GITHUB_CLIENT_SECRET: str({ default: '' }),
     CLAWMIND_ALLOWED_GITHUB_USERS: str({ default: '' }),
+
+    // Generic OIDC SSO. Works with any spec-compliant provider that exposes
+    // a discovery document at `${issuer}/.well-known/openid-configuration`:
+    // Google Workspace (issuer https://accounts.google.com), Okta
+    // (https://<tenant>.okta.com), Azure AD / Entra ID
+    // (https://login.microsoftonline.com/<tenant>/v2.0), Auth0, Keycloak.
+    // Procurement reviewers expect SSO to be present and configurable per
+    // deployment without code changes.
+    //
+    // Set CLAWMIND_AUTH_MODE=oidc to require SSO. If
+    // CLAWMIND_OIDC_ALLOWED_DOMAINS is non-empty, only ID tokens whose
+    // verified email ends in one of those domains may sign in. Leave empty
+    // to allow any account the IdP returns.
+    CLAWMIND_OIDC_ISSUER: str({ default: '' }),
+    CLAWMIND_OIDC_CLIENT_ID: str({ default: '' }),
+    CLAWMIND_OIDC_CLIENT_SECRET: str({ default: '' }),
+    CLAWMIND_OIDC_REDIRECT_URI: str({ default: '' }),
+    CLAWMIND_OIDC_ALLOWED_DOMAINS: str({ default: '' }),
+    CLAWMIND_OIDC_SCOPES: str({ default: 'openid email profile' }),
 
     CLAWMIND_OTEL_ENABLED: bool({ default: false }),
     CLAWMIND_OTEL_ENDPOINT: str({ default: 'http://127.0.0.1:4318' }),
