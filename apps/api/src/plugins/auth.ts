@@ -1,6 +1,6 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
-import { verifySecret, hasScope } from '../services/api-keys.js';
+import { verifySecret, hasScope, ipAllowedByKey } from '../services/api-keys.js';
 import { recordUsage } from '../services/api-key-usage.js';
 import { consume as consumeKeyBucket } from '../services/api-key-rate-limit.js';
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
@@ -84,6 +84,24 @@ const plugin: FastifyPluginAsync = async (app) => {
       const presented = auth.slice('Bearer '.length).trim();
       const result = await verifySecret(app.clawmind.dataDir, presented);
       if (result.ok) {
+        // Per-key IP allowlist. Reject before issuing usage credit so a
+        // probing client cannot map the key's scope set from outside its
+        // permitted range. The workspace-level allowlist (if any) is
+        // enforced separately by the ip-allowlist plugin.
+        if (result.record.allowedIps && result.record.allowedIps.length > 0) {
+          if (!ipAllowedByKey(req.ip, result.record.allowedIps)) {
+            await app.clawmind.audit.write({
+              actor: result.record.userId,
+              action: 'api_key.ip.denied',
+              resource: result.record.id,
+              meta: { ip: req.ip, route: req.url, rules: result.record.allowedIps.length },
+            }).catch(() => undefined);
+            return reply.code(403).send({
+              error: 'ip not allowed for this key',
+              ip: req.ip,
+            });
+          }
+        }
         req.user = {
           id: result.record.userId,
           github: null,

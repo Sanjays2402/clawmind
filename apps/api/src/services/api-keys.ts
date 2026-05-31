@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { nanoid } from 'nanoid';
+import { normaliseRule, ipAllowed as ipAllowedByRules } from './ip-allowlist.js';
 
 // API keys for programmatic clients (CLI, scripts, the watcher daemon).
 //
@@ -64,6 +65,80 @@ export interface ApiKeyRecord {
   // id. Returns 429 with standard X-RateLimit-* headers. When undefined the
   // global limiter from server.ts applies unchanged.
   rateLimit?: { max: number; windowMs: number } | null;
+  // Optional per-key IP allowlist. When set, the auth layer rejects any
+  // request whose source IP does not match one of these IPv4/IPv6 rules.
+  // Each entry is a single address or CIDR block (e.g. '203.0.113.7' or
+  // '10.0.0.0/8'). When undefined or empty, the workspace-level allowlist
+  // (if any) still applies but the key adds no further restriction. This
+  // lets a customer bind a CI key to their build runners or a backend key
+  // to a known egress range, even if the workspace itself permits any IP.
+  allowedIps?: string[] | null;
+}
+
+export const MAX_KEY_IP_RULES = 64;
+
+export interface IpAllowlistValidation {
+  ok: boolean;
+  /** Normalised list when ok is true. */
+  rules?: string[];
+  /** Human-readable reason when ok is false. */
+  message?: string;
+  /** Index of the offending entry when ok is false. */
+  index?: number;
+}
+
+export function normaliseKeyIpRules(input: readonly string[] | null | undefined): IpAllowlistValidation {
+  if (!input) return { ok: true, rules: [] };
+  if (input.length > MAX_KEY_IP_RULES) {
+    return { ok: false, message: `too many rules (max ${MAX_KEY_IP_RULES})` };
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < input.length; i++) {
+    const raw = input[i];
+    if (typeof raw !== 'string' || !raw.trim()) {
+      return { ok: false, index: i, message: 'rule must be a non-empty string' };
+    }
+    const norm = normaliseRule(raw);
+    if (!norm) return { ok: false, index: i, message: `invalid IP or CIDR: ${raw}` };
+    if (seen.has(norm)) return { ok: false, index: i, message: `duplicate rule: ${norm}` };
+    seen.add(norm);
+    out.push(norm);
+  }
+  return { ok: true, rules: out };
+}
+
+/** Return true when the source IP is permitted by the per-key allowlist. */
+export function ipAllowedByKey(ip: string | undefined | null, rules: readonly string[] | null | undefined): boolean {
+  if (!rules || rules.length === 0) return true; // unrestricted
+  if (!ip) return false; // restrictive list but no source IP
+  return ipAllowedByRules(ip, rules.map((cidr) => ({ cidr })));
+}
+
+/**
+ * Update or clear the per-key IP allowlist. Returns the updated record or
+ * null if the key is not owned by the user, revoked, or expired. Pass null
+ * or an empty array to remove an existing restriction.
+ */
+export async function setKeyAllowedIps(
+  dataDir: string,
+  userId: string,
+  id: string,
+  allowedIps: readonly string[] | null,
+  now: number = Date.now(),
+): Promise<ApiKeyRecord | null> {
+  const v = normaliseKeyIpRules(allowedIps);
+  if (!v.ok) throw new Error(v.message ?? 'invalid ip rules');
+  const all = await loadKeys(dataDir);
+  const idx = all.findIndex((k) => k.id === id && k.userId === userId);
+  if (idx < 0) return null;
+  const cur = all[idx]!;
+  if (cur.revokedAt) return null;
+  if (cur.expiresAt && now > cur.expiresAt) return null;
+  const next: ApiKeyRecord = { ...cur, allowedIps: v.rules && v.rules.length > 0 ? v.rules : null };
+  all[idx] = next;
+  await saveKeys(dataDir, all);
+  return next;
 }
 
 export const MIN_RATE_WINDOW_MS = 1_000;
@@ -309,5 +384,7 @@ export function redact(rec: ApiKeyRecord) {
         ? rec.previousHashExpiresAt
         : null,
     rateLimit: rec.rateLimit ?? null,
+    allowedIps: rec.allowedIps ?? null,
   };
 }
+

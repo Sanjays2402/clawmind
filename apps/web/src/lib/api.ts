@@ -370,6 +370,7 @@ export interface ApiKey {
   rotatedAt?: number | null;
   previousHashExpiresAt?: number | null;
   rateLimit?: { max: number; windowMs: number } | null;
+  allowedIps?: string[] | null;
 }
 
 export interface KeyUsageEvent {
@@ -650,6 +651,11 @@ export const api = {
     j<{ key: ApiKey }>(
       `/v1/keys/${id}/rate-limit`,
       { method: 'PUT', body: JSON.stringify({ rateLimit }) },
+    ).then((r) => r.key),
+  keySetAllowedIps: (id: string, allowedIps: string[] | null) =>
+    j<{ key: ApiKey }>(
+      `/v1/keys/${id}/ip-allowlist`,
+      { method: 'PUT', body: JSON.stringify({ allowedIps }) },
     ).then((r) => r.key),
   keyUsage: (id: string, opts: { recent?: number; routes?: number } = {}) => {
     const q = new URLSearchParams();

@@ -322,6 +322,44 @@ function KeyRow({
   const [limitSaving, setLimitSaving] = useState(false);
   const [limitError, setLimitError] = useState<string | null>(null);
 
+  const [showIps, setShowIps] = useState(false);
+  const [ipsText, setIpsText] = useState((k.allowedIps ?? []).join('\n'));
+  const [ipsSaving, setIpsSaving] = useState(false);
+  const [ipsError, setIpsError] = useState<string | null>(null);
+
+  async function saveIps() {
+    const parsed = ipsText
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setIpsSaving(true);
+    setIpsError(null);
+    try {
+      await api.keySetAllowedIps(k.id, parsed.length > 0 ? parsed : null);
+      setShowIps(false);
+      window.location.reload();
+    } catch (err) {
+      setIpsError((err as Error).message);
+    } finally {
+      setIpsSaving(false);
+    }
+  }
+
+  async function clearIps() {
+    setIpsSaving(true);
+    setIpsError(null);
+    try {
+      await api.keySetAllowedIps(k.id, null);
+      setIpsText('');
+      setShowIps(false);
+      window.location.reload();
+    } catch (err) {
+      setIpsError((err as Error).message);
+    } finally {
+      setIpsSaving(false);
+    }
+  }
+
   async function saveLimit() {
     const max = Number(limitMax);
     const windowSec = Number(limitWindowSec);
@@ -409,6 +447,11 @@ function KeyRow({
               limit {k.rateLimit.max}/{Math.max(1, Math.round(k.rateLimit.windowMs / 1000))}s
             </span>
           )}
+          {k.allowedIps && k.allowedIps.length > 0 && (
+            <span title={k.allowedIps.join(', ')}>
+              ip allowlist {k.allowedIps.length}
+            </span>
+          )}
         </div>
         {k.scopes && k.scopes.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
@@ -434,6 +477,13 @@ function KeyRow({
             className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
           >
             {showLimit ? 'Hide limit' : k.rateLimit ? 'Limit' : 'Set limit'}
+          </button>
+          <button
+            onClick={() => setShowIps((v) => !v)}
+            aria-expanded={showIps}
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
+          >
+            {showIps ? 'Hide IPs' : k.allowedIps && k.allowedIps.length > 0 ? `IPs (${k.allowedIps.length})` : 'Restrict IPs'}
           </button>
           <button
             onClick={() => onRotate(k.id)}
@@ -508,6 +558,43 @@ function KeyRow({
           </div>
           {limitError && (
             <div className="mt-2 text-xs text-cm-danger">{limitError}</div>
+          )}
+        </div>
+      )}
+      {showIps && (
+        <div className="mt-2 rounded-md border border-cm-border p-3">
+          <div className="mb-2 text-xs text-cm-muted">
+            Per-key IP allowlist. One IPv4 or IPv6 address or CIDR block per line. Requests from any other source are rejected with 403 before the call runs. Leave empty to remove the restriction.
+          </div>
+          <textarea
+            value={ipsText}
+            onChange={(e) => setIpsText(e.target.value)}
+            rows={4}
+            spellCheck={false}
+            placeholder={'10.0.0.0/8\n203.0.113.7'}
+            className="w-full rounded-md border border-cm-border bg-transparent px-2 py-1.5 font-mono text-xs text-cm-fg"
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              onClick={saveIps}
+              disabled={ipsSaving}
+              className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-fg px-3 py-1.5 text-sm text-cm-bg hover:opacity-90 disabled:opacity-50"
+            >
+              {ipsSaving ? <Spinner size={14} /> : <IconCheck size={14} />}
+              Save
+            </button>
+            {k.allowedIps && k.allowedIps.length > 0 && (
+              <button
+                onClick={clearIps}
+                disabled={ipsSaving}
+                className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-danger disabled:opacity-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {ipsError && (
+            <div className="mt-2 text-xs text-cm-danger">{ipsError}</div>
           )}
         </div>
       )}

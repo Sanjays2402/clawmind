@@ -585,6 +585,22 @@ Auth and admin:
 
 Requests are rate-limited globally to 240/min, keyed by API key id, session user, or IP in that order. Individual API keys can carry a stricter custom limit set via `PUT /v1/keys/:id/rate-limit` (or the inline editor on the `/keys` page); when present it is enforced on every authenticated route and returns 429 with `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`, and `RateLimit-Policy` headers so SDKs back off correctly. Every denial is written to the audit log.
 
+### Pin an API key to specific source IPs
+
+Individual API keys can be bound to one or more IPv4 or IPv6 addresses or CIDR blocks (e.g. a CI runner range, a backend egress, or a single office IP). Any request from outside the configured ranges is rejected with `403 ip not allowed for this key` before the call executes, and the denial is written to the audit log as `api_key.ip.denied`. The workspace-level allowlist still applies; the per-key list adds a stricter cap.
+
+From the `/keys` page click the **Restrict IPs** button on a row, paste one rule per line, and save. From a script:
+
+```bash
+curl -X PUT \
+  -H "Cookie: cm_session=..." \
+  -H "Content-Type: application/json" \
+  -d '{"allowedIps":["203.0.113.7","10.0.0.0/8"]}' \
+  http://127.0.0.1:7410/v1/keys/k_abc123/ip-allowlist
+```
+
+Send `{"allowedIps": null}` (or omit the field) to clear the restriction. The active rules surface in the key row footer and in `GET /v1/keys` so an admin can audit blast radius at a glance.
+
 ### Invite a teammate by email
 
 Open <http://127.0.0.1:7412/settings/invitations>, click **New invitation**, enter the teammate's email and the role they should land in (admin, member, or viewer). The link and raw token are shown exactly once; send the link to them out of band. From the CLI:

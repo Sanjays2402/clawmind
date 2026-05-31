@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS } from '../services/api-keys.js';
+import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS, setKeyAllowedIps, normaliseKeyIpRules, MAX_KEY_IP_RULES } from '../services/api-keys.js';
 import { getUsageReport, purgeUsage } from '../services/api-key-usage.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
@@ -159,6 +159,45 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
         action: limit ? 'api_key.rate_limit.set' : 'api_key.rate_limit.clear',
         resource: req.params.id,
         meta: limit ? { max: limit.max, windowMs: limit.windowMs } : {},
+      });
+      return { key: redact(updated) };
+    },
+  });
+
+  // Set or clear the per-key IP allowlist. The list is a small array of
+  // IPv4/IPv6 addresses or CIDR blocks. An empty list (or null) removes
+  // the restriction. Audited on every change so an admin can prove who
+  // narrowed or widened a credential's blast radius.
+  app.put<{ Params: { id: string }; Body: { allowedIps?: string[] | null } }>('/keys/:id/ip-allowlist', {
+    schema: {
+      body: z.object({
+        allowedIps: z.array(z.string().min(1).max(64)).max(MAX_KEY_IP_RULES).nullable().optional(),
+      }),
+    },
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.KeysManage)],
+    handler: async (req, reply) => {
+      const raw = req.body.allowedIps ?? null;
+      const v = normaliseKeyIpRules(raw);
+      if (!v.ok) {
+        return reply.code(400).send({
+          error: 'invalid ip allowlist',
+          message: v.message,
+          index: v.index,
+        });
+      }
+      const normalised = v.rules ?? [];
+      const updated = await setKeyAllowedIps(
+        app.clawmind.dataDir,
+        req.user!.id,
+        req.params.id,
+        normalised.length > 0 ? normalised : null,
+      );
+      if (!updated) return reply.code(404).send({ error: 'not found' });
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: normalised.length > 0 ? 'api_key.ip_allowlist.set' : 'api_key.ip_allowlist.clear',
+        resource: req.params.id,
+        meta: { count: normalised.length, rules: normalised },
       });
       return { key: redact(updated) };
     },
