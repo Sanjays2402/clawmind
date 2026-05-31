@@ -318,6 +318,49 @@ export class AuditLog {
   }
 
   /**
+   * Stream every audit event matching the supplied filters, oldest first
+   * (the order events were written, across rotated siblings). Use this for
+   * exports and any compliance pull that can exceed the 1000-row query cap:
+   * the generator never builds the full set in memory, it parses each file
+   * line by line and yields matches one at a time.
+   *
+   * Filters mirror AuditQuery (actor exact, action substring, resource
+   * prefix, since inclusive, until exclusive). `limit` and `offset` from
+   * AuditQuery are intentionally ignored here; the consumer decides how
+   * much to read.
+   */
+  async *iterate(q: AuditQuery = {}): AsyncGenerator<AuditEvent, void, void> {
+    // listFiles returns active first, then .1, .2, ... (newest-first by
+    // rotation). Reverse so we yield oldest events first, which matches
+    // how an external auditor expects a JSONL feed to read.
+    const files = (await this.listFiles()).slice().reverse();
+    for (const f of files) {
+      const exists = await stat(f).then(() => true).catch(() => false);
+      if (!exists) continue;
+      // For very large logs we still read whole files; the per-event yield
+      // keeps response memory bounded even when the caller is slow.
+      const raw = await readFile(f, 'utf8');
+      const lines = raw.split('\n');
+      for (const line of lines) {
+        if (!line) continue;
+        let ev: AuditEvent;
+        try {
+          ev = JSON.parse(line) as AuditEvent;
+        } catch {
+          // Skip malformed tail lines, same as query().
+          continue;
+        }
+        if (q.actor && ev.actor !== q.actor) continue;
+        if (q.action && !ev.action.includes(q.action)) continue;
+        if (q.resource && !ev.resource.startsWith(q.resource)) continue;
+        if (q.since !== undefined && ev.ts < q.since) continue;
+        if (q.until !== undefined && ev.ts >= q.until) continue;
+        yield ev;
+      }
+    }
+  }
+
+  /**
    * Enumerate the active log plus any sibling rotations (`audit.log.1`,
    * `audit.log.2`, ...). Returned in newest-first order so a bounded reader
    * can stop early. Exposed for tests and ops tooling.

@@ -199,3 +199,90 @@ describe('GET /v1/admin/audit route', () => {
     }
   });
 });
+
+describe('GET /v1/admin/audit/export route', () => {
+  it('forbids a reader role', async () => {
+    const { app } = buildApp({ user: { id: 'r', role: 'reader', scopes: [Scopes.AuditRead] } });
+    const res = await app.inject({ method: 'GET', url: '/v1/admin/audit/export' });
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it('forbids an owner whose key lacks audit:read', async () => {
+    const { app } = buildApp({ user: { id: 'o', role: 'owner', scopes: [Scopes.Ask] } });
+    const res = await app.inject({ method: 'GET', url: '/v1/admin/audit/export' });
+    expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it('streams every matching event as JSONL with one event per line', async () => {
+    const { app, audit } = buildApp({
+      user: { id: 'owner-1', role: 'owner', scopes: [Scopes.AuditRead] },
+    });
+    for (let i = 0; i < 3; i++) {
+      await audit.write({ actor: 'alice', action: 'keys.issue', resource: `/v1/keys/${i}` });
+    }
+    await audit.write({ actor: 'bob', action: 'login', resource: '/v1/session' });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/audit/export?actor=alice',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('application/x-ndjson');
+    expect(res.headers['content-disposition']).toContain('attachment');
+    const lines = res.payload.split('\n').filter(Boolean);
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      const ev = JSON.parse(line);
+      expect(ev.actor).toBe('alice');
+      expect(typeof ev.hash).toBe('string');
+    }
+    // The export itself must be recorded.
+    const after = await audit.query({ action: 'audit.export' });
+    expect(after.total).toBe(1);
+    expect(after.events[0]!.actor).toBe('owner-1');
+    await app.close();
+  });
+
+  it('emits a CSV header and properly quotes cells containing commas', async () => {
+    const { app, audit } = buildApp({
+      user: { id: 'owner-1', role: 'owner', scopes: [Scopes.AuditRead] },
+    });
+    await audit.write({
+      actor: 'alice',
+      action: 'keys.issue',
+      resource: '/v1/keys',
+      meta: { note: 'a, b, "c"' },
+    });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/audit/export?format=csv',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    const lines = res.payload.split('\n').filter(Boolean);
+    expect(lines[0]).toBe('id,ts,iso,actor,action,resource,prevHash,hash,meta');
+    // Data row plus the self-logged audit.export row.
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    const dataLine = lines.find((l) => l.includes('keys.issue'))!;
+    expect(dataLine).toBeTruthy();
+    // The embedded comma + quote in the meta must survive CSV escaping.
+    expect(dataLine).toContain('"');
+    expect(dataLine).toContain('a, b');
+    await app.close();
+  });
+
+  it('rejects an unsupported format', async () => {
+    const { app } = buildApp({
+      user: { id: 'o', role: 'owner', scopes: [Scopes.AuditRead] },
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/audit/export?format=xml',
+    });
+    expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+});

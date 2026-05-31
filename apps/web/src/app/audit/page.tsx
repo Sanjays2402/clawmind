@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TopNav } from '@/components/TopNav';
-import { api, ApiError, fmtRelative, type AuditEvent } from '@/lib/api';
+import { api, ApiError, fmtRelative, type AuditEvent, API_BASE } from '@/lib/api';
 import {
   EmptyState,
   ErrorState,
@@ -109,6 +109,31 @@ export default function AuditPage() {
     setOffset(0);
   }
 
+  // Build the download URL with the currently APPLIED filters (not the
+  // draft) and navigate the browser to it. The server streams an
+  // attachment, so the page itself does not navigate; the download bar
+  // appears instead. Auth cookies ride along automatically.
+  function downloadExport(format: 'jsonl' | 'csv') {
+    const q = new URLSearchParams();
+    if (filters.actor) q.set('actor', filters.actor);
+    if (filters.action) q.set('action', filters.action);
+    if (filters.resource) q.set('resource', filters.resource);
+    const since = toEpoch(filters.since);
+    const until = toEpoch(filters.until);
+    if (since !== undefined) q.set('since', String(since));
+    if (until !== undefined) q.set('until', String(until));
+    q.set('format', format);
+    const url = `${API_BASE}/v1/admin/audit/export?${q.toString()}`;
+    // Use an anchor click rather than window.location so the page itself
+    // does not navigate; the browser handles the content-disposition.
+    const a = document.createElement('a');
+    a.href = url;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
   async function runVerify() {
     setVerify({ loading: true, result: null, error: null });
     try {
@@ -144,6 +169,22 @@ export default function AuditPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => downloadExport('jsonl')}
+              disabled={forbidden}
+              className="inline-flex items-center gap-1.5 self-start rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg disabled:opacity-50"
+              title="Stream the full filtered chain as newline-delimited JSON."
+            >
+              <IconRefresh size={14} /> Export JSONL
+            </button>
+            <button
+              onClick={() => downloadExport('csv')}
+              disabled={forbidden}
+              className="inline-flex items-center gap-1.5 self-start rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg disabled:opacity-50"
+              title="Stream the full filtered chain as CSV for spreadsheet review."
+            >
+              <IconRefresh size={14} /> Export CSV
+            </button>
             <button
               onClick={runVerify}
               disabled={verify.loading || forbidden}

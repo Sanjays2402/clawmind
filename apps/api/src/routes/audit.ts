@@ -1,6 +1,32 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { Scopes } from '../scopes.js';
+import type { AuditEvent } from '@clawmind/types';
+
+// RFC 4180 CSV cell: quote if the value contains a quote, comma, or
+// newline; double any embedded quote. Numbers/null are stringified plainly
+// since the underlying values are simple primitives or already-stringified
+// JSON.
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  const s = typeof value === 'string' ? value : JSON.stringify(value);
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+function csvRow(ev: AuditEvent): string {
+  return [
+    csvCell(ev.id),
+    csvCell(ev.ts),
+    csvCell(new Date(ev.ts).toISOString()),
+    csvCell(ev.actor),
+    csvCell(ev.action),
+    csvCell(ev.resource),
+    csvCell(ev.prevHash),
+    csvCell(ev.hash),
+    csvCell(ev.meta),
+  ].join(',');
+}
 
 // Compliance review endpoint for the persisted audit log. Owner role plus
 // the audit:read scope are both required, so an API key issued for a
@@ -48,6 +74,86 @@ export const auditRoutes: FastifyPluginAsyncZod = async (app) => {
         },
       });
       return result;
+    },
+  });
+
+  // Streaming export for compliance pulls. The query endpoint above caps
+  // at 1000 rows; an annual SOC2 review or regulator subpoena routinely
+  // demands the entire log. This route iterates the on-disk JSONL files,
+  // applies the same filters, and writes either newline-delimited JSON
+  // (preserves the full event including hash chain) or CSV (spreadsheet-
+  // friendly subset). Both formats are streamed so memory stays bounded
+  // even when the underlying log is gigabytes.
+  app.get('/admin/audit/export', {
+    schema: {
+      querystring: querySchema.extend({
+        format: z.enum(['jsonl', 'csv']).optional(),
+      }),
+    },
+    preHandler: [
+      app.requireAuth,
+      app.requireRole('owner'),
+      app.requireScope(Scopes.AuditRead),
+    ],
+    handler: async (req, reply) => {
+      const q = req.query as z.infer<typeof querySchema> & { format?: 'jsonl' | 'csv' };
+      const format = q.format ?? 'jsonl';
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+      // Log the export request before we start streaming so even an aborted
+      // download leaves an entry. meta captures the filters and head hash
+      // at the moment of export so a reviewer can pin a download to an
+      // exact chain state later.
+      const verifyHead = await app.clawmind.audit.verify().catch(() => null);
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: 'audit.export',
+        resource: '/v1/admin/audit/export',
+        meta: {
+          format,
+          filters: { ...q, format: undefined },
+          headHashAtExport: verifyHead?.headHash ?? null,
+        },
+      });
+
+      const headers: Record<string, string> = {
+        'cache-control': 'no-store',
+      };
+      if (format === 'csv') {
+        headers['content-type'] = 'text/csv; charset=utf-8';
+        headers['content-disposition'] = `attachment; filename="audit-${stamp}.csv"`;
+      } else {
+        headers['content-type'] = 'application/x-ndjson; charset=utf-8';
+        headers['content-disposition'] = `attachment; filename="audit-${stamp}.jsonl"`;
+      }
+
+      reply.hijack();
+      const raw = reply.raw;
+      // We hijacked, so Fastify will not write the status line for us;
+      // do it ourselves so the headers actually reach the client (and
+      // any test runner reading reply.raw sees them).
+      raw.writeHead(200, headers);
+      if (format === 'csv') {
+        raw.write('id,ts,iso,actor,action,resource,prevHash,hash,meta\n');
+      }
+      try {
+        for await (const ev of app.clawmind.audit.iterate({
+          actor: q.actor,
+          action: q.action,
+          resource: q.resource,
+          since: q.since,
+          until: q.until,
+        })) {
+          if (format === 'csv') {
+            raw.write(csvRow(ev) + '\n');
+          } else {
+            raw.write(JSON.stringify(ev) + '\n');
+          }
+        }
+      } catch (err) {
+        req.log.error({ err }, 'audit export failed mid-stream');
+      }
+      raw.end();
     },
   });
 
