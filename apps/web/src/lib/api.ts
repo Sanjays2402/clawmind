@@ -682,7 +682,45 @@ export const api = {
     ),
   clearNotifications: () =>
     j<{ cleared: number }>('/v1/notifications', { method: 'DELETE' }),
+
+  // Owner-only compliance audit log. The Fastify route enforces
+  // role + scope, so a 401/403 here means "this user cannot review
+  // the chain" and the UI should say so explicitly.
+  auditQuery: (params: {
+    actor?: string;
+    action?: string;
+    resource?: string;
+    since?: number;
+    until?: number;
+    limit?: number;
+    offset?: number;
+  } = {}) => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v === undefined || v === null || v === '') continue;
+      q.set(k, String(v));
+    }
+    const qs = q.toString();
+    return j<{ total: number; events: AuditEvent[] }>(
+      `/v1/admin/audit${qs ? `?${qs}` : ''}`,
+    );
+  },
+  auditVerify: () =>
+    j<{ ok: boolean; checked: number; headHash: string | null; reason?: string; brokenAt?: { file: string; line: number; id?: string } }>(
+      '/v1/admin/audit/verify',
+    ),
 };
+
+export interface AuditEvent {
+  id: string;
+  ts: number;
+  actor: string;
+  action: string;
+  resource: string;
+  meta?: Record<string, unknown>;
+  prevHash?: string;
+  hash?: string;
+}
 
 export type NotificationKind =
   | 'share.viewed'

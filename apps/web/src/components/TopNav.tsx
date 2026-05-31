@@ -4,7 +4,7 @@ import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp, IconWebhook, IconArchive, IconSettings, IconLink, IconBell } from '@clawmind/ui';
+import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp, IconWebhook, IconArchive, IconSettings, IconLink, IconBell, IconWarning } from '@clawmind/ui';
 
 const primary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/chat', label: 'Ask', Icon: IconSpark },
@@ -32,6 +32,7 @@ const secondary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> =
   { href: '/notifications', label: 'Inbox', Icon: IconBell },
   { href: '/batch', label: 'Batch', Icon: IconArchive },
   { href: '/usage', label: 'Usage', Icon: IconChartBar },
+  { href: '/audit', label: 'Audit', Icon: IconWarning },
   { href: '/welcome', label: 'Welcome', Icon: IconSpark },
   { href: '/settings', label: 'Settings', Icon: IconSettings },
 ];

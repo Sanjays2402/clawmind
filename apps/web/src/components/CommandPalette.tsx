@@ -14,6 +14,7 @@ import {
   IconRefresh,
   IconPushPin,
   IconKey,
+  IconWarning,
   IconChat,
   IconTag,
   IconAt,
@@ -71,6 +72,7 @@ const ROUTES: RouteItem[] = [
   { id: 'r-keys', kind: 'route', label: 'API keys', href: '/keys', Icon: IconKey },
   { id: 'r-stats', kind: 'route', label: 'Stats', href: '/stats', Icon: IconChartBar },
   { id: 'r-settings', kind: 'route', label: 'Settings', href: '/settings', Icon: IconChartBar },
+  { id: 'r-audit', kind: 'route', label: 'Audit log', href: '/audit', Icon: IconWarning, hint: 'Compliance review' },
 ];
 
 const ACTIONS: ActionItem[] = [

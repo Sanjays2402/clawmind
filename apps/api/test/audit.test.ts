@@ -162,4 +162,40 @@ describe('GET /v1/admin/audit route', () => {
     expect(res.statusCode).toBe(400);
     await app.close();
   });
+
+  it('composes filters and pagination the way the audit UI calls it', async () => {
+    // The owner-facing /audit page applies actor/action/resource filters
+    // together with limit+offset. Make sure the route honours that combo
+    // and returns the right slice rather than silently ignoring one knob.
+    const { app, audit } = buildApp({
+      user: { id: 'owner-1', role: 'owner', scopes: [Scopes.AuditRead] },
+    });
+    for (let i = 0; i < 4; i++) {
+      await audit.write({ actor: 'alice', action: 'keys.issue', resource: `/v1/keys/${i}` });
+      await new Promise((r) => setTimeout(r, 2));
+    }
+    await audit.write({ actor: 'bob', action: 'keys.issue', resource: '/v1/keys/other' });
+
+    const page1 = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/audit?actor=alice&action=keys&resource=/v1/keys&limit=2&offset=0',
+    });
+    expect(page1.statusCode).toBe(200);
+    const body1 = JSON.parse(page1.payload);
+    expect(body1.total).toBe(4);
+    expect(body1.events).toHaveLength(2);
+    expect(body1.events.every((e: { actor: string }) => e.actor === 'alice')).toBe(true);
+
+    const page2 = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/audit?actor=alice&action=keys&resource=/v1/keys&limit=2&offset=2',
+    });
+    expect(page2.statusCode).toBe(200);
+    const body2 = JSON.parse(page2.payload);
+    expect(body2.events).toHaveLength(2);
+    const ids1 = new Set(body1.events.map((e: { id: string }) => e.id));
+    for (const ev of body2.events) {
+      expect(ids1.has(ev.id)).toBe(false);
+    }
+  });
 });

@@ -34,6 +34,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Account settings: `/settings` shows your user id and plan, a live usage meter, system health, shortcuts to keys and webhooks, a one-click JSON export of every per-user record, and a type-to-confirm GDPR delete that audit-logs the wipe
 - Editable profile: `GET /v1/me` and `PATCH /v1/me` back a display name, IANA timezone, and default model preference per user. The settings page exposes an inline edit form (with a one-click Use local timezone helper) so a returning user can rename themselves, pin their timezone, and lock in a preferred model without leaving the page. Profiles are stored per-user in `profiles.json`, isolated by `userId`, and gated by the `profile:read` / `profile:write` scopes for API keys
 - Onboarding: `/welcome` is a three-step first-run guide (ingest a source, ask your first question, create an API key) with per-user server-side progress, a one-click button to index the bundled sample pack, and a dismiss/restore toggle so the guide stops nagging once you are set up
+- Audit log review: an owner-only `/audit` page that surfaces every mutation written to the hash-chained log. Filter by actor, action substring, resource prefix, and time window, page 50 at a time, expand any row to inspect the raw JSON, and click Verify chain to replay the on-disk hashes and prove the file has not been tampered with. Backed by `GET /v1/admin/audit` and `GET /v1/admin/audit/verify`, both gated by the `audit:read` scope.
 - Notifications inbox: an in-app `/notifications` page plus a live bell badge in the top nav, so you find out when someone opens a share you minted or when one of your webhooks gets auto-paused after repeated failures. No email, no SMS, no third-party push. Notifications dedupe per share (every refresh just bumps the existing row's view count), cap at 200 per user, and ship with mark-read, mark-all-read, remove, and clear
 - File watcher for incremental reindex
 - Local MLX embeddings with automatic fallback to an OpenAI-compatible endpoint
@@ -487,6 +488,23 @@ curl -X POST -H "Authorization: Bearer $CLAWMIND_API_KEY" \
 ```
 
 The response shows the new plaintext secret exactly once, plus when the old secret stops working. The rotation is recorded in the audit log as `api_key.rotate`.
+
+### Review the audit log
+
+Every mutation in ClawMind appends a hash-chained record to the audit log. The owner-only `/audit` page renders that log with filters and a one-click chain verifier. Try it locally with both servers running:
+
+```bash
+# List recent key rotations and issuances for any user, newest first
+curl -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  'http://127.0.0.1:7410/v1/admin/audit?action=keys&limit=10'
+
+# Verify the on-disk chain is intact and grab the current head hash
+curl -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  http://127.0.0.1:7410/v1/admin/audit/verify
+# {"ok":true,"checked":42,"headHash":"7a6d...c1"}
+```
+
+Both endpoints require owner role plus the `audit:read` scope on the key. The page itself is at <http://127.0.0.1:7412/audit>.
 
 ## Ingest
 
