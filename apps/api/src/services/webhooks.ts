@@ -36,7 +36,7 @@ export { UnsafeUrlError } from './url-guard.js';
 // receiver re-derives the HMAC over the verbatim request body and rejects
 // anything older than a few minutes to defeat replay.
 
-export const WEBHOOK_EVENTS = ['ask.completed', 'ingest.completed'] as const;
+export const WEBHOOK_EVENTS = ['ask.completed', 'ingest.completed', 'audit.event'] as const;
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
 export interface WebhookRecord {
@@ -528,6 +528,53 @@ export async function emit(
     } catch {
       // Never let webhook bookkeeping break the user-facing request that
       // triggered the emit. Errors already land in the delivery log.
+    }
+  }
+  if (changed) await saveAll(dataDir, all);
+}
+
+/**
+ * Fire an event to every active subscriber across every workspace owner.
+ * Used for tenant-wide system events (notably `audit.event`) where the
+ * subscriber is a SIEM connector installed at workspace level and the
+ * triggering actor may differ from the webhook owner. Per-subscriber
+ * failures are isolated and bookkeeping mirrors emit().
+ */
+export async function emitToAll(
+  dataDir: string,
+  event: WebhookEvent,
+  payload: unknown,
+  fetchImpl?: FetchLike,
+): Promise<void> {
+  const all = await loadAll(dataDir);
+  const targets = all.filter((w) => w.active && w.events.includes(event));
+  if (targets.length === 0) return;
+  let changed = false;
+  for (const wh of targets) {
+    try {
+      const result = await deliverOnce(dataDir, wh, event, payload, fetchImpl);
+      wh.lastDeliveryAt = Date.now();
+      wh.lastStatus = result.status;
+      if (result.ok) {
+        wh.failureCount = 0;
+      } else {
+        wh.failureCount += 1;
+        if (wh.failureCount >= AUTO_DISABLE_AFTER) {
+          wh.active = false;
+          void notify(dataDir, {
+            userId: wh.userId,
+            kind: 'webhook.disabled',
+            title: 'Webhook disabled after repeated failures',
+            body: `${wh.url} failed ${wh.failureCount} times in a row and was paused.`,
+            href: '/webhooks',
+            meta: { webhookId: wh.id, url: wh.url, failureCount: wh.failureCount },
+          });
+        }
+      }
+      changed = true;
+    } catch {
+      // Never let webhook bookkeeping break the caller. Errors already
+      // landed in the per-subscriber delivery log.
     }
   }
   if (changed) await saveAll(dataDir, all);

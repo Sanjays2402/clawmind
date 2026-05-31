@@ -447,7 +447,7 @@ export interface KeyUsageReport {
   byRoute: { route: string; method: string; count: number; lastAt: number }[];
 }
 
-export type WebhookEvent = 'ask.completed' | 'ingest.completed';
+export type WebhookEvent = 'ask.completed' | 'ingest.completed' | 'audit.event';
 
 export interface Webhook {
   id: string;

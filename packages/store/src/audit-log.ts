@@ -86,6 +86,14 @@ export interface AuditLogOptions {
    * Default 5.
    */
   keepFiles?: number;
+  /**
+   * Optional listener invoked after every successful append. Used to
+   * forward audit events to external sinks (SIEM webhooks, log shippers)
+   * without coupling the on-disk hash chain to the network. Listener
+   * failures are swallowed so a flaky sink can never break the audit
+   * write itself, which is the source of truth.
+   */
+  onWrite?: (event: AuditEvent) => void | Promise<void>;
 }
 
 const MAX_LIMIT = 1000;
@@ -96,6 +104,7 @@ const DEFAULT_KEEP_FILES = 5;
 export class AuditLog {
   private readonly maxBytes: number;
   private readonly keepFiles: number;
+  private readonly onWrite?: (event: AuditEvent) => void | Promise<void>;
   // Cached hash of the last record written, used to seed the next record's
   // prevHash without re-reading the file. Lazily populated on first write.
   private lastHash: string | null = null;
@@ -104,6 +113,7 @@ export class AuditLog {
   constructor(private readonly file: string, opts: AuditLogOptions = {}) {
     this.maxBytes = Math.max(opts.maxBytes ?? DEFAULT_MAX_BYTES, 0);
     this.keepFiles = Math.max(opts.keepFiles ?? DEFAULT_KEEP_FILES, 0);
+    this.onWrite = opts.onWrite;
   }
 
   /**
@@ -133,6 +143,16 @@ export class AuditLog {
     const full: AuditEvent = { ...base, hash };
     await appendFile(this.file, JSON.stringify(full) + '\n', 'utf8');
     this.lastHash = hash;
+    if (this.onWrite) {
+      try {
+        const r = this.onWrite(full);
+        if (r && typeof (r as Promise<void>).then === 'function') {
+          void (r as Promise<void>).catch(() => undefined);
+        }
+      } catch {
+        // Listener errors must never corrupt or block the audit chain.
+      }
+    }
     return full;
   }
 

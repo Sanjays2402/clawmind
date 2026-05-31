@@ -27,7 +27,8 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Stale source detection (files indexed but not seen on disk recently)
 - Related-document lookup and basic stats / doctor endpoints
 - API keys with per-key rate limiting, GitHub OAuth or single-user mode. Each key carries a per-key usage log (`GET /v1/keys/:id/usage`) with 24h and 7d request totals, success vs error split, top routes, and the last 10 calls so you can confirm a key is in use before rotating or revoking it. The `/keys` page exposes the same report inline behind a Usage toggle per row. When you mint a new key the issued-secret panel and a permanent reference section at the bottom of `/keys` show copy-pasteable `curl` snippets for `/v1/ask`, `/v1/search`, and `/v1/history` (pre-filled with your real secret on issue, otherwise `$CLAWMIND_KEY`) so a first-time user is one paste away from a working API call.
-- Outbound webhooks: register a URL, get signed POSTs on `ask.completed` and `ingest.completed`, with automatic retries and a delivery log
+- Outbound webhooks: register a URL, get signed POSTs on `ask.completed`, `ingest.completed`, and `audit.event`, with automatic retries and a delivery log
+- Audit log streaming to your SIEM: subscribe a webhook to the `audit.event` family and every record appended to the hash-chained audit log is fanned out to that endpoint, signed with the same HMAC scheme (`x-clawmind-signature`, `x-clawmind-timestamp`) as the rest of the webhook surface. The payload carries the full persisted event (`id`, `ts`, `actor`, `action`, `resource`, `meta`, `prevHash`, `hash`) so a Splunk/Datadog/Elastic pipeline can ingest a tamper-evident copy in near real time without polling `/v1/admin/audit/export`. Fan-out crosses workspace owners (so a workspace-level SIEM connector sees every actor's audit row), per-subscriber failures are isolated, and a flaky sink is auto-paused after the standard consecutive-failure cap. Forwarding happens after the on-disk append returns, so a downed SIEM can never block or corrupt the audit chain itself.
 - Batch ask: paste or upload a CSV of up to 100 questions, get a results table plus a one-click CSV download. Every row is saved to history and counts against the monthly quota.
 - Usage meter: per-user monthly request count, free-tier quota with 429 on overrun, and an in-app `/usage` page with reset countdown and upgrade CTA
 - Shareable read-only answer links, created in one click from the Share button under any finished chat answer, with per-share OpenGraph cards (dynamic 1200x630 image, Twitter `summary_large_image`, title and snippet) so a pasted `/s/<id>` URL renders as a rich preview in Slack, iMessage, and X. Every link carries an expiry (default 30 days, max 365, chosen at create time) so a leaked URL stops resolving on its own with `410 Gone`; expiry, creation, and revoke are all written to the audit log. The public `/s/<id>` page also renders the cited sources (path, line range, excerpt), the share timestamp, a copy-link button, and a Try ClawMind CTA so first-time viewers can convert into users. The `/shares` page lists every link you created, with view counts, expiry countdown, an Expired badge once the TTL has elapsed, copy-link, and one-click revoke so a leaked URL is easy to kill
@@ -342,6 +343,14 @@ Headless flow:
 curl -s -X POST http://127.0.0.1:7410/v1/webhooks \
   -H 'content-type: application/json' \
   -d '{"url":"https://example.com/hooks/clawmind","events":["ask.completed"]}'
+
+# Wire the audit log to your SIEM. Subscribe a single endpoint to
+# `audit.event` and every record appended to the hash-chained audit log
+# (key mints, role changes, GDPR deletes, MFA verifies, SSO logins, ...)
+# is POSTed as a signed payload, with retries, in near real time.
+curl -s -X POST http://127.0.0.1:7410/v1/webhooks \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://siem.acme.com/hooks/clawmind-audit","events":["audit.event"]}'
 
 # Fire a synthetic event to validate the receiver.
 curl -s -X POST http://127.0.0.1:7410/v1/webhooks/<wh_id>/test

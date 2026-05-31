@@ -11,7 +11,7 @@ import { LanceStore, BM25Index, IngestManifest, AuditLog } from '@clawmind/store
 import { MlxEmbedClient, OpenAIEmbedClient, FallbackEmbedProvider } from '@clawmind/embed';
 import { buildDefaultLLM } from '@clawmind/llm';
 import { registerRoutes } from './routes/index.js';
-import { configureWebhookUrlGuard } from './services/webhooks.js';
+import { configureWebhookUrlGuard, emitToAll as emitToAllWebhooks } from './services/webhooks.js';
 import { authPlugin } from './plugins/auth.js';
 import { ipAllowlistPlugin } from './plugins/ip-allowlist.js';
 import { workspaceFreezePlugin } from './plugins/workspace-freeze.js';
@@ -107,6 +107,17 @@ export async function buildApp(): Promise<any> {
   const audit = new AuditLog(auditPath(env), {
     maxBytes: env.CLAWMIND_AUDIT_MAX_BYTES,
     keepFiles: env.CLAWMIND_AUDIT_KEEP_FILES,
+    onWrite: (event) => {
+      // Fan out every audit append to any webhook subscribed to
+      // 'audit.event'. Wrapped in setImmediate so the write returns to
+      // its caller without waiting on network I/O; emitToAll isolates
+      // per-subscriber failures internally.
+      setImmediate(() => {
+        void emitToAllWebhooks(dataDir(env), 'audit.event', { event }).catch(
+          () => undefined,
+        );
+      });
+    },
   });
   const llm = buildDefaultLLM(env);
 

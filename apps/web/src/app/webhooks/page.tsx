@@ -15,7 +15,7 @@ import {
   IconWarning,
 } from '@clawmind/ui';
 
-const ALL_EVENTS: WebhookEvent[] = ['ask.completed', 'ingest.completed'];
+const ALL_EVENTS: WebhookEvent[] = ['ask.completed', 'ingest.completed', 'audit.event'];
 
 export default function WebhooksPage() {
   const [items, setItems] = useState<Webhook[]>([]);
