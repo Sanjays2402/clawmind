@@ -594,6 +594,41 @@ export const api = {
       body: JSON.stringify({ keepCurrent }),
     }),
 
+  // Multi-factor auth. The /settings/mfa page walks the user through
+  // enrollment (start, scan, confirm) and surfaces step-up state for
+  // sensitive routes like key issuance and data deletion.
+  mfaStatus: () =>
+    j<{
+      enrolled: boolean;
+      confirmed: boolean;
+      createdAt: number | null;
+      confirmedAt: number | null;
+      recoveryCodesRemaining: number;
+      stepUpTtlSec: number;
+      sessionStepUpActive: boolean;
+      sessionVerifiedAt: number | null;
+    }>('/v1/mfa/status'),
+  mfaEnroll: () =>
+    j<{ secret: string; otpauthUrl: string; recoveryCodes: string[] }>(
+      '/v1/mfa/enroll',
+      { method: 'POST', body: JSON.stringify({}) },
+    ),
+  mfaConfirm: (code: string) =>
+    j<{ ok: true }>('/v1/mfa/confirm', { method: 'POST', body: JSON.stringify({ code }) }),
+  mfaVerify: (code: string) =>
+    j<{
+      ok: true;
+      method: 'totp' | 'recovery';
+      recoveryCodesRemaining: number;
+      stepUpExpiresAt: number;
+    }>('/v1/mfa/verify', { method: 'POST', body: JSON.stringify({ code }) }),
+  mfaRegenerateRecovery: (code: string) =>
+    j<{ recoveryCodes: string[] }>('/v1/mfa/recovery/regenerate', {
+      method: 'POST', body: JSON.stringify({ code }),
+    }),
+  mfaDisable: (code: string) =>
+    j<{ ok: true }>('/v1/mfa', { method: 'DELETE', body: JSON.stringify({ code }) }),
+
   // Onboarding (per-user first-run state). The /welcome page reads the
   // current record on mount and writes step completions as the user
   // moves through ingest -> ask -> configure.

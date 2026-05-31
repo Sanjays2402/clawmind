@@ -3,6 +3,7 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { verifySecret, hasScope } from '../services/api-keys.js';
 import { recordUsage } from '../services/api-key-usage.js';
 import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid } from '../services/sessions.js';
+import { getStatus as getMfaStatus } from '../services/mfa.js';
 import {
   settingsFromEnv as oidcSettingsFromEnv,
   isConfigured as oidcIsConfigured,
@@ -32,6 +33,7 @@ declare module 'fastify' {
     oidcState?: string;
     oidcNonce?: string;
     oidcReturnTo?: string;
+    mfaVerifiedAt?: number;
   }
 }
 
@@ -126,6 +128,37 @@ const plugin: FastifyPluginAsync = async (app) => {
         return reply.code(403).send({ error: 'forbidden' });
       }
     };
+  });
+
+  // requireMfa gates sensitive routes on a recent TOTP step-up. API-key
+  // callers bypass this gate: their authorization is the scope set bound
+  // to the key, and we do not have a meaningful place to ask for a code
+  // mid-request. Session callers must have enrolled MFA and verified a code
+  // within the per-user step-up window. Routes that wire this in are listed
+  // in docs/security.md; the audit log records every denied attempt so an
+  // admin can spot brute-force or stolen-cookie use.
+  app.decorate('requireMfa', async function requireMfa(req: FastifyRequest, reply: FastifyReply) {
+    if (!req.user) return reply.code(401).send({ error: 'auth required' });
+    if (req.user.via === 'api-key') return; // scope-gated, not MFA-gated
+    const status = await getMfaStatus(app.clawmind.dataDir, req.user.id);
+    if (!status.confirmed) {
+      return reply.code(403).send({
+        error: 'mfa required',
+        reason: 'not-enrolled',
+        enrollUrl: '/settings/mfa',
+      });
+    }
+    const sess = req.session as unknown as { mfaVerifiedAt?: number };
+    const verifiedAt = sess.mfaVerifiedAt ?? 0;
+    const ageMs = Date.now() - verifiedAt;
+    if (verifiedAt === 0 || ageMs > status.stepUpTtlSec * 1000) {
+      reply.header('x-mfa-required', '1');
+      return reply.code(401).send({
+        error: 'mfa step-up required',
+        reason: 'expired',
+        stepUpTtlSec: status.stepUpTtlSec,
+      });
+    }
   });
 
   // requireScope gates a route on a 'resource:action' scope. Session users
@@ -318,6 +351,7 @@ declare module 'fastify' {
     requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireRole: (role: 'owner' | 'reader') => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireScope: (scope: string) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireMfa: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 

@@ -53,7 +53,7 @@ export const webhookRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.post('/webhooks', {
     schema: { body: CreateBody },
-    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.WebhooksManage)],
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.WebhooksManage)],
     handler: async (req, reply) => {
       try {
         const wh = await createWebhook(
@@ -76,7 +76,7 @@ export const webhookRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.patch<{ Params: { id: string } }>('/webhooks/:id', {
     schema: { body: UpdateBody },
-    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.WebhooksManage)],
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.WebhooksManage)],
     handler: async (req, reply) => {
       try {
         const wh = await updateWebhook(
@@ -98,7 +98,7 @@ export const webhookRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   app.delete<{ Params: { id: string } }>('/webhooks/:id', {
-    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.WebhooksManage)],
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.WebhooksManage)],
     handler: async (req, reply) => {
       const ok = await deleteWebhook(app.clawmind.dataDir, req.user!.id, req.params.id);
       if (!ok) return reply.code(404).send({ error: 'not found' });
@@ -112,7 +112,7 @@ export const webhookRoutes: FastifyPluginAsyncZod = async (app) => {
   // Fire a synthetic event so the user can verify their receiver is reachable
   // and the signature header validates before wiring up real traffic.
   app.post<{ Params: { id: string } }>('/webhooks/:id/test', {
-    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.WebhooksManage)],
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.WebhooksManage)],
     handler: async (req, reply) => {
       const all = await loadAll(app.clawmind.dataDir);
       const wh = all.find((w) => w.id === req.params.id && w.userId === req.user!.id);
@@ -137,7 +137,7 @@ export const webhookRoutes: FastifyPluginAsyncZod = async (app) => {
   // Manually replay a past delivery. Returns the new delivery row so the
   // UI can show the result inline without forcing a list refresh.
   app.post<{ Params: { id: string } }>('/webhooks/deliveries/:id/redeliver', {
-    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.WebhooksManage)],
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.WebhooksManage)],
     handler: async (req, reply) => {
       const result = await redeliver(app.clawmind.dataDir, req.user!.id, req.params.id);
       if ('error' in result) {

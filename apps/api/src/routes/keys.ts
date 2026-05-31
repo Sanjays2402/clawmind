@@ -49,7 +49,7 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.post('/keys', {
     schema: { body: IssueBody },
-    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.KeysManage)],
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.KeysManage)],
     handler: async (req) => {
       const issued = await issueKey(app.clawmind.dataDir, {
         userId: req.user!.id,
@@ -68,7 +68,7 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   app.delete<{ Params: { id: string } }>('/keys/:id', {
-    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.KeysManage)],
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.KeysManage)],
     handler: async (req, reply) => {
       const ok = await revokeKey(app.clawmind.dataDir, req.user!.id, req.params.id);
       if (!ok) return reply.code(404).send({ error: 'not found' });
@@ -106,7 +106,7 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
   // label/role/scopes/expiry. The previous secret keeps working for a short
   // grace window so callers can swap credentials without an outage.
   app.post<{ Params: { id: string } }>('/keys/:id/rotate', {
-    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.KeysManage)],
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.KeysManage)],
     handler: async (req, reply) => {
       const rotated = await rotateKey(app.clawmind.dataDir, req.user!.id, req.params.id);
       if (!rotated) return reply.code(404).send({ error: 'not found or not rotatable' });

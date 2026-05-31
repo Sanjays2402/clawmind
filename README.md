@@ -39,6 +39,8 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - IP allowlist for the whole account: a `/settings/security` page lets the owner add a list of trusted IPv4 / IPv6 addresses or CIDR blocks (office egress, VPN range, CI runner subnet) and flip a single switch to enforce it. When enforcement is on, every request that is not on the list gets a `403 ip_not_allowed`, regardless of whether it presents a session cookie or a Bearer API key. The settings endpoint itself is deliberately exempt so a typo can never lock the account out. Rules are normalised (`10.0.0.5/24` becomes `10.0.0.0/24`), duplicates are rejected, denials are written to the audit log, and the whole document is per-user isolated in `ip-allowlist.json`. Backed by `GET` / `PUT /v1/ip-allowlist` and the new `ip-allowlist:read` / `ip-allowlist:write` API key scopes.
 - Active sessions with force-logout: a `/settings/sessions` page lists every browser currently signed in to the account with its short user-agent, IP, sign-in time, and last-seen time, and the current browser is clearly marked. Revoking a single session or hitting the "sign out everywhere else" button writes a tombstone to the per-user `sessions.json` registry; the next request from that session id is rejected with `401 session revoked` by the API auth hook even though the cookie still decrypts. Sids are stored as `sha256` hashes so a leaked registry file is not a leaked cookie. Every revoke is written to the audit log, and the registry is gated by the new `sessions:read` / `sessions:admin` API key scopes via `GET /v1/sessions`, `DELETE /v1/sessions/:id`, and `POST /v1/sessions/revoke-all`.
 - Enterprise SSO via OIDC: ClawMind can require single sign-on against any spec-compliant provider (Google Workspace, Okta, Azure AD / Entra ID, Auth0, Keycloak) without code changes. Set `CLAWMIND_AUTH_MODE=oidc` plus `CLAWMIND_OIDC_ISSUER`, `CLAWMIND_OIDC_CLIENT_ID`, `CLAWMIND_OIDC_CLIENT_SECRET`, and `CLAWMIND_OIDC_REDIRECT_URI` and the API exposes `GET /auth/oidc` (start) and `GET /auth/oidc/callback` (finish). The discovery document is fetched on demand, ID tokens are verified RS256-against-JWKS with audience, issuer, nonce, and expiry checks, the state and nonce are cookie-bound and single-use, and successful logins record a `sso.login` event in the hash-chained audit log. `CLAWMIND_OIDC_ALLOWED_DOMAINS=acme.com,acme.co.uk` restricts sign-in to verified emails in those domains so a contractor with a personal Gmail cannot create an account. The owner-only `/settings/sso` page shows live status (configured, enforced, issuer, client id, redirect URI, allowed domains) for procurement and IT review without ever exposing the client secret.
+- Multi-factor authentication (TOTP, RFC 6238): owner accounts can enroll an authenticator app at `/settings/mfa`. The endpoint set is `GET /v1/mfa/status`, `POST /v1/mfa/enroll`, `POST /v1/mfa/confirm`, `POST /v1/mfa/verify`, `POST /v1/mfa/recovery/regenerate`, `DELETE /v1/mfa`, all gated by the new `mfa:read` / `mfa:admin` scopes. Enrollment hands out a 160-bit base32 secret and ten single-use recovery codes (sha256-hashed on disk so a leaked `mfa/<userId>.json` is not a leaked code). The auth plugin exposes a `requireMfa` decorator that demands a successful step-up within a configurable window (default 15 minutes) before sensitive routes will run: key issuance, key revoke and rotate, account hard-delete, IP allowlist edits, maintenance compact and forget, single-session and bulk session revoke, and every webhook mutation. API key callers bypass MFA because their authorization is the scope set bound to the key; cookie-session callers without a fresh code get `401 mfa step-up required` with `x-mfa-required: 1`. Replay protection rejects the same TOTP counter twice in the acceptance window, and every verify, recovery use, and failure is written to the hash-chained audit log.
+
 - Notifications inbox: an in-app `/notifications` page plus a live bell badge in the top nav, so you find out when someone opens a share you minted or when one of your webhooks gets auto-paused after repeated failures. No email, no SMS, no third-party push. Notifications dedupe per share (every refresh just bumps the existing row's view count), cap at 200 per user, and ship with mark-read, mark-all-read, remove, and clear. Per-user notification preferences at `/settings/notifications` (or `GET`/`PUT /v1/notification-preferences`) let you toggle each kind (share views, webhook failures, webhook auto-disabled, system messages) on or off; switched-off kinds are dropped at the producer with `shouldDeliver()` before they ever reach the inbox, so you never see another row of a category you muted
 - File watcher for incremental reindex
 - Local MLX embeddings with automatic fallback to an OpenAI-compatible endpoint
@@ -555,6 +557,24 @@ curl -X POST -H "Authorization: Bearer $CLAWMIND_API_KEY" \
 ```
 
 The response shows the new plaintext secret exactly once, plus when the old secret stops working. The rotation is recorded in the audit log as `api_key.rotate`.
+
+### Try MFA step-up
+
+With the dashboard running at `http://127.0.0.1:7412`, visit `/settings/mfa`, click *Start enrollment*, scan or paste the secret into your authenticator, and enter the six-digit code to confirm. After confirmation the API requires a fresh code for sensitive routes:
+
+```bash
+# Check status (200 with confirmed:true once enrolled)
+curl -s -b cm.sid=... http://127.0.0.1:7412/v1/mfa/status
+
+# Step up the current session for the next 15 minutes
+curl -s -X POST -b cm.sid=... -H 'content-type: application/json' \
+  -d '{"code":"123456"}' \
+  http://127.0.0.1:7412/v1/mfa/verify
+# {"ok":true,"method":"totp","recoveryCodesRemaining":10,"stepUpExpiresAt":...}
+```
+
+Without a recent verify, `POST /v1/keys`, `DELETE /v1/me/data`, `PUT /v1/ip-allowlist`, maintenance, session revoke, and every webhook mutation return `401 mfa step-up required` with `x-mfa-required: 1`. API key callers bypass MFA: their scopes are their authorization.
+
 
 ### See per-key API usage
 

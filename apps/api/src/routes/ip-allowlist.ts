@@ -43,6 +43,7 @@ export const ipAllowlistRoutes: FastifyPluginAsyncZod = async (app) => {
     preHandler: [
       app.requireAuth,
       app.requireRole('owner'),
+      app.requireMfa,
       app.requireScope(Scopes.IpAllowlistWrite),
     ],
     handler: async (req, reply) => {

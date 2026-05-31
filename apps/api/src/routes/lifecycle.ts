@@ -43,7 +43,7 @@ export const lifecycleRoutes: FastifyPluginAsyncZod = async (app) => {
 
   app.delete('/me/data', {
     schema: { body: deleteSchema },
-    preHandler: [app.requireAuth, app.requireScope(Scopes.LifecycleManage)],
+    preHandler: [app.requireAuth, app.requireMfa, app.requireScope(Scopes.LifecycleManage)],
     handler: async (req) => {
       const userId = req.user!.id;
       const report = await deleteUserData(app.clawmind.dataDir, userId);

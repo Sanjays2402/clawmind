@@ -45,7 +45,7 @@ export const sessionsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.delete<{ Params: { id: string } }>(
     '/sessions/:id',
     {
-      preHandler: [app.requireAuth, app.requireScope(Scopes.SessionsManage)],
+      preHandler: [app.requireAuth, app.requireMfa, app.requireScope(Scopes.SessionsManage)],
       schema: {
         params: z.object({ id: z.string().regex(/^[0-9a-f]{6,64}$/i) }),
         response: {
@@ -70,7 +70,7 @@ export const sessionsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post(
     '/sessions/revoke-all',
     {
-      preHandler: [app.requireAuth, app.requireScope(Scopes.SessionsManage)],
+      preHandler: [app.requireAuth, app.requireMfa, app.requireScope(Scopes.SessionsManage)],
       schema: {
         body: z
           .object({

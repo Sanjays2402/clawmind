@@ -90,6 +90,9 @@ export const Scopes = {
 
   SessionsRead: 'sessions:read',
   SessionsManage: 'sessions:admin',
+
+  MfaRead: 'mfa:read',
+  MfaManage: 'mfa:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

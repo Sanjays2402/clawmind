@@ -16,7 +16,7 @@ const ForgetBody = z.object({
 export const maintenanceRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/maintenance/compact', {
     schema: { body: Body },
-    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.Maintenance)],
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.Maintenance)],
     config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
     handler: async (req) => {
       const c = app.clawmind;
@@ -41,7 +41,7 @@ export const maintenanceRoutes: FastifyPluginAsyncZod = async (app) => {
   // call from clients so users see what they are about to delete.
   app.post('/maintenance/forget', {
     schema: { body: ForgetBody },
-    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.Maintenance)],
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.Maintenance)],
     config: { rateLimit: { max: 6, timeWindow: '1 minute' } },
     handler: async (req) => {
       const c = app.clawmind;
