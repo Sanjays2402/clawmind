@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
+import { ChatStream } from '@/components/ChatStream';
 import { api, type Source } from '@/lib/api';
 import {
   Logo,
@@ -59,6 +60,7 @@ export default function DemoPage() {
   const [namespaces, setNamespaces] = useState<string[]>(['memory', 'projects', 'sessions']);
   const [answer, setAnswer] = useState('');
   const [sources, setSources] = useState<Source[]>([]);
+  const [activeSource, setActiveSource] = useState<Source | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
@@ -75,6 +77,7 @@ export default function DemoPage() {
     setError(null);
     setAnswer('');
     setSources([]);
+    setActiveSource(null);
     setLatencyMs(null);
     setFirstTokenMs(null);
     cancelRef.current = false;
@@ -261,10 +264,15 @@ export default function DemoPage() {
 
             {answer && (
               <article className="rounded-xl border border-cm-border bg-cm-bg p-6">
-                <pre className="whitespace-pre-wrap break-words font-sans text-[15px] leading-relaxed text-cm-fg">
-                  {answer}
+                <div className="text-[15px] leading-relaxed text-cm-fg">
+                  <ChatStream
+                    text={answer}
+                    sources={sources}
+                    activeId={activeSource?.id ?? null}
+                    onCite={setActiveSource}
+                  />
                   {loading && <span className="ml-0.5 inline-block h-3.5 w-1 animate-pulse bg-cm-fg align-middle" />}
-                </pre>
+                </div>
               </article>
             )}
           </div>
@@ -279,33 +287,61 @@ export default function DemoPage() {
               </div>
             ) : (
               <ol className="space-y-2">
-                {sources.map((s, i) => (
-                  <li key={s.id ?? i} className="rounded-lg border border-cm-border p-3">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="flex items-center gap-1.5 text-[12px] text-cm-fg">
-                        <IconFolder size={12} />
-                        <span className="truncate">{s.displayPath ?? s.path}</span>
-                      </span>
-                      <span className="cm-mono text-[10px] text-cm-faint">
-                        {(s.score ?? 0).toFixed(2)}
-                      </span>
-                    </div>
-                    <p className="mt-2 line-clamp-3 text-[12px] leading-snug text-cm-muted">
-                      {s.excerpt}
-                    </p>
-                    <div className="mt-2 flex items-center justify-between">
-                      <span className="cm-mono text-[10px] text-cm-faint">
-                        L{s.startLine}-{s.endLine}
-                      </span>
-                      <Link
-                        href={`/sources/view?path=${encodeURIComponent(s.path)}`}
-                        className="cm-mono text-[10px] text-cm-fg hover:underline"
-                      >
-                        open source
-                      </Link>
-                    </div>
-                  </li>
-                ))}
+                {sources.map((s, i) => {
+                  const isActive = activeSource?.id === s.id;
+                  return (
+                    <li
+                      key={s.id ?? i}
+                      id={'cm-source-' + s.id}
+                      className={`rounded-lg border p-3 transition cursor-pointer ${
+                        isActive
+                          ? 'border-cm-accent bg-cm-paper shadow-[0_0_0_1px_var(--cm-accent)]'
+                          : 'border-cm-border hover:border-cm-fg/40'
+                      }`}
+                      onClick={() => setActiveSource(s)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setActiveSource(s);
+                        }
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="flex items-center gap-1.5 text-[12px] text-cm-fg">
+                          <span
+                            className={`cm-mono inline-flex h-4 min-w-4 items-center justify-center rounded px-1 text-[10px] ${
+                              isActive ? 'bg-cm-accent text-cm-bg' : 'bg-cm-subtle text-cm-muted'
+                            }`}
+                          >
+                            {i + 1}
+                          </span>
+                          <IconFolder size={12} />
+                          <span className="truncate">{s.displayPath ?? s.path}</span>
+                        </span>
+                        <span className="cm-mono text-[10px] text-cm-faint">
+                          {(s.score ?? 0).toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="mt-2 line-clamp-3 text-[12px] leading-snug text-cm-muted">
+                        {s.excerpt}
+                      </p>
+                      <div className="mt-2 flex items-center justify-between">
+                        <span className="cm-mono text-[10px] text-cm-faint">
+                          L{s.startLine}-{s.endLine}
+                        </span>
+                        <Link
+                          href={`/sources/view?path=${encodeURIComponent(s.path)}`}
+                          onClick={(e) => e.stopPropagation()}
+                          className="cm-mono text-[10px] text-cm-fg hover:underline"
+                        >
+                          open source
+                        </Link>
+                      </div>
+                    </li>
+                  );
+                })}
               </ol>
             )}
           </aside>

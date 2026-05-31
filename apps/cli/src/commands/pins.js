@@ -1,0 +1,57 @@
+import { Command } from 'commander';
+import kleur from 'kleur';
+import { loadEnv } from '@clawmind/config';
+// CLI shim over the /v1/pins HTTP endpoints. The API process owns the
+// persisted pin map so the CLI, the web UI, and a script driving the HTTP
+// API all see the same set of pinned sources.
+async function apiFetch(method, path, body) {
+    const env = loadEnv();
+    const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
+    const res = await fetch(`${base}${path}`, {
+        method,
+        headers: body ? { 'content-type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok)
+        throw new Error(`${method} ${path} -> ${res.status}: ${await res.text()}`);
+    return res.json();
+}
+function fmtDate(ms) {
+    return new Date(ms).toISOString().slice(0, 19).replace('T', ' ');
+}
+export function pinsCommand() {
+    const cmd = new Command('pins').description('Pin sources so retrieval always considers them strongly');
+    cmd.command('add <path>')
+        .description('Pin a source path with an optional note')
+        .option('-n, --note <text>', 'short reminder about why this is pinned')
+        .action(async (path, opts) => {
+        const out = await apiFetch('POST', '/v1/pins', { path, note: opts.note });
+        const e = out;
+        process.stdout.write(kleur.green(`pinned ${e.path}`) + (e.note ? kleur.gray(` (${e.note})`) : '') + '\n');
+    });
+    cmd.command('remove <path>')
+        .alias('rm')
+        .description('Remove a pin')
+        .action(async (path) => {
+        await apiFetch('DELETE', '/v1/pins', { path });
+        process.stdout.write(kleur.gray(`unpinned ${path}\n`));
+    });
+    cmd.command('list')
+        .description('List currently pinned sources, newest first')
+        .action(async () => {
+        const out = (await apiFetch('GET', '/v1/pins'));
+        if (out.count === 0) {
+            process.stdout.write(kleur.gray('no pinned sources\n'));
+            return;
+        }
+        for (const it of out.items) {
+            const head = kleur.bold(it.path);
+            const tail = kleur.gray(`(${fmtDate(it.pinnedAt)} by ${it.pinnedBy})`);
+            process.stdout.write(`${head} ${tail}\n`);
+            if (it.note)
+                process.stdout.write(kleur.dim(`    ${it.note}\n`));
+        }
+    });
+    return cmd;
+}
+//# sourceMappingURL=pins.js.map

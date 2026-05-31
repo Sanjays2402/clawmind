@@ -101,7 +101,7 @@ The web UI is at <http://127.0.0.1:7412>. The API listens on <http://127.0.0.1:7
 
 ### Try it in 30 seconds
 
-Ingest the bundled sample knowledge pack and open the live demo page. It ships three preloaded sample questions you can click to see real retrieval, streaming answers, and citations against your local model.
+Ingest the bundled sample knowledge pack and open the live demo page. It ships three preloaded sample questions you can click to see real retrieval, streaming answers, and inline citation chips against your local model. Each citation in the answer is clickable: it highlights the matching source card in the rail and scrolls it into view, and clicking a source card lights up every citation in the answer that points at it.
 
 ```bash
 pnpm clawmind ingest ./samples
