@@ -268,6 +268,18 @@ export interface RetentionLimits {
   maxDays: number;
 }
 
+export interface LegalHold {
+  workspaceId: string;
+  active: boolean;
+  reason: string | null;
+  ticket: string | null;
+  imposedBy: string | null;
+  imposedAt: number | null;
+  releasedBy: string | null;
+  releasedAt: number | null;
+  updatedAt: number;
+}
+
 export type MemberRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface MemberRecord {
@@ -756,6 +768,18 @@ export const api = {
       `/v1/retention/apply${dryRun ? '?dry_run=true' : ''}`,
       { method: 'POST' },
     ).then((r) => r.report),
+
+  // Workspace-wide legal hold. When active, blocks user-initiated
+  // data deletion and scheduled retention sweeps. Read is admin+,
+  // mutations are owner-only with MFA step-up.
+  legalHoldGet: () => j<{ hold: LegalHold }>('/v1/legal-hold').then((r) => r.hold),
+  legalHoldImpose: (input: { reason?: string | null; ticket?: string | null }) =>
+    j<{ hold: LegalHold }>('/v1/legal-hold', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }).then((r) => r.hold),
+  legalHoldRelease: () =>
+    j<{ hold: LegalHold }>('/v1/legal-hold', { method: 'DELETE' }).then((r) => r.hold),
 
   // Multi-factor auth. The /settings/mfa page walks the user through
   // enrollment (start, scan, confirm) and surfaces step-up state for

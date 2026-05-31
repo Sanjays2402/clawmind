@@ -8,6 +8,7 @@ import {
 import { bundleToZip } from '../services/zip-export.js';
 import { Scopes } from '../scopes.js';
 import { DryRunQuery, isDryRun, auditAction } from '../lib/dry-run.js';
+import { assertNotOnHold, LegalHoldActiveError } from '../services/legal-hold.js';
 
 // GDPR-style data lifecycle endpoints. Both are scoped to the authenticated
 // user and write to the audit log so a regulator can see who exported or
@@ -84,9 +85,32 @@ export const lifecycleRoutes: FastifyPluginAsyncZod = async (app) => {
   app.delete('/me/data', {
     schema: { body: deleteSchema, querystring: DryRunQuery },
     preHandler: [app.requireAuth, app.requireMfa, app.requireScope(Scopes.LifecycleManage)],
-    handler: async (req) => {
+    handler: async (req, reply) => {
       const userId = req.user!.id;
       const dryRun = isDryRun((req.query as { dry_run?: string }).dry_run);
+      try {
+        if (!dryRun) await assertNotOnHold(app.clawmind.dataDir);
+      } catch (err) {
+        if (err instanceof LegalHoldActiveError) {
+          await app.clawmind.audit.write({
+            actor: userId,
+            action: 'lifecycle.delete.blocked',
+            resource: '/v1/me/data',
+            meta: { reason: 'legal-hold', ticket: err.hold.ticket },
+          });
+          return reply.code(409).send({
+            error: 'legal_hold_active',
+            message:
+              'Workspace is under a legal hold; user-initiated data deletion is suppressed.',
+            hold: {
+              imposedAt: err.hold.imposedAt,
+              ticket: err.hold.ticket,
+              reason: err.hold.reason,
+            },
+          });
+        }
+        throw err;
+      }
       if (dryRun) {
         const preview = await previewUserDataDeletion(app.clawmind.dataDir, userId);
         await app.clawmind.audit.write({

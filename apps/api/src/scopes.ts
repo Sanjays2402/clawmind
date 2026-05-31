@@ -121,6 +121,13 @@ export const Scopes = {
   // admin/owner still requires an explicit invite.
   DomainPoliciesRead: 'domain-policies:read',
   DomainPoliciesManage: 'domain-policies:admin',
+
+  // Workspace-wide legal hold. Read is granted to admins+ so compliance
+  // operators can see whether deletion is suppressed; Manage is owner-only
+  // (with MFA step-up) because an active hold overrides per-user GDPR
+  // erase and scheduled retention sweeps.
+  LegalHoldRead: 'legal-hold:read',
+  LegalHoldManage: 'legal-hold:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

@@ -8,6 +8,7 @@ import {
   RetentionValidationError,
 } from '../services/retention.js';
 import { Scopes } from '../scopes.js';
+import { assertNotOnHold, LegalHoldActiveError } from '../services/legal-hold.js';
 
 // Per-user data retention policy. Required for GDPR/CCPA reviews where
 // "indefinite retention" is a procurement blocker.
@@ -87,9 +88,32 @@ export const retentionRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/retention/apply', {
     schema: { querystring: ApplyQuery },
     preHandler: [app.requireAuth, app.requireScope(Scopes.RetentionManage)],
-    handler: async (req) => {
+    handler: async (req, reply) => {
       const userId = req.user!.id;
       const dryRun = (req.query as { dry_run?: boolean }).dry_run === true;
+      try {
+        if (!dryRun) await assertNotOnHold(app.clawmind.dataDir);
+      } catch (err) {
+        if (err instanceof LegalHoldActiveError) {
+          await app.clawmind.audit.write({
+            actor: userId,
+            action: 'retention.apply.blocked',
+            resource: '/v1/retention/apply',
+            meta: { reason: 'legal-hold', ticket: err.hold.ticket },
+          });
+          return reply.code(409).send({
+            error: 'legal_hold_active',
+            message:
+              'Workspace is under a legal hold; scheduled retention sweep is suppressed.',
+            hold: {
+              imposedAt: err.hold.imposedAt,
+              ticket: err.hold.ticket,
+              reason: err.hold.reason,
+            },
+          });
+        }
+        throw err;
+      }
       const report = await applyPolicy(app.clawmind.dataDir, userId, { dryRun });
       if (!dryRun) {
         await app.clawmind.audit.write({

@@ -43,6 +43,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Multi-factor authentication (TOTP, RFC 6238): owner accounts can enroll an authenticator app at `/settings/mfa`. The endpoint set is `GET /v1/mfa/status`, `POST /v1/mfa/enroll`, `POST /v1/mfa/confirm`, `POST /v1/mfa/verify`, `POST /v1/mfa/recovery/regenerate`, `DELETE /v1/mfa`, all gated by the new `mfa:read` / `mfa:admin` scopes. Enrollment hands out a 160-bit base32 secret and ten single-use recovery codes (sha256-hashed on disk so a leaked `mfa/<userId>.json` is not a leaked code). The auth plugin exposes a `requireMfa` decorator that demands a successful step-up within a configurable window (default 15 minutes) before sensitive routes will run: key issuance, key revoke and rotate, account hard-delete, IP allowlist edits, maintenance compact and forget, single-session and bulk session revoke, and every webhook mutation. API key callers bypass MFA because their authorization is the scope set bound to the key; cookie-session callers without a fresh code get `401 mfa step-up required` with `x-mfa-required: 1`. Replay protection rejects the same TOTP counter twice in the acceptance window, and every verify, recovery use, and failure is written to the hash-chained audit log.
 - Trusted devices for MFA: tick *Remember this device* during a verify and the current browser is bound for a bounded window (default 14 days, hard cap 30) so the user does not have to retype a TOTP code on every sensitive action from the same laptop. Cookies carry `userId.rawToken`, only `sha256(rawToken)` is persisted on disk under `mfa/trusted/<userId>.json`, validation is constant-time, and expired records are pruned on the spot. Listing, individual revoke, and bulk revoke live at `GET /v1/mfa/trusted-devices`, `DELETE /v1/mfa/trusted-devices/:id`, and `DELETE /v1/mfa/trusted-devices`; the revoke endpoints themselves demand an MFA step-up so a stolen session cookie cannot evict a real device and lock the user in. Disabling MFA wipes every trust in one atomic step, and every mint and revoke writes a row into the hash-chained audit log. The `/settings/mfa` page lists every active device with its label, IP, last-seen, and expiry, and flags the current browser inline.
 - Data retention policy: an owner-only `/settings/retention` page that lets you cap how long ClawMind keeps your ask history and conversations before auto-erasing them, the single biggest GDPR/CCPA blocker in procurement reviews. Three independent knobs (history days, conversation days, audit retention hint) accept an integer between 1 and 3650 days or blank for "keep forever". A dry-run preview reports exactly how many records the sweep would remove before you commit; the apply button only enables when the preview shows nonzero deletes and prompts for confirmation. The audit chain is deliberately never silently truncated, even when an `auditDays` hint is set, so SOC2 evidence stays intact. Backed by `GET /v1/retention`, `PUT /v1/retention`, and `POST /v1/retention/apply?dry_run=true|false`, gated by the new `retention:read` / `retention:admin` API key scopes, and every mutation plus every applied sweep writes to the hash-chained audit log with before/after diffs.
+- Workspace legal hold: an owner-only `/settings/legal-hold` page that suppresses all user-initiated data deletion and every scheduled retention sweep across the workspace while a litigation or regulatory matter is open, the hard SOC2 / e-discovery requirement that sits underneath the retention story. Imposing a hold records the actor, an external ticket reference (for example `LEGAL-2026-042`), and a free-form reason; while the hold is active, `DELETE /v1/me/data` and `POST /v1/retention/apply` both return `409 legal_hold_active` with the hold metadata so the calling client can surface a clean explanation instead of a silent failure. Reads, exports, and normal product usage are intentionally unaffected so the hold preserves evidence without locking the workspace, and the audit chain (which is never truncated regardless) records `legal-hold.impose`, `legal-hold.update`, `legal-hold.release`, plus every blocked attempt under `lifecycle.delete.blocked` and `retention.apply.blocked`. Backed by `GET /v1/legal-hold` (admin+), `POST /v1/legal-hold` and `DELETE /v1/legal-hold` (owner-only, MFA-stepped), and the new `legal-hold:read` / `legal-hold:admin` API key scopes.
 - Members and RBAC (4 roles): the new owner-only `/settings/members` page makes ClawMind a real multi-user product. Every authenticated user is recorded in `members.json` with one of `owner`, `admin`, `member`, or `viewer`; the first user to ever log in is auto-bootstrapped as the owner so the deployment is never role-less. Admins can invite teammates, change roles, and remove members; only owners can mint or demote other owners, and the registry refuses to let the last owner be demoted or removed so a workspace cannot be orphaned. The new `requireMinRole` decorator gates the routes hierarchically (`owner > admin > member > viewer`), invites are MFA stepped, and every promote, demote, invite, and removal writes a before/after diff into the hash-chained audit log. Backed by `GET/POST /v1/members`, `PATCH /v1/members/:userId`, `DELETE /v1/members/:userId` and the new `members:read` / `members:admin` scopes; DELETE supports `?dry_run=true` for safe what-if checks.
 - Domain auto-join policies: an owner or admin can list verified email domains at `/settings/domains` and set `member` or `viewer` as the default role for any first-time sign-in from that domain, so onboarding a 200-person org across SSO does not require 200 individual invites. The policy table is replaced atomically (no partial writes), case-insensitive on the domain, hard-capped at 50 entries, and refuses to ever auto-grant `admin` or `owner` so a compromised email provider cannot escalate. Existing members are never silently promoted or demoted: policies only apply to brand-new users on their first login. Backed by `GET /v1/domain-policies` and `PUT /v1/domain-policies` (with optional `dryRun`), gated by the new `domain-policies:read` / `domain-policies:admin` scopes, MFA-stepped on mutate, and every replace plus every denied attempt writes a before/after diff into the hash-chained audit log.
 - Email-token invitations: a workspace owner or admin can send a one-time invitation link bound to a specific email at `/settings/invitations`, instead of needing to know the recipient's OIDC subject up front. POST `/v1/invitations` mints a 32-byte token, returns it once, and stores only `sha256(token)` so a leaked `invitations.json` does not let an attacker walk in through a pending invite. The recipient lands on `/invitations/accept?token=...` where the UI peeks the role and expiry without consuming the token, then accept verifies the signed-in user's email matches the one the invite was issued to (defence against link forwarding). Accept is single-use, expirable (1, 7, 14, or 30 days), and on success calls `inviteMember()` so the recipient drops into the registry at the pre-bound role on their next OIDC login. List/peek/create/revoke are all MFA stepped under the new `invitations:read` / `invitations:admin` scopes, and every mint, accept, revoke, and denial writes a before/after diff into the hash-chained audit log.
@@ -711,6 +712,36 @@ curl -H "Authorization: Bearer $CLAWMIND_API_KEY" \
 ```
 
 Both endpoints require owner role plus the `audit:read` scope on the key. The page itself is at <http://127.0.0.1:7412/audit>.
+
+### Legal hold
+
+When a workspace is in litigation, scheduled retention sweeps and self-service GDPR erase must be suppressed. The owner-only `/settings/legal-hold` page exposes one switch backed by `/v1/legal-hold`. Try it locally with both servers running:
+
+```bash
+# Read current hold status (admin+, audit:read not required)
+curl -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  http://127.0.0.1:7410/v1/legal-hold
+# {"hold":{"active":false, ...}}
+
+# Impose a hold (owner + MFA step-up required)
+curl -X POST -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  -d '{"reason":"SEC subpoena","ticket":"LEGAL-2026-042"}' \
+  http://127.0.0.1:7410/v1/legal-hold
+
+# Any user-initiated erase now fails closed with the hold metadata
+curl -X DELETE -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  -d '{"confirm":"DELETE"}' \
+  http://127.0.0.1:7410/v1/me/data
+# 409 {"error":"legal_hold_active", "hold":{...}}
+
+# Release the hold (owner + MFA)
+curl -X DELETE -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  http://127.0.0.1:7410/v1/legal-hold
+```
+
+The UI is at <http://127.0.0.1:7412/settings/legal-hold>. Every impose, update, release, and every blocked delete attempt is written to the hash-chained audit log so an auditor can prove evidence preservation across the lifetime of the matter.
 
 ### Admin console
 
