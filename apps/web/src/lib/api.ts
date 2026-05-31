@@ -72,6 +72,15 @@ export interface SourceListItem {
   documentId: string;
 }
 
+export interface HistoryItem {
+  id: string;
+  ts: number;
+  query: string;
+  answer: string;
+  model: string;
+  sources: Array<Source & { namespace?: string }>;
+}
+
 export interface FeedbackEntry {
   path: string;
   ups: number;
@@ -171,10 +180,20 @@ export const api = {
     j<ExplainResponse>('/v1/explain', { method: 'POST', body: JSON.stringify(body) }),
 
   // History and saved
-  history: () =>
-    j<{ items: { id: string; ts: number; query: string; answer: string; model: string }[] }>(
-      '/v1/history',
-    ).then((r) => r.items),
+  history: (
+    params: { q?: string; namespaces?: string[]; since?: number; until?: number; limit?: number } = {},
+  ) => {
+    const qs = new URLSearchParams();
+    if (params.q) qs.set('q', params.q);
+    if (params.namespaces && params.namespaces.length) qs.set('namespaces', params.namespaces.join(','));
+    if (params.since !== undefined) qs.set('since', String(params.since));
+    if (params.until !== undefined) qs.set('until', String(params.until));
+    if (params.limit !== undefined) qs.set('limit', String(params.limit));
+    const q = qs.toString();
+    return j<{ items: HistoryItem[]; total: number }>(
+      `/v1/history${q ? `?${q}` : ''}`,
+    ).then((r) => r.items);
+  },
   savedList: () => j<{ items: SavedSearch[] }>('/v1/saved').then((r) => r.items),
   saveSearch: (input: { title: string; query: string }) =>
     j<{ item: SavedSearch }>('/v1/saved', { method: 'POST', body: JSON.stringify(input) }).then((r) => r.item),
