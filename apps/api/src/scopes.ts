@@ -341,6 +341,14 @@ export const Scopes = {
   // the next /v1/share mint a member attempts.
   SharePolicyRead: 'share-policy:read',
   SharePolicyManage: 'share-policy:admin',
+
+  // Sign-in geofence. Owner-managed allow/block list of ISO 3166 country
+  // codes evaluated at OAuth/OIDC callback time. Read is owner-only so
+  // an auditor without owner can confirm what is in force; Manage is
+  // owner+MFA at the route because flipping the policy can lock the
+  // entire workspace out from a given region on the next sign-in.
+  SignInGeofenceRead: 'sign-in-geofence:read',
+  SignInGeofenceManage: 'sign-in-geofence:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

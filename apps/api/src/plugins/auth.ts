@@ -11,6 +11,7 @@ import {
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
 import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid, getBySid as getSessionBySid, revokeBySid as revokeSessionBySid } from '../services/sessions.js';
 import { recordSignIn } from '../services/sign-in-log.js';
+import { getRecord as getGeofenceRecord, evaluate as evaluateGeofence } from '../services/sign-in-geofence.js';
 import { getPolicyCached as getSessionPolicyCached, evaluateSession as evaluateSessionPolicy } from '../services/session-policy.js';
 import { getStatus as getMfaStatus } from '../services/mfa.js';
 import { verifyCookie as verifyTrustedDeviceCookie, TRUSTED_DEVICE_COOKIE } from '../services/mfa-trusted-devices.js';
@@ -525,6 +526,36 @@ const plugin: FastifyPluginAsync = async (app) => {
       }).catch(() => undefined);
       return reply.code(403).send({ error: 'not allowed' });
     }
+    // Sign-in geofence: workspace owners can require sign-ins to come
+    // from a known set of countries (resolved from a trusted upstream
+    // header). Evaluated AFTER identity is confirmed so the failure
+    // message can attribute the block to a real actor in the audit log.
+    {
+      const geofence = await getGeofenceRecord(app.clawmind.dataDir).catch(() => null);
+      if (geofence) {
+        const decision = evaluateGeofence(geofence, req.headers as Record<string, string | string[] | undefined>);
+        if (!decision.allowed) {
+          const actorId = `gh:${ghUser.id}`;
+          await app.clawmind.audit.write({
+            actor: actorId,
+            action: 'sign-in.geofence.blocked',
+            resource: 'github',
+            meta: { ip: req.ip, country: decision.country, source: decision.source, reason: decision.reason, mode: geofence.mode, requestId: req.id },
+          }).catch(() => undefined);
+          await recordSignIn(app.clawmind.dataDir, {
+            actor: actorId, method: 'github', outcome: 'failure',
+            ip: req.ip, userAgent: req.headers['user-agent'],
+            reason: `geofence: ${decision.reason ?? 'blocked'}${decision.country ? ` (${decision.country})` : ''}`,
+          }).catch(() => undefined);
+          return reply.code(403).send({
+            error: 'geofence_blocked',
+            reason: decision.reason,
+            country: decision.country,
+            mode: geofence.mode,
+          });
+        }
+      }
+    }
     req.session.userId = `gh:${ghUser.id}`;
     req.session.github = ghUser.login;
     req.session.authMethod = 'github';
@@ -661,6 +692,32 @@ const plugin: FastifyPluginAsync = async (app) => {
       }
       try {
         const result = await oidcCompleteLogin(oidcSettings, code, expectedNonce);
+        // Sign-in geofence enforcement; see auth/github branch for rationale.
+        {
+          const geofence = await getGeofenceRecord(app.clawmind.dataDir).catch(() => null);
+          if (geofence) {
+            const decision = evaluateGeofence(geofence, req.headers as Record<string, string | string[] | undefined>);
+            if (!decision.allowed) {
+              await app.clawmind.audit.write({
+                actor: result.userId,
+                action: 'sign-in.geofence.blocked',
+                resource: 'oidc',
+                meta: { ip: req.ip, country: decision.country, source: decision.source, reason: decision.reason, mode: geofence.mode, issuer: oidcSettings.issuer, requestId: req.id },
+              }).catch(() => undefined);
+              await recordSignIn(app.clawmind.dataDir, {
+                actor: result.userId, method: 'oidc', outcome: 'failure',
+                ip: req.ip, userAgent: req.headers['user-agent'],
+                reason: `geofence: ${decision.reason ?? 'blocked'}${decision.country ? ` (${decision.country})` : ''}`,
+              }).catch(() => undefined);
+              return reply.code(403).send({
+                error: 'geofence_blocked',
+                reason: decision.reason,
+                country: decision.country,
+                mode: geofence.mode,
+              });
+            }
+          }
+        }
         req.session.userId = result.userId;
         req.session.email = result.email ?? undefined;
         req.session.authMethod = 'oidc';

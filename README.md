@@ -10,6 +10,36 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Sign-in geofence: enterprise security teams routinely require that human sign-ins originate from a known set of countries (HR is in the EU, contractors are in two named LATAM markets, nobody should be completing OAuth from a sanctioned region). `GET /v1/sign-in-geofence` (owner) returns the active policy with limits and the default trusted-header list; `PUT /v1/sign-in-geofence` (owner + MFA) replaces it atomically with an `allow` or `block` list of ISO 3166-1 alpha-2 codes, a `requireCountry` fail-closed flag, and an optional `trustedHeaders` override for non-default reverse proxies. The country is resolved at the GitHub and OIDC callbacks from a trusted upstream header (`cf-ipcountry`, `cloudfront-viewer-country`, `x-vercel-ip-country`, `x-country`, `x-geo-country` by default), evaluated only at sign-in so an existing session is not killed when a member travels, and every block writes a `sign-in.geofence.blocked` row to the hash-chained audit log plus a failure row to the sign-in activity log with the resolved country and reason. The PUT path refuses to enable a policy that would block the caller's own current request unless `confirmSelfLockoutAccepted=true` is passed, so a typo in the policy editor cannot lock the whole workspace out. The console at `/settings/sign-in-geofence` exposes the allow/block toggle, a country chip list with comma-paste support, the fail-closed switch, and a live `What the server sees` probe at `GET /v1/sign-in-geofence/probe` that shows the country, source header, and current decision for the admin's browser before they save. Read is gated by `sign-in-geofence:read` (owner), writes by `sign-in-geofence:admin` (owner + MFA). The management endpoints are deliberately never gated by the policy itself so an owner whose region was just blocked can still recover via an alternate path.
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # Read current policy (owner key required)
+  curl -sS -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    http://localhost:8787/v1/sign-in-geofence
+
+  # Probe what country your reverse proxy is telling us this request came from
+  curl -sS -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'cf-ipcountry: US' \
+    http://localhost:8787/v1/sign-in-geofence/probe
+
+  # Allow only US and CA sign-ins (owner + MFA)
+  curl -sS -X PUT http://localhost:8787/v1/sign-in-geofence \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"enabled": true, "mode": "allow", "countries": ["US", "CA"], "requireCountry": true}'
+
+  # Or block sanctioned regions while leaving the rest of the world open
+  curl -sS -X PUT http://localhost:8787/v1/sign-in-geofence \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"enabled": true, "mode": "block", "countries": ["CU", "IR", "KP", "SY"]}'
+
+  # Open the geofence console in a browser
+  open http://localhost:3000/settings/sign-in-geofence
+  ```
+
 - Workspace public share policy: enterprise leak reviews routinely ask "can a workspace owner stop members from minting a public share link, force every link to expire, or cap the maximum link lifetime?" `GET /v1/share-policy` (admin+) returns the active `disableShares`, `requireExpiry`, and `maxTtlDays` knobs; `PUT /v1/share-policy` (owner + MFA) updates them with partial-update semantics and writes a `share-policy.update` row with the full before/after to the hash-chained audit log. The policy is consulted on every `POST /v1/share` through a 1-second hot cache, so flipping the switch in one tab takes effect on the very next mint in another. Denied mints return 403 with a structured `reason` (`shares-disabled`, `expiry-required`, or `ttl-exceeds-cap`) and write a `share.create.denied` audit row that captures the requested TTL and the policy snapshot. The web console at `/settings/share-policy` exposes the three knobs with inline help, disabled-state cascading, and a save button that surfaces validation errors from the API. Read is gated by `share-policy:read` (admin+), writes by `share-policy:admin` (owner + MFA).
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):

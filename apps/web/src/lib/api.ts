@@ -299,6 +299,41 @@ export interface WorkspaceIpAllowlistInput {
   confirmSelfLockoutAccepted?: boolean;
 }
 
+export interface SignInGeofenceRecord {
+  enabled: boolean;
+  mode: 'allow' | 'block';
+  countries: string[];
+  requireCountry: boolean;
+  trustedHeaders: string[];
+  createdAt: number;
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export interface SignInGeofenceLimits {
+  maxCountries: number;
+  defaultHeaders: string[];
+  countryFormat: string;
+}
+
+export interface SignInGeofenceInput {
+  enabled: boolean;
+  mode?: 'allow' | 'block';
+  countries?: string[];
+  requireCountry?: boolean;
+  trustedHeaders?: string[];
+  confirmSelfLockoutAccepted?: boolean;
+}
+
+export interface SignInGeofenceProbe {
+  country: string | null;
+  source: string | null;
+  ip: string;
+  wouldAllow: boolean;
+  reason: string | null;
+  usingHeaders: string[];
+}
+
 export interface OriginRule {
   origin: string;
   label: string;
@@ -1055,6 +1090,24 @@ export const api = {
     ),
   workspaceIpAllowlistPut: (input: WorkspaceIpAllowlistInput) =>
     j<{ record: WorkspaceIpAllowlistRecord }>('/v1/workspace-ip-allowlist', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.record),
+
+  // Sign-in geofence. Workspace owners declare an ISO 3166 country
+  // allow/block list that gates the GitHub and OIDC sign-in callbacks.
+  // Get/probe are owner-only; Put is owner-only with MFA step-up. The
+  // management endpoints are intentionally never gated by the policy
+  // itself so an owner whose region was blocked can still log in via
+  // an alternate path (API key) and adjust.
+  signInGeofenceGet: () =>
+    j<{ record: SignInGeofenceRecord; limits: SignInGeofenceLimits }>(
+      '/v1/sign-in-geofence',
+    ),
+  signInGeofenceProbe: () =>
+    j<SignInGeofenceProbe>('/v1/sign-in-geofence/probe'),
+  signInGeofencePut: (input: SignInGeofenceInput) =>
+    j<{ record: SignInGeofenceRecord }>('/v1/sign-in-geofence', {
       method: 'PUT',
       body: JSON.stringify(input),
     }).then((r) => r.record),
