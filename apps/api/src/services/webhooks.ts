@@ -2,6 +2,7 @@ import { readFile, writeFile, mkdir, appendFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { nanoid } from 'nanoid';
+import { notify } from './notifications.js';
 
 // Outbound webhooks let a customer's own service react to ClawMind events
 // (currently `ask.completed`) without polling /v1/history. Each subscription
@@ -325,7 +326,17 @@ export async function emit(
         wh.failureCount = 0;
       } else {
         wh.failureCount += 1;
-        if (wh.failureCount >= AUTO_DISABLE_AFTER) wh.active = false;
+        if (wh.failureCount >= AUTO_DISABLE_AFTER) {
+          wh.active = false;
+          void notify(dataDir, {
+            userId: wh.userId,
+            kind: 'webhook.disabled',
+            title: 'Webhook disabled after repeated failures',
+            body: `${wh.url} failed ${wh.failureCount} times in a row and was paused.`,
+            href: '/webhooks',
+            meta: { webhookId: wh.id, url: wh.url, failureCount: wh.failureCount },
+          });
+        }
       }
       changed = true;
     } catch {

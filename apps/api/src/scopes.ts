@@ -72,6 +72,9 @@ export const Scopes = {
 
   OnboardingRead: 'onboarding:read',
   OnboardingWrite: 'onboarding:write',
+
+  NotificationsRead: 'notifications:read',
+  NotificationsWrite: 'notifications:write',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

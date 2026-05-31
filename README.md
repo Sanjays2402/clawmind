@@ -30,6 +30,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Installable PWA: web app manifest, offline shell, and in-app install prompt so the web UI lives on your home screen with quick shortcuts to Ask, Search, and Saved
 - Account settings: `/settings` shows your user id and plan, a live usage meter, system health, shortcuts to keys and webhooks, a one-click JSON export of every per-user record, and a type-to-confirm GDPR delete that audit-logs the wipe
 - Onboarding: `/welcome` is a three-step first-run guide (ingest a source, ask your first question, create an API key) with per-user server-side progress, a one-click button to index the bundled sample pack, and a dismiss/restore toggle so the guide stops nagging once you are set up
+- Notifications inbox: an in-app `/notifications` page plus a live bell badge in the top nav, so you find out when someone opens a share you minted or when one of your webhooks gets auto-paused after repeated failures. No email, no SMS, no third-party push. Notifications dedupe per share (every refresh just bumps the existing row's view count), cap at 200 per user, and ship with mark-read, mark-all-read, remove, and clear
 - File watcher for incremental reindex
 - Local MLX embeddings with automatic fallback to an OpenAI-compatible endpoint
 
@@ -269,6 +270,22 @@ function verify(secret: string, body: string, header: string) {
 ```
 
 ## Configuration
+
+### Try the notifications inbox
+
+Open `http://127.0.0.1:3000/notifications` once both apps are running. The badge in the top nav polls `/v1/notifications/unread-count` every 30 seconds. From the API:
+
+```bash
+# list notifications (auth required, scope: notifications:read)
+curl -s http://127.0.0.1:7410/v1/notifications | jq
+
+# mark everything read (scope: notifications:write)
+curl -s -X POST http://127.0.0.1:7410/v1/notifications/read \
+  -H 'content-type: application/json' \
+  -d '{"all":true}'
+```
+
+Notifications are produced automatically when a public share is opened (one row per share, view count updated in place) and when a webhook is auto-paused after repeated delivery failures.
 
 All env vars are loaded via `envalid` in `packages/config`. See `.env.example`.
 

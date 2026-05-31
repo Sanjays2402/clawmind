@@ -8,6 +8,7 @@ import {
   deleteShare,
 } from '../services/share.js';
 import { Scopes } from '../scopes.js';
+import { notify } from '../services/notifications.js';
 
 // Public shares: any signed-in user can mint a /s/<id> link that anyone on
 // the internet can read without auth. We also let owners list and revoke
@@ -48,7 +49,23 @@ export const shareRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!data) return reply.code(404).send({ error: 'not found' });
       // Fire and forget. We do not await the bump on the response path so a
       // slow disk write never adds latency to the public viewer.
-      void bumpViews(app.clawmind.dataDir, req.params.id);
+      void bumpViews(app.clawmind.dataDir, req.params.id).then((views) => {
+        // Notify the share owner on every view, but dedupe on the share id so
+        // refreshes don't spam the inbox; the row's title is overwritten with
+        // the latest count.
+        if (data.userId) {
+          const noun = views === 1 ? 'view' : 'views';
+          void notify(app.clawmind.dataDir, {
+            userId: data.userId,
+            kind: 'share.viewed',
+            title: `Your shared answer has ${views} ${noun}`,
+            body: data.query.slice(0, 200),
+            href: `/shares`,
+            dedupeKey: `share:${req.params.id}`,
+            meta: { shareId: req.params.id, views },
+          });
+        }
+      });
       return data;
     },
   });

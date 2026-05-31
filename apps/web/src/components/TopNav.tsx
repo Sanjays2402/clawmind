@@ -2,7 +2,9 @@
 import Link from 'next/link';
 import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
-import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp, IconWebhook, IconArchive, IconSettings, IconLink } from '@clawmind/ui';
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
+import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp, IconWebhook, IconArchive, IconSettings, IconLink, IconBell } from '@clawmind/ui';
 
 const primary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/chat', label: 'Ask', Icon: IconSpark },
@@ -27,6 +29,7 @@ const secondary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> =
   { href: '/keys', label: 'Keys', Icon: IconKey },
   { href: '/webhooks', label: 'Webhooks', Icon: IconWebhook },
   { href: '/shares', label: 'Shares', Icon: IconLink },
+  { href: '/notifications', label: 'Inbox', Icon: IconBell },
   { href: '/batch', label: 'Batch', Icon: IconArchive },
   { href: '/usage', label: 'Usage', Icon: IconChartBar },
   { href: '/welcome', label: 'Welcome', Icon: IconSpark },
@@ -36,6 +39,29 @@ const secondary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> =
 export function TopNav() {
   const pathname = usePathname();
   const items = [...primary, ...secondary];
+  const [unread, setUnread] = useState<number>(0);
+
+  // Poll the unread count so the bell badge stays roughly in sync without
+  // dragging in a websocket. 30s feels live without hammering the API.
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      try {
+        const r = await api.notificationsUnreadCount();
+        if (!cancelled) setUnread(r.unread);
+      } catch {
+        // Anonymous or API down: silently leave the badge at 0.
+      } finally {
+        if (!cancelled) timer = setTimeout(tick, 30_000);
+      }
+    };
+    tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [pathname]);
   return (
     <header className="sticky top-0 z-20 border-b border-cm-border bg-cm-bg/85 backdrop-blur">
       <div className="mx-auto flex w-full max-w-[1180px] items-center justify-between gap-4 px-6 py-3 sm:px-10">
@@ -67,6 +93,21 @@ export function TopNav() {
           })}
         </nav>
         <div className="flex items-center gap-2">
+          <Link
+            href="/notifications"
+            aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+            className="relative inline-flex items-center justify-center rounded-md border border-transparent p-1.5 text-cm-muted transition-colors hover:border-cm-border hover:text-cm-fg"
+          >
+            <IconBell size={15} />
+            {unread > 0 && (
+              <span
+                aria-hidden="true"
+                className="absolute -right-0.5 -top-0.5 min-w-[14px] rounded-full bg-cm-accent px-1 text-center text-[9px] font-medium leading-[14px] text-white"
+              >
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
+          </Link>
           <span
             aria-hidden="true"
             className="hidden items-center gap-1 rounded-md border border-cm-border px-2 py-1 text-[10.5px] text-cm-muted sm:inline-flex"

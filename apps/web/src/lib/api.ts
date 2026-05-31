@@ -580,7 +580,52 @@ export const api = {
       `/v1/saved/${encodeURIComponent(savedId)}/snapshots/${encodeURIComponent(id)}/diff`,
       { method: 'POST' },
     ),
+
+  // Notifications
+  listNotifications: (params: { limit?: number; unread?: boolean } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.limit !== undefined) qs.set('limit', String(params.limit));
+    if (params.unread) qs.set('unread', '1');
+    const q = qs.toString();
+    return j<{ items: NotificationItem[]; unread: number }>(
+      `/v1/notifications${q ? `?${q}` : ''}`,
+    );
+  },
+  notificationsUnreadCount: () =>
+    j<{ unread: number }>('/v1/notifications/unread-count'),
+  markNotificationsRead: (input: { ids?: string[]; all?: boolean }) => {
+    const body = input.all ? { all: true } : { ids: input.ids ?? [] };
+    return j<{ touched: number }>('/v1/notifications/read', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+  deleteNotification: (id: string) =>
+    j<{ id: string; deleted: boolean }>(
+      `/v1/notifications/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    ),
+  clearNotifications: () =>
+    j<{ cleared: number }>('/v1/notifications', { method: 'DELETE' }),
 };
+
+export type NotificationKind =
+  | 'share.viewed'
+  | 'webhook.disabled'
+  | 'webhook.failed'
+  | 'system';
+
+export interface NotificationItem {
+  id: string;
+  userId: string;
+  kind: NotificationKind;
+  title: string;
+  body?: string;
+  href?: string;
+  createdAt: number;
+  readAt: number | null;
+  meta?: Record<string, string | number | boolean | null>;
+}
 
 export interface RelatedItem {
   path: string;
