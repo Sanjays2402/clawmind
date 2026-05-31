@@ -387,6 +387,26 @@ export interface LegalHold {
   updatedAt: number;
 }
 
+export interface EncryptionStatus {
+  schema: 'clawmind.encryption.v1';
+  kekKind: 'internal' | 'customer';
+  kekFingerprint: string;
+  kekFingerprintShort: string;
+  activeKeyId: string;
+  activeKeyCreatedAt: number;
+  activeKeyCreatedBy: string;
+  archivedKeyCount: number;
+  archivedKeys: Array<{
+    keyId: string;
+    createdAt: number;
+    wrappedByKekKind: 'internal' | 'customer';
+    wrappedByKekFingerprintShort: string;
+  }>;
+  version: number;
+  updatedAt: number;
+  updatedBy: string;
+}
+
 export interface WorkspaceFreeze {
   workspaceId: string;
   active: boolean;
@@ -1233,6 +1253,29 @@ export const api = {
     }).then((r) => r.hold),
   legalHoldRelease: () =>
     j<{ hold: LegalHold }>('/v1/legal-hold', { method: 'DELETE' }).then((r) => r.hold),
+
+  // Workspace encryption keys (CMEK / BYOK). The status surface is
+  // read-only for admins and never echoes wrapped key material; only
+  // the active KEK kind, short fingerprint, active key id, and the
+  // small archived-key roll are exposed. Mutations are owner-only and
+  // require a recent MFA step-up at the route layer.
+  encryptionGet: () =>
+    j<{ encryption: EncryptionStatus }>('/v1/encryption').then((r) => r.encryption),
+  encryptionUploadKek: (kek: string) =>
+    j<{ encryption: EncryptionStatus }>('/v1/encryption/kek', {
+      method: 'POST',
+      body: JSON.stringify({ kek }),
+    }).then((r) => r.encryption),
+  encryptionRemoveKek: (kek: string) =>
+    j<{ encryption: EncryptionStatus }>('/v1/encryption/kek', {
+      method: 'DELETE',
+      body: JSON.stringify({ kek }),
+    }).then((r) => r.encryption),
+  encryptionRotate: (kek?: string) =>
+    j<{ encryption: EncryptionStatus }>('/v1/encryption/rotate', {
+      method: 'POST',
+      body: JSON.stringify(kek ? { kek } : {}),
+    }).then((r) => r.encryption),
 
   // Workspace freeze (kill switch). When active, every mutating route
   // outside the auth / MFA / export / freeze-management allowlist returns

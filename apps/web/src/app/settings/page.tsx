@@ -438,6 +438,7 @@ function ShortcutsCard() {
     { href: '/settings/session-policy', label: 'Session lifetime', description: 'Cap how long a signed-in browser session lives and how long it can sit idle.', Icon: IconClockCountdown },
     { href: '/settings/api-key-policy', label: 'API key policy', description: 'Cap key lifetime, require expiry, limit active keys per user, forbid wildcard scopes, and flag overdue rotations.', Icon: IconKey },
     { href: '/settings/api-key-inactivity', label: 'API key inactivity sweep', description: 'Auto revoke API keys that have not been used in an owner configured window. SOC2 CC6.1 control with audit log and dry run preview.', Icon: IconClockCountdown },
+    { href: '/settings/encryption', label: 'Encryption keys (CMEK)', description: 'Bring your own KEK, rotate the workspace DEK, and audit every key transition. Owner only with MFA step up.', Icon: IconKey },
     { href: '/settings/workspace-export', label: 'Workspace export (GDPR)', description: 'Owner-only tenant-wide data export as JSON or ZIP. Required for exit and data-portability obligations.', Icon: IconShield },
     { href: '/settings/query-blocklist', label: 'Query blocklist', description: 'Block literal or regex patterns from reaching retrieval or the model on ask, search, and explain.', Icon: IconShield },
     { href: '/settings/pii-redaction', label: 'PII redaction', description: 'Scrub or block email, phone, SSN, credit card, IP, and custom regex matches before any query reaches retrieval or the LLM.', Icon: IconShield },

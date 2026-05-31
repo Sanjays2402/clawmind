@@ -67,6 +67,7 @@ import { trustRoutes, securityTxtRoutes } from './trust.js';
 import { incidentsRoutes } from './incidents.js';
 import { roleElevationRoutes } from './role-elevation.js';
 import { signInLogRoutes } from './sign-in-log.js';
+import { encryptionRoutes } from './encryption.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -138,6 +139,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(incidentsRoutes, { prefix: '/v1' });
   await app.register(roleElevationRoutes, { prefix: '/v1' });
   await app.register(signInLogRoutes, { prefix: '/v1' });
+  await app.register(encryptionRoutes, { prefix: '/v1' });
   // RFC 9116 lives at the well-known root, not under /v1.
   await app.register(securityTxtRoutes);
 }

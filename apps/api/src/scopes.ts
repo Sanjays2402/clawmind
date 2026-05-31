@@ -323,6 +323,16 @@ export const Scopes = {
   // to the wider org would itself be a low-grade information leak.
   SignInLogRead: 'sign-in-log:read',
   SignInLogReadAll: 'sign-in-log:admin',
+
+  // Workspace encryption keys (CMEK / BYOK). Read is admin+ so a
+  // compliance operator can quote the active KEK kind and key
+  // fingerprint in a DPA without being able to rotate or replace it.
+  // Manage is owner-only with MFA step-up at the route because
+  // uploading a customer KEK, rotating the DEK, or removing the
+  // customer KEK rewraps every encrypted artifact in the workspace
+  // and a mistake can lock the tenant out of their own data.
+  EncryptionRead: 'encryption:read',
+  EncryptionManage: 'encryption:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];
