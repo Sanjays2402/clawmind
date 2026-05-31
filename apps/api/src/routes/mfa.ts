@@ -9,6 +9,17 @@ import {
   getStatus,
   loadMfa,
 } from '../services/mfa.js';
+import {
+  mintDevice,
+  listDevices,
+  revokeDevice,
+  revokeAll,
+  loadDevices,
+  hashToken,
+  TRUSTED_DEVICE_COOKIE,
+  DEFAULT_TRUST_DAYS,
+  MAX_TRUST_DAYS,
+} from '../services/mfa-trusted-devices.js';
 import { Scopes } from '../scopes.js';
 
 // MFA endpoints for the authenticated session user.
@@ -25,6 +36,12 @@ import { Scopes } from '../scopes.js';
 // skip MFA entirely; their scoping is their security model.
 
 const CodeBody = z.object({ code: z.string().min(6).max(20) });
+const VerifyBody = z.object({
+  code: z.string().min(6).max(20),
+  rememberDevice: z.boolean().optional(),
+  deviceLabel: z.string().max(80).optional(),
+  trustDays: z.number().int().min(1).max(MAX_TRUST_DAYS).optional(),
+});
 
 export const mfaRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/mfa/status', {
@@ -89,7 +106,7 @@ export const mfaRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   app.post('/mfa/verify', {
-    schema: { body: CodeBody },
+    schema: { body: VerifyBody },
     preHandler: [app.requireAuth, app.requireScope(Scopes.MfaManage)],
     handler: async (req, reply) => {
       const result = await verifyForStepUp(
@@ -114,12 +131,106 @@ export const mfaRoutes: FastifyPluginAsyncZod = async (app) => {
         meta: { method: result.method },
       });
       const status = await getStatus(app.clawmind.dataDir, req.user!.id);
+      // Optional: bind this browser as trusted so future sensitive actions
+      // skip the prompt for the chosen window. Only minted on a real TOTP/
+      // recovery success so a stolen session cookie alone cannot self-trust.
+      let trustedDevice: { id: string; expiresAt: number; trustDays: number } | undefined;
+      if (req.body.rememberDevice && req.user!.via === 'session') {
+        const trustDays = req.body.trustDays ?? DEFAULT_TRUST_DAYS;
+        const minted = await mintDevice(app.clawmind.dataDir, req.user!.id, {
+          label: req.body.deviceLabel,
+          ip: req.ip,
+          userAgent: String(req.headers['user-agent'] ?? ''),
+          trustDays,
+        });
+        reply.setCookie(TRUSTED_DEVICE_COOKIE, minted.cookieValue, {
+          httpOnly: true,
+          sameSite: 'lax',
+          path: '/',
+          maxAge: trustDays * 86400,
+        });
+        trustedDevice = {
+          id: minted.id,
+          expiresAt: minted.record.expiresAt,
+          trustDays,
+        };
+        await app.clawmind.audit.write({
+          actor: req.user!.id,
+          action: 'mfa.trusted_device.mint',
+          resource: minted.id,
+          meta: { trustDays, label: minted.record.label },
+        });
+      }
       return {
         ok: true,
         method: result.method,
         recoveryCodesRemaining: status.recoveryCodesRemaining,
         stepUpExpiresAt: Date.now() + status.stepUpTtlSec * 1000,
+        trustedDevice,
       };
+    },
+  });
+
+  // List trusted devices for the current user. Read-only, scoped to the
+  // session caller; never accepts a userId query param.
+  app.get('/mfa/trusted-devices', {
+    preHandler: [app.requireAuth, app.requireScope(Scopes.MfaRead)],
+    handler: async (req) => {
+      const devices = await listDevices(app.clawmind.dataDir, req.user!.id);
+      const currentCookie = (req as unknown as { cookies?: Record<string, string | undefined> })
+        .cookies?.[TRUSTED_DEVICE_COOKIE];
+      let currentId: string | null = null;
+      if (currentCookie) {
+        const dot = currentCookie.indexOf('.');
+        if (dot > 0) {
+          const raw = currentCookie.slice(dot + 1);
+          const h = hashToken(raw);
+          const all = await loadDevices(app.clawmind.dataDir, req.user!.id);
+          currentId = all.find((d) => d.hash === h)?.id ?? null;
+        }
+      }
+      return { devices, currentDeviceId: currentId };
+    },
+  });
+
+  // Revoke a single trusted device. Gated on a fresh MFA step-up so a
+  // stolen session cookie cannot evict a real device and lock the user in.
+  app.delete<{ Params: { id: string } }>('/mfa/trusted-devices/:id', {
+    preHandler: [app.requireAuth, app.requireScope(Scopes.MfaManage), app.requireMfa],
+    handler: async (req, reply) => {
+      const removed = await revokeDevice(app.clawmind.dataDir, req.user!.id, req.params.id);
+      if (!removed) return reply.code(404).send({ error: 'device not found' });
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: 'mfa.trusted_device.revoke',
+        resource: removed.id,
+        meta: { label: removed.label },
+      });
+      // If the caller revoked their own current device, clear the cookie.
+      const currentCookie = (req as unknown as { cookies?: Record<string, string | undefined> })
+        .cookies?.[TRUSTED_DEVICE_COOKIE];
+      if (currentCookie?.startsWith(`${req.user!.id}.`)) {
+        const raw = currentCookie.slice(req.user!.id.length + 1);
+        if (hashToken(raw) === removed.hash) {
+          reply.clearCookie(TRUSTED_DEVICE_COOKIE, { path: '/' });
+        }
+      }
+      return { ok: true, revokedId: removed.id };
+    },
+  });
+
+  app.delete('/mfa/trusted-devices', {
+    preHandler: [app.requireAuth, app.requireScope(Scopes.MfaManage), app.requireMfa],
+    handler: async (req, reply) => {
+      const count = await revokeAll(app.clawmind.dataDir, req.user!.id);
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: 'mfa.trusted_device.revoke_all',
+        resource: 'mfa',
+        meta: { count },
+      });
+      reply.clearCookie(TRUSTED_DEVICE_COOKIE, { path: '/' });
+      return { ok: true, revokedCount: count };
     },
   });
 
@@ -154,11 +265,17 @@ export const mfaRoutes: FastifyPluginAsyncZod = async (app) => {
         if (!verify.ok) return reply.code(401).send({ error: 'invalid code' });
       }
       await disableMfa(app.clawmind.dataDir, req.user!.id);
+      // Disabling MFA invalidates every trusted-device binding for this
+      // user. Otherwise a re-enrolment could inherit prior trusts that the
+      // operator believed had been wiped.
+      const wipedDevices = await revokeAll(app.clawmind.dataDir, req.user!.id);
       (req.session as unknown as { mfaVerifiedAt?: number }).mfaVerifiedAt = undefined;
+      reply.clearCookie(TRUSTED_DEVICE_COOKIE, { path: '/' });
       await app.clawmind.audit.write({
         actor: req.user!.id,
         action: 'mfa.disable',
         resource: 'mfa',
+        meta: { trustedDevicesWiped: wipedDevices },
       });
       return { ok: true };
     },

@@ -43,6 +43,7 @@ export default function MfaSettingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [busy, setBusy] = useState(false);
+  const [trustedReloadKey, setTrustedReloadKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -119,12 +120,13 @@ export default function MfaSettingsPage() {
               <ManageCard
                 status={status}
                 busy={busy}
-                onVerify={async (code) => {
+                onVerify={async (code, rememberDevice) => {
                   setBusy(true);
                   setError(null);
                   try {
-                    await api.mfaVerify(code);
+                    await api.mfaVerify(code, { rememberDevice });
                     await load();
+                    setTrustedReloadKey((k) => k + 1);
                   } catch (err) {
                     setError(err instanceof ApiError ? 'Code did not match.' : (err as Error).message);
                   } finally {
@@ -173,6 +175,9 @@ export default function MfaSettingsPage() {
                   }
                 }}
               />
+            )}
+            {status.confirmed && (
+              <TrustedDevicesCard reloadKey={trustedReloadKey} />
             )}
             <BackLink />
           </div>
@@ -365,11 +370,12 @@ function ManageCard({
 }: {
   status: Status;
   busy: boolean;
-  onVerify: (code: string) => Promise<void>;
+  onVerify: (code: string, rememberDevice: boolean) => Promise<void>;
   onRegenerate: (code: string) => Promise<void>;
   onDisable: (code: string) => Promise<void>;
 }) {
   const [code, setCode] = useState('');
+  const [remember, setRemember] = useState(false);
   const valid = /^\d{6}$/.test(code) || /^[A-Za-z0-9-]{10,12}$/.test(code);
   return (
     <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 sm:p-5">
@@ -392,7 +398,7 @@ function ManageCard({
         <button
           type="button"
           disabled={busy || !valid}
-          onClick={() => onVerify(code).then(() => setCode(''))}
+          onClick={() => onVerify(code, remember).then(() => setCode(''))}
           className="inline-flex items-center gap-1.5 rounded-md bg-[var(--fg)] px-3 py-1.5 text-xs font-medium text-[var(--bg)] hover:opacity-90 disabled:opacity-50"
         >
           <IconCheck size={12} />
@@ -419,6 +425,15 @@ function ManageCard({
           Disable MFA
         </button>
       </div>
+      <label className="mt-3 flex items-center gap-2 text-xs text-[var(--fg-muted)]">
+        <input
+          type="checkbox"
+          checked={remember}
+          onChange={(e) => setRemember(e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-[var(--border)] accent-[var(--fg)]"
+        />
+        Remember this device for 14 days (skip code on next sensitive action)
+      </label>
       <div className="mt-4 text-xs text-[var(--fg-muted)]">
         Step-up window: {Math.round(status.stepUpTtlSec / 60)} minutes after a successful verify.
         {status.sessionStepUpActive ? ' This session is currently stepped up.' : ' This session is not stepped up.'}
@@ -457,6 +472,152 @@ function Field({ label, value, mono = false }: { label: string; value: string; m
 function formatSecret(secret: string): string {
   // Group base32 in fours for legibility when typed manually.
   return secret.replace(/(.{4})/g, '$1 ').trim();
+}
+
+function TrustedDevicesCard({ reloadKey }: { reloadKey: number }) {
+  type Device = Awaited<ReturnType<typeof api.mfaTrustedDevices>>['devices'][number];
+  const [devices, setDevices] = useState<Device[] | null>(null);
+  const [currentId, setCurrentId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setErr(null);
+    try {
+      const r = await api.mfaTrustedDevices();
+      setDevices(r.devices);
+      setCurrentId(r.currentDeviceId);
+    } catch (e) {
+      setErr(e instanceof ApiError ? `Failed (${e.status})` : (e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load, reloadKey]);
+
+  return (
+    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <h2 className="text-sm font-semibold">Trusted devices</h2>
+          <p className="mt-1 text-xs text-[var(--fg-muted)]">
+            Browsers that skip the code prompt for the trust window. Revoking a device immediately requires a fresh code on the next sensitive action.
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={load}
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+          >
+            <IconRefresh size={11} />
+            Refresh
+          </button>
+          <button
+            type="button"
+            disabled={!devices || devices.length === 0 || busy !== null}
+            onClick={async () => {
+              if (!confirm('Revoke all trusted devices? Every browser will need a fresh code on the next sensitive action.')) return;
+              setBusy('all');
+              try {
+                await api.mfaRevokeAllTrustedDevices();
+                await load();
+              } catch (e) {
+                setErr(e instanceof ApiError ? (e.status === 401 ? 'Step up with a code first.' : `Failed (${e.status})`) : (e as Error).message);
+              } finally {
+                setBusy(null);
+              }
+            }}
+            className="inline-flex items-center gap-1.5 rounded-md border border-red-500/40 px-2 py-1 text-[11px] text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
+          >
+            <IconTrash size={11} />
+            Revoke all
+          </button>
+        </div>
+      </div>
+
+      {loading && (
+        <div className="mt-4 flex items-center gap-2 text-xs text-[var(--fg-muted)]">
+          <Spinner /> Loading
+        </div>
+      )}
+      {!loading && err && <div className="mt-4 text-xs text-red-600 dark:text-red-400">{err}</div>}
+      {!loading && !err && devices && devices.length === 0 && (
+        <div className="mt-4 rounded-md border border-dashed border-[var(--border)] p-4 text-center text-xs text-[var(--fg-muted)]">
+          No trusted devices yet. Tick "Remember this device" during a verify to add this browser.
+        </div>
+      )}
+      {!loading && !err && devices && devices.length > 0 && (
+        <ul className="mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-md border border-[var(--border)]">
+          {devices.map((d) => {
+            const isCurrent = d.id === currentId;
+            return (
+              <li key={d.id} className="flex flex-col gap-2 p-3 text-xs sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <IconShield size={12} />
+                    <span className="font-medium">{d.label}</span>
+                    {isCurrent && (
+                      <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                        This browser
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 truncate text-[11px] text-[var(--fg-muted)]">
+                    {d.ip || 'unknown ip'} · last seen {formatRelative(d.lastSeenAt)} · expires {formatRelative(d.expiresAt)}
+                  </div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={busy !== null}
+                    onClick={async () => {
+                      if (!confirm(isCurrent ? 'Revoke this browser? You will need a code on the next sensitive action.' : `Revoke ${d.label}?`)) return;
+                      setBusy(d.id);
+                      try {
+                        await api.mfaRevokeTrustedDevice(d.id);
+                        await load();
+                      } catch (e) {
+                        setErr(e instanceof ApiError ? (e.status === 401 ? 'Step up with a code first.' : `Failed (${e.status})`) : (e as Error).message);
+                      } finally {
+                        setBusy(null);
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--fg-muted)] hover:text-[var(--fg)] disabled:opacity-50"
+                  >
+                    <IconTrash size={11} />
+                    Revoke
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function formatRelative(ts: number): string {
+  const diff = ts - Date.now();
+  const abs = Math.abs(diff);
+  const units: Array<[number, string]> = [
+    [86400_000 * 30, 'mo'],
+    [86400_000, 'd'],
+    [3600_000, 'h'],
+    [60_000, 'm'],
+  ];
+  for (const [ms, label] of units) {
+    if (abs >= ms) {
+      const n = Math.round(diff / ms);
+      return n >= 0 ? `in ${n}${label}` : `${-n}${label} ago`;
+    }
+  }
+  return diff >= 0 ? 'in <1m' : '<1m ago';
 }
 
 function BackLink() {

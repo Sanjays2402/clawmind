@@ -6,6 +6,7 @@ import { consume as consumeKeyBucket } from '../services/api-key-rate-limit.js';
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
 import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid } from '../services/sessions.js';
 import { getStatus as getMfaStatus } from '../services/mfa.js';
+import { verifyCookie as verifyTrustedDeviceCookie, TRUSTED_DEVICE_COOKIE } from '../services/mfa-trusted-devices.js';
 import {
   recordSeenAndBootstrap,
   meetsMinRole,
@@ -273,6 +274,16 @@ const plugin: FastifyPluginAsync = async (app) => {
     const verifiedAt = sess.mfaVerifiedAt ?? 0;
     const ageMs = Date.now() - verifiedAt;
     if (verifiedAt === 0 || ageMs > status.stepUpTtlSec * 1000) {
+      // Trusted-device fast path: a previously-minted cookie bound to this
+      // user satisfies the step-up gate without prompting for a TOTP code.
+      // We bind by sha256-hash and prune expired records as a side effect.
+      const cookie = (req as unknown as { cookies?: Record<string, string | undefined> }).cookies?.[TRUSTED_DEVICE_COOKIE];
+      const trusted = await verifyTrustedDeviceCookie(app.clawmind.dataDir, cookie, { ip: req.ip });
+      if (trusted && trusted.userId === req.user.id) {
+        sess.mfaVerifiedAt = Date.now();
+        reply.header('x-mfa-trusted-device', trusted.device.id);
+        return;
+      }
       reply.header('x-mfa-required', '1');
       return reply.code(401).send({
         error: 'mfa step-up required',

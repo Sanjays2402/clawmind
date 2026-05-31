@@ -772,13 +772,39 @@ export const api = {
     ),
   mfaConfirm: (code: string) =>
     j<{ ok: true }>('/v1/mfa/confirm', { method: 'POST', body: JSON.stringify({ code }) }),
-  mfaVerify: (code: string) =>
+  mfaVerify: (
+    code: string,
+    opts: { rememberDevice?: boolean; deviceLabel?: string; trustDays?: number } = {},
+  ) =>
     j<{
       ok: true;
       method: 'totp' | 'recovery';
       recoveryCodesRemaining: number;
       stepUpExpiresAt: number;
-    }>('/v1/mfa/verify', { method: 'POST', body: JSON.stringify({ code }) }),
+      trustedDevice?: { id: string; expiresAt: number; trustDays: number };
+    }>('/v1/mfa/verify', {
+      method: 'POST',
+      body: JSON.stringify({ code, ...opts }),
+    }),
+  mfaTrustedDevices: () =>
+    j<{
+      devices: Array<{
+        id: string;
+        label: string;
+        ip: string;
+        userAgent: string;
+        createdAt: number;
+        lastSeenAt: number;
+        expiresAt: number;
+      }>;
+      currentDeviceId: string | null;
+    }>('/v1/mfa/trusted-devices'),
+  mfaRevokeTrustedDevice: (id: string) =>
+    j<{ ok: true; revokedId: string }>(`/v1/mfa/trusted-devices/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }),
+  mfaRevokeAllTrustedDevices: () =>
+    j<{ ok: true; revokedCount: number }>('/v1/mfa/trusted-devices', { method: 'DELETE' }),
   mfaRegenerateRecovery: (code: string) =>
     j<{ recoveryCodes: string[] }>('/v1/mfa/recovery/regenerate', {
       method: 'POST', body: JSON.stringify({ code }),
