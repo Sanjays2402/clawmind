@@ -5,7 +5,8 @@ import { QuerySchema } from '@clawmind/types';
 import { nanoid } from 'nanoid';
 import { recordHistory } from '../services/history.js';
 import { emit as emitWebhook } from '../services/webhooks.js';
-import { enforceQuota, recordUsage } from '../services/usage.js';
+import { recordUsage } from '../services/usage.js';
+import { enforceQuotaGate } from '../lib/quota-gate.js';
 import { Scopes } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
@@ -18,23 +19,8 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     handler: async (req, reply) => {
       if (!(await enforceQueryBlocklist(app, reply, req.user!.id, '/v1/ask', req.body.q))) return;
-      const quota = await enforceQuota(app.clawmind.dataDir, req.user!.id, 1);
-      if (!quota.allowed) {
-        reply.header('x-clawmind-quota-used', String(quota.summary.used));
-        reply.header('x-clawmind-quota-limit', String(quota.summary.limit));
-        applyRateLimitHeaders(reply, {
-          limit: quota.summary.limit,
-          remaining: 0,
-          resetMs: quota.summary.resetsAt,
-          windowSec: Math.max(1, Math.round((quota.summary.resetsAt - Date.now()) / 1000)),
-          policy: 'quota:monthly',
-        });
-        return reply.code(429).send({
-          error: 'quota exceeded',
-          message: `Monthly free-tier limit of ${quota.summary.limit} requests reached. Resets ${new Date(quota.summary.resetsAt).toISOString()}.`,
-          usage: quota.summary,
-        });
-      }
+      const gate = await enforceQuotaGate(app, reply, req.user!.id, 1);
+      if (!gate.ok) return;
       const body = { ...req.body, q: app.aliases.expandQuery(req.body.q) };
       const key = cacheKey(body, app.clawmind.llm.id, app.corpusVersion.value);
       const cached = app.answerCache.get(key);

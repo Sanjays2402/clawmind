@@ -205,6 +205,35 @@ export interface UsageSummary {
   resetsAt: number;
   byKind: { ask: number; search: number };
   plan: 'free';
+  workspace?: {
+    period: string;
+    used: number;
+    limit: number | null;
+    remaining: number | null;
+    resetsAt: number;
+    byKind: { ask: number; search: number };
+    members: number;
+  };
+}
+
+export interface WorkspaceQuotaPolicy {
+  monthlyLimit: number | null;
+  perUserMonthlyLimit: number | null;
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export interface WorkspaceQuotaStatus {
+  policy: WorkspaceQuotaPolicy;
+  effective: { monthlyLimit: number | null; perUserMonthlyLimit: number | null };
+  usage: {
+    period: string;
+    used: number;
+    remaining: number | null;
+    resetsAt: number;
+    byKind: { ask: number; search: number };
+    members: number;
+  };
 }
 
 export type OnboardingStep = 'ingest' | 'ask' | 'configure';
@@ -950,6 +979,18 @@ export const api = {
       `/v1/retention/apply${dryRun ? '?dry_run=true' : ''}`,
       { method: 'POST' },
     ).then((r) => r.report),
+
+  // Workspace-wide monthly request quota. Admin-readable so finance can
+  // confirm the configured cap; owner-only to change with MFA step-up.
+  workspaceQuotaGet: () => j<WorkspaceQuotaStatus>('/v1/workspace-quota'),
+  workspaceQuotaPut: (patch: {
+    monthlyLimit?: number | null;
+    perUserMonthlyLimit?: number | null;
+  }) =>
+    j<WorkspaceQuotaPolicy>('/v1/workspace-quota', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }),
 
   // Workspace-wide legal hold. When active, blocks user-initiated
   // data deletion and scheduled retention sweeps. Read is admin+,

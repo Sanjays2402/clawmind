@@ -4,8 +4,8 @@ import { nanoid } from 'nanoid';
 import { ask } from '@clawmind/rag';
 import { Scopes } from '../scopes.js';
 import { recordHistory } from '../services/history.js';
-import { enforceQuota, recordUsage } from '../services/usage.js';
-import { applyRateLimitHeaders } from '../services/rate-headers.js';
+import { recordUsage } from '../services/usage.js';
+import { enforceQuotaGate } from '../lib/quota-gate.js';
 import {
   BATCH_LIMITS,
   extractRows,
@@ -61,25 +61,8 @@ export const batchRoutes: FastifyPluginAsyncZod = async (app) => {
 
       // Quota covers the whole batch so a user can't bypass the meter by
       // bundling 100 questions into one HTTP call.
-      const quota = await enforceQuota(app.clawmind.dataDir, req.user!.id, rows.length);
-      if (!quota.allowed) {
-        reply.header('x-clawmind-quota-used', String(quota.summary.used));
-        reply.header('x-clawmind-quota-limit', String(quota.summary.limit));
-        applyRateLimitHeaders(reply, {
-          limit: quota.summary.limit,
-          remaining: 0,
-          resetMs: quota.summary.resetsAt,
-          windowSec: Math.max(1, Math.round((quota.summary.resetsAt - Date.now()) / 1000)),
-          policy: 'quota:monthly',
-        });
-        return reply.code(429).send({
-          error: 'quota exceeded',
-          message:
-            `This batch of ${rows.length} would exceed the monthly free-tier limit ` +
-            `of ${quota.summary.limit} requests (${quota.summary.used} used).`,
-          usage: quota.summary,
-        });
-      }
+      const gate = await enforceQuotaGate(app, reply, req.user!.id, rows.length);
+      if (!gate.ok) return;
 
       const batchId = nanoid(10);
       const results: BatchResult[] = [];

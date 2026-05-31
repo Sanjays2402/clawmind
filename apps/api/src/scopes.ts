@@ -208,6 +208,14 @@ export const Scopes = {
   // immediately downgrade or revoke members across the workspace.
   AccessReviewsRead: 'access-reviews:read',
   AccessReviewsManage: 'access-reviews:admin',
+
+  // Workspace-wide monthly request quota. Read is admin+ so finance /
+  // compliance can confirm the configured cap; Manage is owner-only
+  // because lowering the cap can immediately 429 every other member's
+  // ask/search/batch call. The check is enforced at the route layer
+  // (see ask/search/batch).
+  WorkspaceQuotaRead: 'workspace-quota:read',
+  WorkspaceQuotaManage: 'workspace-quota:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

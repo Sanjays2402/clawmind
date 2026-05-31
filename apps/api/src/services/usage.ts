@@ -113,9 +113,58 @@ export async function getUsage(
   };
 }
 
+export interface WorkspaceUsageSummary {
+  period: string;
+  used: number;
+  limit: number;          // may be Infinity when uncapped
+  remaining: number;      // may be Infinity when uncapped
+  resetsAt: number;
+  byKind: Record<UsageKind, number>;
+  members: number;        // distinct member ids that consumed at least one unit this period
+}
+
+/**
+ * Workspace-wide usage rollup for the current calendar month. Used by
+ * the workspace quota gate (see workspace-quota.ts) and by the admin
+ * spend dashboard.
+ */
+export async function getWorkspaceUsage(
+  dataDir: string,
+  now: number = Date.now(),
+  limit: number = Number.POSITIVE_INFINITY,
+): Promise<WorkspaceUsageSummary> {
+  const period = periodOf(now);
+  const events = await readAll(dataDir);
+  let used = 0;
+  const byKind: Record<UsageKind, number> = { ask: 0, search: 0 };
+  const seen = new Set<string>();
+  for (const ev of events) {
+    if (periodOf(ev.ts) !== period) continue;
+    used += ev.units;
+    if (ev.kind in byKind) byKind[ev.kind] += ev.units;
+    seen.add(ev.userId);
+  }
+  const remaining = Number.isFinite(limit) ? Math.max(0, limit - used) : Number.POSITIVE_INFINITY;
+  return {
+    period,
+    used,
+    limit,
+    remaining,
+    resetsAt: nextResetMs(now),
+    byKind,
+    members: seen.size,
+  };
+}
+
 export interface EnforceResult {
   allowed: boolean;
   summary: UsageSummary;
+  // When the workspace-wide ceiling is the blocker we surface a separate
+  // shape so callers can return the right error to the user. null when
+  // the workspace check passed (or was unlimited).
+  workspace?: WorkspaceUsageSummary | null;
+  // 'user' = per-member cap, 'workspace' = workspace ceiling, null = ok
+  blocker?: 'user' | 'workspace' | null;
 }
 
 /**
@@ -132,6 +181,42 @@ export async function enforceQuota(
 ): Promise<EnforceResult> {
   const summary = await getUsage(dataDir, userId, now, limit);
   return { allowed: summary.remaining >= units, summary };
+}
+
+/**
+ * Workspace + per-user quota gate. Loads the owner-configured workspace
+ * policy and the per-user free-tier ceiling, then reports which (if
+ * either) would be blown by recording `units`. Both checks run so the
+ * caller can surface the more specific failure (e.g. "workspace cap
+ * hit" vs "your seat cap hit").
+ */
+export async function enforceWorkspaceAndUserQuota(
+  dataDir: string,
+  userId: string,
+  units: number,
+  workspaceLimit: number,
+  userLimit: number,
+  now: number = Date.now(),
+): Promise<EnforceResult> {
+  const userSummary = await getUsage(dataDir, userId, now, Number.isFinite(userLimit) ? userLimit : DEFAULT_FREE_LIMIT);
+  // Override the displayed limit so the response reflects the effective
+  // ceiling the workspace owner configured, not the historical 500.
+  if (Number.isFinite(userLimit)) {
+    userSummary.limit = userLimit;
+    userSummary.remaining = Math.max(0, userLimit - userSummary.used);
+  }
+  const wsSummary = await getWorkspaceUsage(dataDir, now, workspaceLimit);
+  const userOk = !Number.isFinite(userLimit) || userSummary.used + units <= userLimit;
+  const wsOk = !Number.isFinite(workspaceLimit) || wsSummary.used + units <= workspaceLimit;
+  let blocker: 'user' | 'workspace' | null = null;
+  if (!wsOk) blocker = 'workspace';
+  else if (!userOk) blocker = 'user';
+  return {
+    allowed: userOk && wsOk,
+    summary: userSummary,
+    workspace: wsSummary,
+    blocker,
+  };
 }
 
 /** Test helper: nuke the log. Never call from production code paths. */

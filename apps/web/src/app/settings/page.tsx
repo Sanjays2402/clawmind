@@ -438,6 +438,7 @@ function ShortcutsCard() {
     { href: '/settings/maintenance', label: 'Storage maintenance', description: 'Compact dangling rows and bulk forget indexed sources by glob.', Icon: IconShield },
     { href: '/settings/notifications', label: 'Notification preferences', description: 'Pick which inbox alerts you want to receive.', Icon: IconSettings },
     { href: '/usage', label: 'Usage details', description: 'Per-kind breakdown and reset timer.', Icon: IconChartBar },
+    { href: '/settings/quota', label: 'Workspace quota', description: 'Cap monthly ask/search/batch spend across the workspace and per member. Required for enterprise spend controls.', Icon: IconChartBar },
   ];
   return (
     <Section title="Account controls" description="Manage how this account talks to the outside world.">
