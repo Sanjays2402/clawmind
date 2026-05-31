@@ -60,8 +60,35 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Admin console: a single owner-only `/admin` page that aggregates every security control on the tenant into one screen so an enterprise reviewer can answer "is this configured safely" without clicking through eight separate settings panels. SSO status, MFA enrollment, active sessions, API key counts and last-used time, 24h webhook deliveries and failures, IP allowlist state, data retention windows, and the current audit chain head hash all surface in one round trip via `GET /v1/admin/overview`. Every number comes from the same services the dedicated routes use so the overview cannot drift from reality. Owner-gated, `admin:read` scoped, and the fetch itself appends an `admin.overview` row to the hash-chained audit log so the act of reviewing posture leaves its own trace.
 
 - Notifications inbox: an in-app `/notifications` page plus a live bell badge in the top nav, so you find out when someone opens a share you minted or when one of your webhooks gets auto-paused after repeated failures. No email, no SMS, no third-party push. Notifications dedupe per share (every refresh just bumps the existing row's view count), cap at 200 per user, and ship with mark-read, mark-all-read, remove, and clear. Per-user notification preferences at `/settings/notifications` (or `GET`/`PUT /v1/notification-preferences`) let you toggle each kind (share views, webhook failures, webhook auto-disabled, system messages) on or off; switched-off kinds are dropped at the producer with `shouldDeliver()` before they ever reach the inbox, so you never see another row of a category you muted
+- Idempotency-Key on every mutating endpoint: callers can pass an opaque `Idempotency-Key` header on any `POST`, `PUT`, `PATCH`, or `DELETE` and ClawMind guarantees the request runs at most once. A retry with the same key and the same body replays the original response byte-for-byte (with `Idempotency-Replay: true` set so client code can tell) instead of double-creating a conversation, double-charging a quota slot, or double-revoking a key. A retry with the same key but a different body returns `409 idempotency_key_reused` so a coding bug surfaces immediately instead of silently mutating state. Keys are scoped per actor (cookie session user id or API key id) so two tenants reusing the same key string never collide, anonymous callers are rejected with `401 idempotency_requires_auth` so the on-disk registry cannot be filled by drive-by traffic, only `2xx` responses are cached so a transient `500` is retried for real, and entries expire after 24 hours. Implemented as a Fastify plugin that runs after auth, persisted to `idempotency.json` with the same atomic-rewrite pattern as the rest of the on-disk state.
 - File watcher for incremental reindex
 - Local MLX embeddings with automatic fallback to an OpenAI-compatible endpoint
+
+## Try it: idempotent retries
+
+```bash
+# First call creates the conversation
+curl -sS http://localhost:8787/v1/conversations \
+  -H "authorization: Bearer $CLAWMIND_KEY" \
+  -H "content-type: application/json" \
+  -H "idempotency-key: launch-plan-2026-05-31" \
+  -d '{"title":"Launch plan"}'
+
+# Retry with the same key + body replays the first response,
+# sets Idempotency-Replay: true, does not create a duplicate.
+curl -sS -i http://localhost:8787/v1/conversations \
+  -H "authorization: Bearer $CLAWMIND_KEY" \
+  -H "content-type: application/json" \
+  -H "idempotency-key: launch-plan-2026-05-31" \
+  -d '{"title":"Launch plan"}'
+
+# Reusing the key with a different body returns 409.
+curl -sS -i http://localhost:8787/v1/conversations \
+  -H "authorization: Bearer $CLAWMIND_KEY" \
+  -H "content-type: application/json" \
+  -H "idempotency-key: launch-plan-2026-05-31" \
+  -d '{"title":"Different title"}'
+```
 
 ## Stack
 
