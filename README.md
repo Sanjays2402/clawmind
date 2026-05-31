@@ -10,6 +10,35 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Security Incident Disclosure Log: enterprise procurement (SOC 2 CC7.4, ISO 27001 A.5.24, NIST IR-6) wants a published, machine-readable timeline of past incidents with severity, scope, customer-data impact, and resolution. The public list at `GET /v1/incidents` and the rendered page at `/incidents` are unauthenticated so a buyer's vendor-review tool can crawl them without credentials. Each incident carries `severity` (low / medium / high / critical), `status` (investigating, identified, monitoring, resolved), `startedAt`, `resolvedAt`, `affectedComponents`, a boolean `customerDataImpacted` rendered prominently because it is the single most-asked-about field in any questionnaire, and a chronological update timeline. Operator-only fields (`privateNotes`, `updatedBy`) are stripped from the public projection. Writes are owner-only with MFA step-up: `POST /v1/incidents`, `PUT /v1/incidents/:id`, and `DELETE /v1/incidents/:id` all support a `?dry_run=true` validate-only mode and land an `incidents.create` / `incidents.update` / `incidents.delete` row in the hash-chained audit log with the severity, status, and customer-data-impact bit (never the private notes). State lives at `data/incidents.json`, the admin list at `GET /v1/incidents/admin` is gated by `incidents:read` (admin+), and every write is gated by `incidents:admin` (owner + MFA).
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # Public timeline, no auth required
+  curl -sS http://localhost:8787/v1/incidents
+
+  # Publish a resolved incident (owner + MFA at the API)
+  curl -sS -X POST http://localhost:8787/v1/incidents \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{
+      "title":"Latency spike on /v1/ask",
+      "summary":"Elevated p95 for 22 minutes after a deploy.",
+      "severity":"medium",
+      "status":"resolved",
+      "startedAt":"2026-05-31T18:00:00Z",
+      "resolvedAt":"2026-05-31T18:22:00Z",
+      "affectedComponents":["api"],
+      "customerDataImpacted":false,
+      "updates":[{"message":"Rolled back deploy.","status":"resolved"}]
+    }'
+
+  # Public page and owner console in a browser
+  open http://localhost:3000/incidents
+  open http://localhost:3000/settings/incidents
+  ```
+
 - Break-glass time-bound role elevation: enterprise procurement (SOC2 CC6.3, ISO 27001 A.9.2.3, NIST AC-6(2)) wants temporary privileged access without standing owner credentials. A member or admin files a request at `POST /v1/role-elevation/requests` with `toRole`, a written `reason`, and a bounded `durationMinutes` (5 to 240). An owner other than the requester approves at `POST /v1/role-elevation/requests/:id/approve` with MFA step-up (four-eyes rule). The auth plugin overlays the elevated role on `req.user` for every authenticated request inside the window and drops back automatically once `expiresAt` passes, so no cron is required. Owners can yank a live grant at any time with `POST /v1/role-elevation/requests/:id/revoke`. Every request, approval, denial, and revocation lands in the hash-chained audit log with the elevation id, the role transition, the duration, and the reason text, which is exactly the evidence a procurement reviewer asks for during a privileged-access walkthrough. State lives at `data/role-elevation.json`, listing is gated by `role-elevation:read` (admin+), filing a request by `role-elevation:write`, and approve / deny / revoke by `role-elevation:admin` (owner only).
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):

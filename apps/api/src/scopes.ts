@@ -269,6 +269,14 @@ export const Scopes = {
   TrustRead: 'trust:read',
   TrustManage: 'trust:admin',
 
+  // Security Incident Disclosure Log. Read is admin+ so a compliance
+  // operator can see the operator view (private notes, updatedBy);
+  // Manage is owner-only with MFA step-up at the route because writes
+  // land on a public, internet-facing timeline that procurement teams
+  // and regulators cite by URL.
+  IncidentsRead: 'incidents:read',
+  IncidentsManage: 'incidents:admin',
+
   // Workspace PII redaction policy. Read is admin+ so a compliance
   // operator can see which detector classes are active without being
   // able to weaken them. Manage is owner-only with MFA step-up because

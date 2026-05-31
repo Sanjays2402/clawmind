@@ -1883,7 +1883,75 @@ export const api = {
     j<{ request: RoleElevationRequest }>(`/v1/role-elevation/requests/${encodeURIComponent(id)}/revoke`, {
       method: 'POST',
     }).then((r) => r.request),
+
+  // Security Incident Disclosure Log. Public GET /v1/incidents is the URL
+  // procurement / vendor review tools crawl, so it must stay unauthenticated.
+  // Writes are owner+MFA at the API.
+  incidentsPublic: () => j<IncidentsPublicList>('/v1/incidents'),
+  incidentsAdmin: () =>
+    j<{ incidents: Incident[] }>('/v1/incidents/admin').then((r) => r.incidents),
+  incidentsCreate: (body: IncidentInput) =>
+    j<Incident>('/v1/incidents', { method: 'POST', body: JSON.stringify(body) }),
+  incidentsUpdate: (id: string, body: IncidentInput) =>
+    j<Incident>(`/v1/incidents/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  incidentsDelete: (id: string) =>
+    j<{ deleted: boolean }>(`/v1/incidents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 };
+
+export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type IncidentStatus = 'investigating' | 'identified' | 'monitoring' | 'resolved';
+export interface IncidentUpdate {
+  at: number;
+  message: string;
+  status: IncidentStatus;
+}
+export interface Incident {
+  id: string;
+  title: string;
+  summary: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  startedAt: number;
+  resolvedAt: number | null;
+  affectedComponents: string[];
+  customerDataImpacted: boolean;
+  updates: IncidentUpdate[];
+  privateNotes: string;
+  createdAt: number;
+  updatedAt: number;
+  updatedBy: string | null;
+}
+export interface IncidentPublic {
+  id: string;
+  title: string;
+  summary: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  startedAt: number;
+  resolvedAt: number | null;
+  affectedComponents: string[];
+  customerDataImpacted: boolean;
+  updates: IncidentUpdate[];
+}
+export interface IncidentsPublicList {
+  incidents: IncidentPublic[];
+  generatedAt: number;
+}
+export interface IncidentInput {
+  title: string;
+  summary?: string;
+  severity: IncidentSeverity;
+  status: IncidentStatus;
+  startedAt: number;
+  resolvedAt?: number | null;
+  affectedComponents?: string[];
+  customerDataImpacted?: boolean;
+  updates?: Array<{ at?: number; message: string; status: IncidentStatus }>;
+  privateNotes?: string;
+}
 
 export type RoleElevationStatus = 'pending' | 'approved' | 'revoked' | 'expired' | 'denied';
 
