@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { issueKey, listKeys, revokeKey, redact, SCOPE_RE, WILDCARD_SCOPE } from '../services/api-keys.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
+import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
 
 const ScopeSchema = z.string()
   .refine(
@@ -55,6 +56,7 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
         actor: req.user!.id, action: 'api_key.issue', resource: issued.record.id,
         meta: { label: issued.record.label, role: issued.record.role, scopes: issued.record.scopes ?? null },
       });
+      void completeOnboardingStep(app.clawmind.dataDir, req.user!.id, 'configure').catch(() => undefined);
       return { key: redact(issued.record), secret: issued.secret };
     },
   });

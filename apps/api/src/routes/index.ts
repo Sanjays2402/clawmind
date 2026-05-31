@@ -27,6 +27,7 @@ import { auditRoutes } from './audit.js';
 import { webhookRoutes } from './webhooks.js';
 import { usageRoutes } from './usage.js';
 import { batchRoutes } from './batch.js';
+import { onboardingRoutes } from './onboarding.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -57,4 +58,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(webhookRoutes, { prefix: '/v1' });
   await app.register(usageRoutes, { prefix: '/v1' });
   await app.register(batchRoutes, { prefix: '/v1' });
+  await app.register(onboardingRoutes, { prefix: '/v1' });
 }

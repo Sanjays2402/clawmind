@@ -3,6 +3,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { ingestRoot, startWatcher } from '@clawmind/ingest';
 import { expand } from '@clawmind/config';
 import { Scopes } from '../scopes.js';
+import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
 
 const BodySchema = z.object({ root: z.string().min(1), watch: z.boolean().default(false) });
 
@@ -26,6 +27,9 @@ export const ingestRoutes: FastifyPluginAsyncZod = async (app) => {
       }
       app.corpusVersion.bump();
       app.answerCache.clear();
+      if (req.user) {
+        void completeOnboardingStep(app.clawmind.dataDir, req.user.id, 'ingest').catch(() => undefined);
+      }
       return { ok: true, ...stats, corpusVersion: app.corpusVersion.value };
     },
   });

@@ -7,6 +7,7 @@ import { recordHistory } from '../services/history.js';
 import { emit as emitWebhook } from '../services/webhooks.js';
 import { enforceQuota, recordUsage } from '../services/usage.js';
 import { Scopes } from '../scopes.js';
+import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
 
 export const askRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/ask', {
@@ -45,6 +46,7 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
         id, query: req.body.q, answer: result.text, sources: result.sources, model: result.model,
       }, req.user!.id);
       void recordUsage(app.clawmind.dataDir, req.user!.id, 'ask', 1).catch(() => undefined);
+      void completeOnboardingStep(app.clawmind.dataDir, req.user!.id, 'ask').catch(() => undefined);
       return { id, ...result };
     },
   });

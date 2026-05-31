@@ -68,6 +68,9 @@ export const Scopes = {
   WebhooksManage: 'webhooks:admin',
 
   UsageRead: 'usage:read',
+
+  OnboardingRead: 'onboarding:read',
+  OnboardingWrite: 'onboarding:write',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

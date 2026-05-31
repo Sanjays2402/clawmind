@@ -28,6 +28,7 @@ const secondary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> =
   { href: '/webhooks', label: 'Webhooks', Icon: IconWebhook },
   { href: '/batch', label: 'Batch', Icon: IconArchive },
   { href: '/usage', label: 'Usage', Icon: IconChartBar },
+  { href: '/welcome', label: 'Welcome', Icon: IconSpark },
   { href: '/settings', label: 'Settings', Icon: IconSettings },
 ];
 

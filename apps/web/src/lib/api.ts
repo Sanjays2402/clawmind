@@ -164,6 +164,23 @@ export interface UsageSummary {
   plan: 'free';
 }
 
+export type OnboardingStep = 'ingest' | 'ask' | 'configure';
+
+export interface OnboardingRecord {
+  userId: string;
+  steps: Partial<Record<OnboardingStep, number>>;
+  dismissed: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OnboardingProgress {
+  completed: OnboardingStep[];
+  next: OnboardingStep | null;
+  total: number;
+  done: number;
+}
+
 export interface ApiKey {
   id: string;
   userId: string;
@@ -328,6 +345,27 @@ export const api = {
 
   // Usage and quota
   usage: () => j<UsageSummary>('/v1/usage'),
+
+  // Onboarding (per-user first-run state). The /welcome page reads the
+  // current record on mount and writes step completions as the user
+  // moves through ingest -> ask -> configure.
+  onboarding: () =>
+    j<{ record: OnboardingRecord; progress: OnboardingProgress }>('/v1/onboarding'),
+  onboardingComplete: (step: OnboardingStep) =>
+    j<{ record: OnboardingRecord; progress: OnboardingProgress }>(
+      '/v1/onboarding/complete',
+      { method: 'POST', body: JSON.stringify({ step }) },
+    ),
+  onboardingDismiss: () =>
+    j<{ record: OnboardingRecord; progress: OnboardingProgress }>(
+      '/v1/onboarding/dismiss',
+      { method: 'POST' },
+    ),
+  onboardingReset: () =>
+    j<{ record: OnboardingRecord; progress: OnboardingProgress }>(
+      '/v1/onboarding/reset',
+      { method: 'POST' },
+    ),
 
   // Account lifecycle (GDPR). Exports every per-user record as JSON or
   // erases them. Both are audit-logged on the server. The web client

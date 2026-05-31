@@ -29,6 +29,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Shareable read-only answer links, with per-share OpenGraph cards (dynamic 1200x630 image, Twitter `summary_large_image`, title and snippet) so a pasted `/s/<id>` URL renders as a rich preview in Slack, iMessage, and X
 - Installable PWA: web app manifest, offline shell, and in-app install prompt so the web UI lives on your home screen with quick shortcuts to Ask, Search, and Saved
 - Account settings: `/settings` shows your user id and plan, a live usage meter, system health, shortcuts to keys and webhooks, a one-click JSON export of every per-user record, and a type-to-confirm GDPR delete that audit-logs the wipe
+- Onboarding: `/welcome` is a three-step first-run guide (ingest a source, ask your first question, create an API key) with per-user server-side progress, a one-click button to index the bundled sample pack, and a dismiss/restore toggle so the guide stops nagging once you are set up
 - File watcher for incremental reindex
 - Local MLX embeddings with automatic fallback to an OpenAI-compatible endpoint
 
@@ -121,6 +122,18 @@ Or browse <http://127.0.0.1:7412/history> to search every past question, expand 
 
 ```bash
 curl 'http://127.0.0.1:7410/v1/history?q=kernel&namespaces=memory&limit=20'
+```
+
+Or open <http://127.0.0.1:7412/welcome> on a fresh account for the three-step first-run guide. The page reads per-user progress from `/v1/onboarding`, marks each step done as you complete the underlying product action (ingest a source, ask a question, create an API key), and surfaces a one-click button to index the bundled sample pack so a brand new install can be useful in under a minute. The same endpoint powers a future home-page nudge, and progress survives logout:
+
+```bash
+# read current onboarding state
+curl -s http://127.0.0.1:7410/v1/onboarding | jq '.progress'
+
+# mark a step done manually (the API also auto-marks on real actions)
+curl -s -X POST http://127.0.0.1:7410/v1/onboarding/complete \
+  -H 'content-type: application/json' \
+  -d '{"step":"ingest"}'
 ```
 
 Or open <http://127.0.0.1:7412/settings> for the account control center: live usage meter, system health, shortcuts to API keys and webhooks, a one-click JSON export of every per-user record, and a type-to-confirm delete that wipes history, conversations, saved items, feedback, and keys for your account. Both lifecycle actions are audit-logged.
