@@ -378,10 +378,15 @@ All env vars are loaded via `envalid` in `packages/config`. See `.env.example`.
 | `CLAWMIND_LLM_PRIMARY_MODEL` | `hermes-agent` | Primary chat model id |
 | `CLAWMIND_LLM_FALLBACK_URL` | `http://127.0.0.1:4141/v1` | Fallback chat endpoint (also used for OpenAI embedding fallback) |
 | `CLAWMIND_LLM_FALLBACK_MODEL` | `copilot-gpt-4o` | Fallback chat model id |
-| `CLAWMIND_AUTH_MODE` | `single-user` | `single-user` or `github` |
+| `CLAWMIND_AUTH_MODE` | `single-user` | `single-user`, `github`, or `oidc` |
 | `CLAWMIND_SESSION_SECRET` | (dev default) | Session cookie secret, 32 bytes in prod |
 | `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | empty | Required when `AUTH_MODE=github` |
 | `CLAWMIND_ALLOWED_GITHUB_USERS` | empty | Comma list of GitHub logins permitted to log in |
+| `CLAWMIND_OIDC_ISSUER` | empty | OIDC issuer URL (e.g. `https://accounts.google.com`); enables `/auth/oidc` |
+| `CLAWMIND_OIDC_CLIENT_ID` / `CLAWMIND_OIDC_CLIENT_SECRET` | empty | Required when SSO is configured |
+| `CLAWMIND_OIDC_REDIRECT_URI` | empty | e.g. `https://your-host/auth/oidc/callback` |
+| `CLAWMIND_OIDC_ALLOWED_DOMAINS` | empty | Comma list of email domains permitted to sign in |
+| `CLAWMIND_OIDC_SCOPES` | `openid email profile` | Override OIDC scopes if your IdP needs more |
 | `NEXT_PUBLIC_API_URL` | `http://127.0.0.1:7410` | Used by the web app |
 | `CLAWMIND_OTEL_ENABLED` | `false` | Enable OTLP traces |
 | `CLAWMIND_OTEL_ENDPOINT` | `http://127.0.0.1:4318` | OTLP collector |
