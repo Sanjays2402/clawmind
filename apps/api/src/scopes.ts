@@ -156,6 +156,14 @@ export const Scopes = {
   PoliciesRead: 'policies:read',
   PoliciesAccept: 'policies:write',
   PoliciesManage: 'policies:admin',
+
+  // Tenant-wide GDPR / data-portability export. Per-user export already
+  // lives under LifecycleManage; this is the owner-only "everything in
+  // the workspace" path required by enterprise exit clauses. A narrow
+  // read scope is exposed too so an auditor can pull a preview / count
+  // estimate without being able to download the full bundle.
+  WorkspaceExportRead: 'workspace-export:read',
+  WorkspaceExportManage: 'workspace-export:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

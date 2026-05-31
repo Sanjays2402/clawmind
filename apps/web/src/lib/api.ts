@@ -936,6 +936,20 @@ export const api = {
   // explicit type-to-confirm prompt.
   meExportUrl: () => `${BASE}/v1/me/export`,
   meExportZipUrl: () => `${BASE}/v1/me/export.zip`,
+
+  // Tenant-wide export. Owner-only on the server; the page hides itself for
+  // non-owners using `me()` role. URLs are surfaced so the browser can stream
+  // the download directly instead of buffering through fetch().
+  workspaceExportJsonUrl: () => `${BASE}/v1/workspace/export.json`,
+  workspaceExportZipUrl: () => `${BASE}/v1/workspace/export.zip`,
+  workspaceExportPreview: () =>
+    j<{
+      schema: 'clawmind.workspace-export-preview.v1';
+      dryRun: true;
+      previewedAt: number;
+      estimatedBytes: number;
+      counts: Record<string, number>;
+    }>('/v1/workspace/export/preview'),
   meDeleteData: () =>
     j<{ userId: string; deletedAt: number; removed: Record<string, number> }>(
       '/v1/me/data',
