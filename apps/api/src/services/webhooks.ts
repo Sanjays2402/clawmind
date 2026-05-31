@@ -5,6 +5,7 @@ import { nanoid } from 'nanoid';
 import { notify } from './notifications.js';
 import { assertPublicUrl, parseSafeUrl, UnsafeUrlError, type UrlGuardOptions } from './url-guard.js';
 import { checkWebhookUrl } from './webhook-allowlist.js';
+import { checkEvents as checkEventsAllowed } from './webhook-events-allowlist.js';
 
 // Module-level guard options. The server overwrites this at boot from env
 // (allowPrivate + allowedPorts). Defaults are deny-by-default in production
@@ -213,6 +214,11 @@ export async function createWebhook(
       throw new Error(`unknown event: ${e}`);
     }
   }
+  // Workspace-managed event-type allowlist. Owners can restrict which
+  // event subjects (ask.completed, etc.) may be subscribed to so a
+  // compromised admin cannot register a sink for sensitive events.
+  const eventAllow = await checkEventsAllowed(dataDir, userId, events);
+  if (!eventAllow.allowed) throw new Error(`blocked by webhook event allowlist: ${eventAllow.reason}`);
   const all = await loadAll(dataDir);
   const record: WebhookRecord = {
     id: 'wh_' + nanoid(12),
@@ -258,6 +264,10 @@ export async function updateWebhook(
       if (!(WEBHOOK_EVENTS as readonly string[]).includes(e)) {
         throw new Error(`unknown event: ${e}`);
       }
+    }
+    const eventAllow = await checkEventsAllowed(dataDir, userId, patch.events);
+    if (!eventAllow.allowed) {
+      throw new Error(`blocked by webhook event allowlist: ${eventAllow.reason}`);
     }
     cur.events = patch.events;
   }
@@ -367,6 +377,19 @@ export async function deliverOnce(
     if (!allowCheck.allowed) {
       clearTimeout(timer);
       lastErr = `blocked by webhook allowlist: ${allowCheck.reason}`;
+      lastStatus = null;
+      ok = false;
+      break;
+    }
+    // Workspace event-type allowlist re-check. If an owner removed this
+    // event subject from the allowlist after the subscription was made,
+    // honour that immediately rather than continuing to leak payloads
+    // until the admin remembers to delete the webhook. Same hard-failure
+    // treatment: do not retry, log the reason, surface in delivery log.
+    const evtCheck = await checkEventsAllowed(dataDir, webhook.userId, [event]);
+    if (!evtCheck.allowed) {
+      clearTimeout(timer);
+      lastErr = `blocked by webhook event allowlist: ${evtCheck.reason}`;
       lastStatus = null;
       ok = false;
       break;

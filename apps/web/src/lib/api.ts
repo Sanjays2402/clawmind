@@ -348,6 +348,19 @@ export interface WebhookAllowlistInput {
   hosts: Array<{ host: string; label?: string }>;
 }
 
+export interface WebhookEventsAllowlistRecord {
+  userId: string;
+  enabled: boolean;
+  events: WebhookEvent[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface WebhookEventsAllowlistInput {
+  enabled: boolean;
+  events: WebhookEvent[];
+}
+
 export interface RetentionPolicy {
   userId: string;
   historyDays: number | null;
@@ -963,6 +976,23 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(input),
     }).then((r) => r.record),
+
+  // Workspace-managed webhook *event-type* allowlist. Companion to the
+  // destination allowlist above: this restricts which event subjects
+  // (e.g. ask.completed) may be subscribed to at all. Get is admins+;
+  // Put is owner-only with MFA step-up.
+  webhookEventsAllowlistGet: () =>
+    j<{ record: WebhookEventsAllowlistRecord; events: WebhookEvent[] }>(
+      '/v1/webhook-events-allowlist',
+    ),
+  webhookEventsAllowlistPut: (input: WebhookEventsAllowlistInput) =>
+    j<{ record: WebhookEventsAllowlistRecord; events: WebhookEvent[] }>(
+      '/v1/webhook-events-allowlist',
+      {
+        method: 'PUT',
+        body: JSON.stringify(input),
+      },
+    ).then((r) => r.record),
 
   // Active sessions for the current user. The UI surfaces "where am I
   // signed in" plus per-session and revoke-all buttons; revocation is

@@ -89,6 +89,8 @@ export const Scopes = {
   // deliveries to a revoked receiver.
   WebhookAllowlistRead: 'webhook-allowlist:read',
   WebhookAllowlistWrite: 'webhook-allowlist:write',
+  WebhookEventsAllowlistRead: 'webhook-events-allowlist:read',
+  WebhookEventsAllowlistWrite: 'webhook-events-allowlist:write',
 
   UsageRead: 'usage:read',
 

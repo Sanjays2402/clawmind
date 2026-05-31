@@ -420,6 +420,7 @@ function ShortcutsCard() {
     { href: '/settings/mfa', label: 'Multi-factor auth', description: 'TOTP step-up for keys, deletion, IP allowlist, and maintenance.', Icon: IconShield },
     { href: '/settings/security', label: 'IP allowlist', description: 'Restrict your account to trusted networks.', Icon: IconShield },
     { href: '/settings/webhook-allowlist', label: 'Webhook allowlist', description: 'Restrict outbound webhook deliveries to approved hostnames.', Icon: IconWebhook },
+    { href: '/settings/webhook-events-allowlist', label: 'Webhook event allowlist', description: 'Restrict which webhook event subjects can be subscribed to at all.', Icon: IconWebhook },
     { href: '/settings/sessions', label: 'Active sessions', description: 'See where you are signed in and force-logout any browser.', Icon: IconKey },
     { href: '/settings/members', label: 'Members and RBAC', description: 'Invite teammates and assign owner, admin, member, or viewer.', Icon: IconShield },
     { href: '/settings/access-reviews', label: 'Access reviews', description: 'Periodic recertification of who has access. Required for SOC2 CC6.3 and ISO 27001 A.9.2.5.', Icon: IconShield },
