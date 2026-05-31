@@ -87,6 +87,39 @@ export async function listHistory(
   return out.slice(0, limit);
 }
 
+/**
+ * Delete a single history entry owned by `userId`. Returns true if the entry
+ * was found and removed, false if no matching entry exists for that user.
+ * Other users' entries are never touched, even if the id collides.
+ * Atomic via tmp file + rename so a crash mid-write cannot truncate the log.
+ */
+export async function deleteHistoryItem(
+  dataDir: string,
+  userId: string,
+  id: string,
+): Promise<boolean> {
+  const items = await readAll(dataDir);
+  let removed = false;
+  const kept: HistoryItem[] = [];
+  for (const it of items) {
+    if (!removed && it.id === id && it.userId === userId) {
+      removed = true;
+      continue;
+    }
+    kept.push(it);
+  }
+  if (!removed) return false;
+  const f = file(dataDir);
+  const tmp = f + '.tmp';
+  await mkdir(dirname(f), { recursive: true });
+  await writeFile(
+    tmp,
+    kept.map((m) => JSON.stringify(m)).join('\n') + (kept.length ? '\n' : ''),
+  );
+  await rename(tmp, f);
+  return true;
+}
+
 export interface PruneOptions {
   /** Delete entries strictly older than this timestamp (ms since epoch). */
   before?: number;

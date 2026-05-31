@@ -250,6 +250,21 @@ export default function HistoryPage() {
                 item={it}
                 open={openId === it.id}
                 onToggle={() => setOpenId((cur) => (cur === it.id ? null : it.id))}
+                onDelete={async () => {
+                  const ok = typeof window !== 'undefined'
+                    ? window.confirm('Delete this history entry? This cannot be undone.')
+                    : true;
+                  if (!ok) return;
+                  const prev = items;
+                  setItems((cur) => cur.filter((x) => x.id !== it.id));
+                  if (openId === it.id) setOpenId(null);
+                  try {
+                    await api.removeHistoryItem(it.id);
+                  } catch (e) {
+                    setItems(prev);
+                    setError((e as Error).message);
+                  }
+                }}
               />
             ))}
           </ul>
@@ -364,11 +379,14 @@ function HistoryRow({
   item,
   open,
   onToggle,
+  onDelete,
 }: {
   item: HistoryItem;
   open: boolean;
   onToggle: () => void;
+  onDelete: () => void | Promise<void>;
 }) {
+  const [deleting, setDeleting] = useState(false);
   const sources = item.sources ?? [];
   const namespaces = useMemo(() => {
     const s = new Set<string>();
@@ -571,6 +589,36 @@ function HistoryRow({
               }}
             >
               Copy answer
+            </button>
+            <button
+              onClick={async () => {
+                if (deleting) return;
+                setDeleting(true);
+                try {
+                  await onDelete();
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+              disabled={deleting}
+              aria-label="Delete this history entry"
+              style={{
+                marginLeft: 'auto',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                padding: '7px 12px',
+                background: 'transparent',
+                color: 'var(--cm-muted)',
+                borderRadius: 8,
+                fontSize: 13,
+                cursor: deleting ? 'not-allowed' : 'pointer',
+                border: '1px solid var(--cm-border)',
+                fontFamily: 'var(--cm-font)',
+                opacity: deleting ? 0.6 : 1,
+              }}
+            >
+              {deleting ? 'Deleting...' : 'Delete'}
             </button>
           </div>
         </div>

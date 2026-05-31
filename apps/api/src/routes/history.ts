@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { listHistory, pruneHistory } from '../services/history.js';
+import { listHistory, pruneHistory, deleteHistoryItem } from '../services/history.js';
 import { historyToCsv, historyToJson, historyToMarkdown } from '../services/history-export.js';
 import { Scopes } from '../scopes.js';
 
@@ -79,6 +79,31 @@ export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     });
   }
+
+  // Delete a single history entry owned by the caller. Lets users purge one
+  // bad answer or a private question without nuking their whole log. The id
+  // must belong to the caller; mismatches return 404 to avoid leaking
+  // whether another user owns it.
+  app.delete('/history/:id', {
+    schema: {
+      params: z.object({ id: z.string().min(1).max(200) }),
+    },
+    preHandler: [app.requireAuth, app.requireScope(Scopes.HistoryWrite)],
+    handler: async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const ok = await deleteHistoryItem(app.clawmind.dataDir, req.user!.id, id);
+      if (!ok) {
+        return reply.code(404).send({ error: 'history entry not found' });
+      }
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: 'history.delete-item',
+        resource: 'history',
+        meta: { id },
+      });
+      return { id, deleted: true };
+    },
+  });
 
   app.delete('/history', {
     schema: { querystring: PruneQuery },

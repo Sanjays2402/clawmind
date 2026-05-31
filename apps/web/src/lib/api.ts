@@ -280,6 +280,8 @@ export const api = {
       `/v1/history${q ? `?${q}` : ''}`,
     ).then((r) => r.items);
   },
+  removeHistoryItem: (id: string) =>
+    j<{ id: string; deleted: boolean }>(`/v1/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   savedList: () => j<{ items: SavedSearch[] }>('/v1/saved').then((r) => r.items),
   saveSearch: (input: { title: string; query: string }) =>
     j<{ item: SavedSearch }>('/v1/saved', { method: 'POST', body: JSON.stringify(input) }).then((r) => r.item),

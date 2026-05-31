@@ -207,6 +207,16 @@ curl -OJ http://127.0.0.1:7410/v1/conversations/$CID/export.csv
 
 Markdown is for humans, JSON keeps the full structured payload with sources and scores, and CSV is one row per turn for spreadsheet review.
 
+### Delete a single history entry
+
+Every row on the History page (`http://127.0.0.1:7412/history`) now has a Delete button next to Copy answer. It confirms once, then removes that single ask from your account log. The list updates immediately and reverts if the request fails, so you can purge a private question or a bad answer without wiping the rest of your history. Other users' entries are never touched, even if an id collides, and the deletion is recorded in the tamper-evident audit log.
+
+The same thing from the shell, scoped to your own entries by the session cookie or an API key with `history:write`:
+
+```bash
+curl -X DELETE 'http://127.0.0.1:7410/v1/history/<id>'
+```
+
 ### Export your history
 
 The History page (`http://127.0.0.1:7412/history`) has an Export menu that downloads every past ask in `.json`, `.csv`, or `.md`. Filters from the search box and namespace pills are passed through, so you only get what you are looking at. The same endpoint is available over the API:
@@ -365,6 +375,7 @@ Saved searches and snapshots:
 
 History, share, feedback:
 - `GET|DELETE /v1/history`
+- `DELETE /v1/history/:id` (delete one past ask; see [Delete a single history entry](#delete-a-single-history-entry))
 - `POST /v1/share`, `GET /v1/share/:id`
 
 Try it locally: with the web app running at `http://127.0.0.1:7412`, share an answer from the chat, then open `http://127.0.0.1:7412/s/<id>` in an incognito window and view source to see the `og:image` / `twitter:image` meta tags. Fetch the rendered card directly:

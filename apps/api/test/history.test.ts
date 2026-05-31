@@ -6,6 +6,7 @@ import {
   recordHistory,
   listHistory,
   pruneHistory,
+  deleteHistoryItem,
   matchesHistoryFilter,
   type HistoryItem,
 } from '../src/services/history.js';
@@ -133,3 +134,42 @@ describe('pruneHistory', () => {
     expect(JSON.parse(lines[0]!).id).toBe('b');
   });
 });
+
+describe('deleteHistoryItem', () => {
+  it('removes only the matching entry owned by the user', async () => {
+    await recordHistory(dir, item({ id: 'a', ts: 100 }));
+    await recordHistory(dir, item({ id: 'b', ts: 200 }));
+    await recordHistory(dir, item({ id: 'c', ts: 300 }));
+    const ok = await deleteHistoryItem(dir, 'u1', 'b');
+    expect(ok).toBe(true);
+    const remaining = await listHistory(dir, 'u1');
+    expect(remaining.map((r) => r.id)).toEqual(['c', 'a']);
+  });
+
+  it('returns false when id does not exist', async () => {
+    await recordHistory(dir, item({ id: 'a', ts: 100 }));
+    const ok = await deleteHistoryItem(dir, 'u1', 'missing');
+    expect(ok).toBe(false);
+    const remaining = await listHistory(dir, 'u1');
+    expect(remaining.map((r) => r.id)).toEqual(['a']);
+  });
+
+  it("refuses to delete another user's entry with the same id", async () => {
+    await recordHistory(dir, item({ id: 'shared', userId: 'u2', ts: 100 }));
+    const ok = await deleteHistoryItem(dir, 'u1', 'shared');
+    expect(ok).toBe(false);
+    const theirs = await listHistory(dir, 'u2');
+    expect(theirs.map((r) => r.id)).toEqual(['shared']);
+  });
+
+  it('leaves a well-formed log on disk after delete', async () => {
+    await recordHistory(dir, item({ id: 'a', ts: 100 }));
+    await recordHistory(dir, item({ id: 'b', ts: 200 }));
+    await deleteHistoryItem(dir, 'u1', 'a');
+    const raw = readFileSync(join(dir, 'history.jsonl'), 'utf8');
+    const lines = raw.split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!).id).toBe('b');
+  });
+});
+
