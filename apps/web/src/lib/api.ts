@@ -163,6 +163,35 @@ export interface ApiKey {
   revokedAt: number | null;
 }
 
+export type WebhookEvent = 'ask.completed' | 'ingest.completed';
+
+export interface Webhook {
+  id: string;
+  userId: string;
+  url: string;
+  events: WebhookEvent[];
+  secret?: string; // only present in the create response
+  active: boolean;
+  createdAt: number;
+  lastDeliveryAt: number | null;
+  lastStatus: number | null;
+  failureCount: number;
+}
+
+export interface WebhookDelivery {
+  id: string;
+  webhookId: string;
+  userId: string;
+  event: WebhookEvent;
+  ts: number;
+  url: string;
+  attempt: number;
+  status: number | null;
+  ok: boolean;
+  error?: string;
+  durationMs: number;
+}
+
 export const api = {
   health: () =>
     j<{ ok: boolean; embed: boolean; llm: boolean; docs: number; chunks: number }>('/health'),
@@ -266,6 +295,23 @@ export const api = {
   keyIssue: (input: { label: string; role?: 'owner' | 'reader'; scopes?: string[]; ttlMs?: number | null }) =>
     j<{ key: ApiKey; secret: string }>('/v1/keys', { method: 'POST', body: JSON.stringify(input) }),
   keyRevoke: (id: string) => j<{ ok: boolean }>(`/v1/keys/${id}`, { method: 'DELETE' }),
+
+  webhookEvents: () => j<{ events: WebhookEvent[] }>('/v1/webhooks/events').then((r) => r.events),
+  webhooksList: () => j<{ items: Webhook[] }>('/v1/webhooks').then((r) => r.items),
+  webhookCreate: (input: { url: string; events: WebhookEvent[] }) =>
+    j<{ webhook: Webhook }>('/v1/webhooks', { method: 'POST', body: JSON.stringify(input) }).then((r) => r.webhook),
+  webhookUpdate: (id: string, patch: { url?: string; events?: WebhookEvent[]; active?: boolean }) =>
+    j<{ webhook: Webhook }>(`/v1/webhooks/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }).then((r) => r.webhook),
+  webhookDelete: (id: string) => j<{ ok: boolean }>(`/v1/webhooks/${id}`, { method: 'DELETE' }),
+  webhookTest: (id: string) =>
+    j<{ delivery: WebhookDelivery }>(`/v1/webhooks/${id}/test`, { method: 'POST' }).then((r) => r.delivery),
+  webhookDeliveries: (webhookId?: string, limit?: number) => {
+    const qs = new URLSearchParams();
+    if (webhookId) qs.set('webhookId', webhookId);
+    if (limit) qs.set('limit', String(limit));
+    const suffix = qs.toString() ? `?${qs.toString()}` : '';
+    return j<{ items: WebhookDelivery[] }>(`/v1/webhooks/deliveries${suffix}`).then((r) => r.items);
+  },
 
   // Conversations
   conversationsList: (archived = false) =>

@@ -63,6 +63,9 @@ export const Scopes = {
   LifecycleManage: 'lifecycle:admin',
   KeysManage: 'keys:admin',
   AuditRead: 'audit:read',
+
+  WebhooksRead: 'webhooks:read',
+  WebhooksManage: 'webhooks:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

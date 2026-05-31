@@ -237,3 +237,14 @@ export const IconClockCountdown = (p: IconProps) => (
     <path d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Zm0 192a88 88 0 1 1 88-88 88.1 88.1 0 0 1-88 88Zm45.66-93.66a8 8 0 0 1 0 11.32l-40 40a8 8 0 0 1-11.32-11.32L155.31 128l-32.97-32.97a8 8 0 0 1 11.32-11.32Z" />
   </svg>
 );
+
+// Webhook: a small node with three outbound paths, used for the
+// /webhooks page where users register receiver URLs.
+export const IconWebhook = (p: IconProps) => (
+  <svg {...base(p)}>
+    <circle cx="128" cy="80" r="24" opacity="0.2" />
+    <circle cx="72" cy="176" r="24" opacity="0.2" />
+    <circle cx="184" cy="176" r="24" opacity="0.2" />
+    <path d="M128 48a32 32 0 0 0-28.84 45.81l-31.5 54.55a32 32 0 1 0 13.86 8l31.5-54.56a32 32 0 0 0 29.96 0l31.5 54.55a32 32 0 1 0 13.86-8l-31.5-54.54A32 32 0 0 0 128 48Zm0 48a16 16 0 1 1 16-16 16 16 0 0 1-16 16ZM72 192a16 16 0 1 1 16-16 16 16 0 0 1-16 16Zm112 0a16 16 0 1 1 16-16 16 16 0 0 1-16 16Z" />
+  </svg>
+);

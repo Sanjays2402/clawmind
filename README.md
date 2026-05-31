@@ -22,6 +22,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Stale source detection (files indexed but not seen on disk recently)
 - Related-document lookup and basic stats / doctor endpoints
 - API keys with per-key rate limiting, GitHub OAuth or single-user mode
+- Outbound webhooks: register a URL, get signed POSTs on `ask.completed` and `ingest.completed`, with automatic retries and a delivery log
 - Shareable read-only answer links
 - File watcher for incremental reindex
 - Local MLX embeddings with automatic fallback to an OpenAI-compatible endpoint
@@ -144,6 +145,37 @@ curl -N -X POST http://127.0.0.1:7410/v1/conversations/$CID/ask/stream \
 ```
 
 For Docker, see `infra/docker/docker-compose.dev.yml` which brings up `redis`, `embed`, `api`, and `web`.
+
+### Webhooks
+
+Wire your own service into ClawMind without polling. Register a receiver at <http://127.0.0.1:7412/webhooks>, pick the events you care about, and copy the signing secret (shown once). Every event becomes a real HTTPS POST signed with `X-ClawMind-Signature: t=<unix-ms>,v1=<hex(hmac_sha256(secret, t + "." + body))>`. Failures on 5xx or network errors retry up to three times with exponential backoff, and every attempt lands in the delivery log table on the same page.
+
+Headless flow:
+
+```bash
+# Create a subscription; copy the returned `webhook.secret` once.
+curl -s -X POST http://127.0.0.1:7410/v1/webhooks \
+  -H 'content-type: application/json' \
+  -d '{"url":"https://example.com/hooks/clawmind","events":["ask.completed"]}'
+
+# Fire a synthetic event to validate the receiver.
+curl -s -X POST http://127.0.0.1:7410/v1/webhooks/<wh_id>/test
+
+# Inspect recent deliveries (status, attempt, duration, error).
+curl -s http://127.0.0.1:7410/v1/webhooks/deliveries | jq '.items[0]'
+```
+
+Verify a delivery from your receiver in Node:
+
+```ts
+import { createHmac, timingSafeEqual } from 'node:crypto';
+function verify(secret: string, body: string, header: string) {
+  const [t, v1] = header.split(',').map((kv) => kv.split('=')[1]);
+  const expected = createHmac('sha256', secret).update(`${t}.${body}`).digest('hex');
+  return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(v1, 'hex'))
+    && Math.abs(Date.now() - Number(t)) < 5 * 60_000;
+}
+```
 
 ## Configuration
 

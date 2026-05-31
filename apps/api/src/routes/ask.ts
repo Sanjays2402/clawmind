@@ -4,6 +4,7 @@ import { ask, askStream, cacheKey } from '@clawmind/rag';
 import { QuerySchema } from '@clawmind/types';
 import { nanoid } from 'nanoid';
 import { recordHistory } from '../services/history.js';
+import { emit as emitWebhook } from '../services/webhooks.js';
 import { Scopes } from '../scopes.js';
 
 export const askRoutes: FastifyPluginAsyncZod = async (app) => {
@@ -27,6 +28,11 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
         id, ts: Date.now(), userId: req.user!.id, query: req.body.q,
         answer: result.text, sources: result.sources, model: result.model,
       });
+      // Fire webhooks out-of-band so a slow receiver never delays the
+      // user-facing response. Errors are isolated inside emit().
+      void emitWebhook(app.clawmind.dataDir, 'ask.completed', {
+        id, query: req.body.q, answer: result.text, sources: result.sources, model: result.model,
+      }, req.user!.id);
       return { id, ...result };
     },
   });
@@ -66,6 +72,9 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
           id: nanoid(10), ts: Date.now(), userId: req.user!.id,
           query: req.body.q, answer: buf, sources: sources as never, model: app.clawmind.llm.id,
         });
+        void emitWebhook(app.clawmind.dataDir, 'ask.completed', {
+          query: req.body.q, answer: buf, sources, model: app.clawmind.llm.id,
+        }, req.user!.id);
       } catch (err) {
         send({ type: 'error', value: { message: (err as Error).message } });
       } finally {
