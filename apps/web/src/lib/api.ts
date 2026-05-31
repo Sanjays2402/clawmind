@@ -1106,6 +1106,16 @@ export const api = {
       body: JSON.stringify({ dryRun }),
     }),
 
+  // Bulk forget: drop every indexed source whose absolute path matches
+  // any picomatch glob in the list. Owner-only, MFA-stepped, rate-limited,
+  // and audit-logged server-side. Always run with dryRun first so the UI
+  // can show the exact files about to be removed.
+  maintenanceForget: (patterns: string[], dryRun: boolean) =>
+    j<ForgetReport>('/v1/maintenance/forget', {
+      method: 'POST',
+      body: JSON.stringify({ patterns, dryRun }),
+    }),
+
   // Related: server returns sources semantically near the average embedding
   // of the given path's chunks. Useful as a "what else is like this" panel
   // from the source viewer. namespaces filter is optional.
@@ -1205,6 +1215,39 @@ export const api = {
     j<{ ok: boolean; checked: number; headHash: string | null; reason?: string; brokenAt?: { file: string; line: number; id?: string } }>(
       '/v1/admin/audit/verify',
     ),
+  // Stream the full chain (subject to the same filters as auditQuery)
+  // as a blob the browser can save. We pull through fetch instead of a
+  // raw anchor so the request inherits the same cookie credentials used
+  // by every other call in this client, including in cross-origin
+  // deploys where the api lives at a different hostname.
+  auditExport: async (params: {
+    actor?: string;
+    action?: string;
+    resource?: string;
+    since?: number;
+    until?: number;
+    format?: 'jsonl' | 'csv';
+  } = {}): Promise<{ blob: Blob; filename: string }> => {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(params)) {
+      if (v === undefined || v === null || v === '') continue;
+      q.set(k, String(v));
+    }
+    const qs = q.toString();
+    const res = await fetch(`${BASE}/v1/admin/audit/export${qs ? `?${qs}` : ''}`, {
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      let body: unknown;
+      try { body = await res.json(); } catch { body = await res.text().catch(() => null); }
+      throw new ApiError(res.status, '/v1/admin/audit/export', body);
+    }
+    const disp = res.headers.get('content-disposition') || '';
+    const match = /filename="?([^";]+)"?/.exec(disp);
+    const fallback = `audit-${new Date().toISOString().replace(/[:.]/g, '-')}.${params.format ?? 'jsonl'}`;
+    return { blob: await res.blob(), filename: match?.[1] || fallback };
+  },
 
   // Unified admin console aggregator. Owner-only and admin:read scoped.
   // One round trip backs the entire /admin page so reviewers can answer
@@ -1365,6 +1408,13 @@ export interface CompactReport {
   kept: number;
   removed: number;
   removedPaths?: string[];
+}
+
+export interface ForgetReport {
+  dryRun: boolean;
+  matched: number;
+  removedChunks: number;
+  removedPaths: string[];
 }
 
 export interface TagSummary {
