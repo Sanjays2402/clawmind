@@ -1,0 +1,42 @@
+# gitleaks configuration for clawmind.
+#
+# We extend the upstream default rules so every new credential family
+# the project relies on is covered, and we narrow a few allowlists so the
+# scanner does not waste reviewer time on obvious non-secrets in tests
+# and fixtures.
+#
+# Reference: https://github.com/gitleaks/gitleaks#configuration
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "clawmind-api-key"
+description = "ClawMind issued API key prefix"
+regex = '''cmk_[A-Za-z0-9]{40,}'''
+tags = ["clawmind", "key"]
+
+[[rules]]
+id = "clawmind-webhook-secret"
+description = "ClawMind webhook signing secret"
+regex = '''whsec_[A-Za-z0-9]{32,}'''
+tags = ["clawmind", "webhook"]
+
+[allowlist]
+description = "Paths that are allowed to contain look-alike values"
+paths = [
+  # Lockfiles legitimately encode long hex hashes that trip generic rules.
+  '''pnpm-lock\.yaml''',
+  '''package-lock\.json''',
+  # Test fixtures intentionally include synthetic tokens.
+  '''.*\.test\.ts''',
+  '''.*\.spec\.ts''',
+  '''apps/.*/e2e/.*''',
+  # Snapshot artefacts hold hashed audit IDs, not secrets.
+  '''docs/screenshots/.*''',
+]
+regexes = [
+  # The literal strings "example", "fake", or "placeholder" right next to
+  # a token-shaped value mark documentation, not a real leak.
+  '''(?i)(example|fake|placeholder|dummy)[-_]?(token|secret|key)''',
+]

@@ -1,0 +1,49 @@
+# CODEOWNERS for clawmind
+#
+# GitHub uses this file to require review from the listed owners before a
+# pull request can be merged into a protected branch. We keep ownership
+# coarse on purpose: a single maintainer reviewing every change is the
+# correct model for a project of this size, and procurement teams running
+# SOC2 readiness checks expect to see a CODEOWNERS file under .github/.
+#
+# Format reference: https://docs.github.com/repositories/managing-your-repositorys-settings-and-security/customizing-your-repository/about-code-owners
+#
+# Order matters: the last matching pattern wins, so the catch-all stays at
+# the top and more specific rules layer on below.
+
+* @Sanjays2402
+
+# Security-sensitive surfaces. Anything touching auth, sessions, MFA, SSO,
+# API keys, IP allowlists, audit logging, webhooks, or the dependency graph
+# must be reviewed by the maintainer. Listing them explicitly keeps the
+# intent visible in code review even though the catch-all already covers it.
+/apps/api/src/plugins/auth.ts          @Sanjays2402
+/apps/api/src/plugins/audit.ts         @Sanjays2402
+/apps/api/src/plugins/ip-allowlist.ts  @Sanjays2402
+/apps/api/src/plugins/security-headers.ts @Sanjays2402
+/apps/api/src/routes/keys.ts           @Sanjays2402
+/apps/api/src/routes/sessions.ts       @Sanjays2402
+/apps/api/src/routes/mfa.ts            @Sanjays2402
+/apps/api/src/routes/webhooks.ts       @Sanjays2402
+/apps/api/src/routes/lifecycle.ts      @Sanjays2402
+/apps/api/src/routes/retention.ts      @Sanjays2402
+/apps/api/src/services/api-keys.ts     @Sanjays2402
+/apps/api/src/services/oidc.ts         @Sanjays2402
+/apps/api/src/services/sessions.ts     @Sanjays2402
+/apps/api/src/services/mfa.ts          @Sanjays2402
+/apps/api/src/services/webhooks.ts     @Sanjays2402
+/apps/api/src/scopes.ts                @Sanjays2402
+
+# Supply chain. Lockfiles, workspace manifests, and CI config gate what
+# code can ship, so the same human signs them off.
+/pnpm-lock.yaml                        @Sanjays2402
+/pnpm-workspace.yaml                   @Sanjays2402
+/package.json                          @Sanjays2402
+/.github/                              @Sanjays2402
+/infra/                                @Sanjays2402
+
+# Security documentation. SECURITY.md and the threat model are the first
+# artefacts an enterprise procurement team reads.
+/SECURITY.md                           @Sanjays2402
+/docs/security.md                      @Sanjays2402
+/docs/threat-model.md                  @Sanjays2402

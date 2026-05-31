@@ -53,6 +53,30 @@ jobs:
       - name: pnpm audit (high+)
         run: pnpm audit --prod --audit-level high
 
+  secrets:
+    needs: guard
+    if: needs.guard.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # gitleaks needs full history on pushes so it can scan the new
+          # commits, not just the tree. PRs already get a shallow diff.
+          fetch-depth: 0
+      # Pin to a tagged release so an attacker who takes the action's
+      # default branch cannot smuggle a different scanner in.
+      - name: gitleaks (detect committed secrets)
+        uses: gitleaks/gitleaks-action@v2.3.6
+        env:
+          # GITHUB_TOKEN keeps the action from rate-limiting against the
+          # API when it annotates findings on a PR. No license needed for
+          # public repos.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Surface findings as build failures rather than warnings so
+          # procurement reviewers see a hard gate.
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
+          GITLEAKS_ENABLE_SUMMARY: true
+
   docker:
     needs: guard
     if: needs.guard.outputs.enabled == 'true'
