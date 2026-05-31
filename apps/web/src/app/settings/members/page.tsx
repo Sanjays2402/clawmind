@@ -364,7 +364,10 @@ export default function MembersPage() {
           <Link href="/audit" className="underline-offset-2 hover:underline">
             the audit trail
           </Link>{' '}
-          to review.
+          to review. To send a one-time invitation link by email instead, use{' '}
+          <Link href="/settings/invitations" className="underline-offset-2 hover:underline">
+            email invitations
+          </Link>.
         </p>
       </main>
     </div>

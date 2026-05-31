@@ -38,6 +38,7 @@ import { mfaRoutes } from './mfa.js';
 import { retentionRoutes } from './retention.js';
 import { adminRoutes } from './admin.js';
 import { memberRoutes } from './members.js';
+import { invitationRoutes } from './invitations.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -79,4 +80,6 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(retentionRoutes, { prefix: '/v1' });
   await app.register(adminRoutes, { prefix: '/v1' });
   await app.register(memberRoutes, { prefix: '/v1' });
+  await app.register(invitationRoutes, { prefix: '/v1' });
+  await app.register(invitationRoutes, { prefix: '/v1' });
 }

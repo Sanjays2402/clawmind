@@ -288,6 +288,44 @@ export interface MemberInviteInput {
   label?: string | null;
 }
 
+export type InvitationStatus = 'pending' | 'accepted' | 'revoked' | 'expired';
+
+export interface InvitationRecord {
+  id: string;
+  email: string;
+  role: MemberRole;
+  label: string | null;
+  invitedBy: string;
+  createdAt: number;
+  expiresAt: number;
+  acceptedAt: number | null;
+  acceptedByUserId: string | null;
+  revokedAt: number | null;
+  revokedBy: string | null;
+  status: InvitationStatus;
+}
+
+export interface InvitationCreateInput {
+  email: string;
+  role: MemberRole;
+  label?: string | null;
+  ttlMs?: number;
+}
+
+export interface InvitationCreateResponse {
+  invitation: Pick<InvitationRecord, 'id' | 'email' | 'role' | 'label' | 'expiresAt' | 'createdAt' | 'status'>;
+  token: string;
+  acceptUrl: string;
+}
+
+export interface InvitationPeek {
+  email: string;
+  role: MemberRole;
+  label: string | null;
+  expiresAt: number;
+  status: 'pending';
+}
+
 export interface RetentionPatch {
   historyDays?: number | null;
   conversationDays?: number | null;
@@ -667,6 +705,31 @@ export const api = {
     j<{ removed: MemberRecord }>(`/v1/members/${encodeURIComponent(userId)}`, {
       method: 'DELETE',
     }).then((r) => r.removed),
+
+  // Email-token invitations. createInvitation returns the raw token
+  // exactly once. The server stores only sha256(token); a leaked
+  // invitations.json file cannot be used to walk in through a pending
+  // link.
+  invitationsList: () =>
+    j<{ invitations: InvitationRecord[] }>('/v1/invitations').then((r) => r.invitations),
+  invitationsCreate: (input: InvitationCreateInput) =>
+    j<InvitationCreateResponse>('/v1/invitations', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  invitationsRevoke: (id: string) =>
+    j<{ invitation: InvitationRecord }>(`/v1/invitations/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }).then((r) => r.invitation),
+  invitationsPeek: (token: string) =>
+    j<{ invitation: InvitationPeek }>(
+      `/v1/invitations/peek?token=${encodeURIComponent(token)}`,
+    ).then((r) => r.invitation),
+  invitationsAccept: (token: string) =>
+    j<{ invitation: InvitationRecord; assignedRole: MemberRole }>(
+      '/v1/invitations/accept',
+      { method: 'POST', body: JSON.stringify({ token }) },
+    ),
 
   // Per-user data retention policy. Lets a customer cap how long
   // ClawMind keeps their history and conversations before auto-erasing.

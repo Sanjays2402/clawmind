@@ -107,6 +107,13 @@ export const Scopes = {
   // for invite/role-change/remove (with MFA step-up).
   MembersRead: 'members:read',
   MembersManage: 'members:admin',
+
+  // Email-token workspace invitations. Read lists pending/accepted/revoked
+  // invites (admin+). Manage covers create and revoke (owner+admin, MFA).
+  // Accept is intentionally unscoped: the invitee redeems with their auth
+  // session and the raw single-use token, no API key required.
+  InvitationsRead: 'invitations:read',
+  InvitationsManage: 'invitations:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];
