@@ -93,6 +93,9 @@ export const Scopes = {
 
   MfaRead: 'mfa:read',
   MfaManage: 'mfa:admin',
+
+  RetentionRead: 'retention:read',
+  RetentionManage: 'retention:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

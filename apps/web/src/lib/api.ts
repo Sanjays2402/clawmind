@@ -254,6 +254,34 @@ export interface IpAllowlistInput {
   rules: Array<{ cidr: string; label?: string }>;
 }
 
+export interface RetentionPolicy {
+  userId: string;
+  historyDays: number | null;
+  conversationDays: number | null;
+  auditDays: number | null;
+  updatedAt: number;
+  lastSweepAt: number | null;
+}
+
+export interface RetentionLimits {
+  minDays: number;
+  maxDays: number;
+}
+
+export interface RetentionPatch {
+  historyDays?: number | null;
+  conversationDays?: number | null;
+  auditDays?: number | null;
+}
+
+export interface RetentionSweepReport {
+  userId: string;
+  dryRun: boolean;
+  history: { removed: number; kept: number };
+  conversations: { removed: number; kept: number; removedIds: string[] };
+  auditDays: number | null;
+}
+
 export interface ActiveSession {
   id: string;
   userAgent: string;
@@ -599,6 +627,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ keepCurrent }),
     }),
+
+  // Per-user data retention policy. Lets a customer cap how long
+  // ClawMind keeps their history and conversations before auto-erasing.
+  // Used by /settings/data for the GDPR/CCPA review story.
+  retentionGet: () =>
+    j<{ policy: RetentionPolicy; limits: RetentionLimits }>('/v1/retention'),
+  retentionPut: (patch: RetentionPatch) =>
+    j<{ policy: RetentionPolicy }>('/v1/retention', {
+      method: 'PUT',
+      body: JSON.stringify(patch),
+    }).then((r) => r.policy),
+  retentionApply: (dryRun: boolean) =>
+    j<{ report: RetentionSweepReport }>(
+      `/v1/retention/apply${dryRun ? '?dry_run=true' : ''}`,
+      { method: 'POST' },
+    ).then((r) => r.report),
 
   // Multi-factor auth. The /settings/mfa page walks the user through
   // enrollment (start, scan, confirm) and surfaces step-up state for
