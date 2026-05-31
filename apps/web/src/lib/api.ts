@@ -26,6 +26,32 @@ async function j<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+export interface ChunkExplanation {
+  id: string;
+  path: string;
+  displayPath?: string;
+  namespace: string;
+  startLine: number;
+  endLine: number;
+  excerpt: string;
+  bm25Raw: number | null;
+  denseRaw: number | null;
+  bm25Norm: number;
+  denseNorm: number;
+  hybridScore: number;
+  rerankedScore: number;
+  mmrScore: number | null;
+  finalRank: number | null;
+  inFinal: boolean;
+}
+
+export interface ExplainResponse {
+  query: { original: string; expanded: string; added: string[]; corrections: Array<{ from: string; to: string }> };
+  params: { hybridAlpha: number; mmrLambda: number; k: number };
+  candidates: ChunkExplanation[];
+  funnel: { bm25: number; dense: number; merged: number; afterFilter: number; afterRerank: number; final: number };
+}
+
 export interface Source {
   id: string;
   path: string;
@@ -141,6 +167,8 @@ export const api = {
     body: { q: string; k?: number; namespaces?: string[] },
     onEvent: (e: { type: string; value: unknown }) => void,
   ) => streamPost(`${BASE}/v1/ask/stream`, body, onEvent),
+  explain: (body: { q: string; k?: number; namespaces?: string[]; hybridAlpha?: number; mmrLambda?: number }) =>
+    j<ExplainResponse>('/v1/explain', { method: 'POST', body: JSON.stringify(body) }),
 
   // History and saved
   history: () =>

@@ -109,12 +109,22 @@ pnpm dev
 open http://127.0.0.1:7412/demo
 ```
 
+Or open the retrieval explain page at <http://127.0.0.1:7412/explain> to see why each chunk was picked: raw BM25, raw dense cosine, normalised values, hybrid blend, lexical rerank, and MMR rank are all rendered as side-by-side bars. Sliders let you tune alpha, lambda, and k and re-run the same pipeline /v1/ask uses, without spending an LLM call.
+
 Or hit the streaming endpoint directly:
 
 ```bash
 curl -N -X POST http://127.0.0.1:7410/v1/ask/stream \
   -H 'content-type: application/json' \
   -d '{"q":"Summarize the kernel panic incidents and how the machine was recovered","namespaces":["memory"]}'
+```
+
+Or inspect retrieval scoring without calling the LLM:
+
+```bash
+curl -s -X POST http://127.0.0.1:7410/v1/explain \
+  -H 'content-type: application/json' \
+  -d '{"q":"LanceDB hybrid retrieval with MMR","k":5,"hybridAlpha":0.5}' | jq '.candidates[0]'
 ```
 
 For Docker, see `infra/docker/docker-compose.dev.yml` which brings up `redis`, `embed`, `api`, and `web`.
@@ -189,6 +199,7 @@ Health and meta:
 
 Retrieval and generation:
 - `POST /v1/search` – hybrid search, returns ranked chunks
+- `POST /v1/explain` – same retrieval, returns per-chunk BM25 / dense / hybrid / rerank / MMR scores and stage funnel counts (no LLM call)
 - `POST /v1/ask` – RAG answer with citations
 - `POST /v1/ask/stream` – SSE streaming variant
 - `GET /v1/ask/cache/stats`

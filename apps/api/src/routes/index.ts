@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { healthRoutes } from './health.js';
 import { searchRoutes } from './search.js';
+import { explainRoutes } from './explain.js';
 import { askRoutes } from './ask.js';
 import { ingestRoutes } from './ingest.js';
 import { sourcesRoutes } from './sources.js';
@@ -27,6 +28,7 @@ import { auditRoutes } from './audit.js';
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
   await app.register(searchRoutes, { prefix: '/v1' });
+  await app.register(explainRoutes, { prefix: '/v1' });
   await app.register(askRoutes, { prefix: '/v1' });
   await app.register(ingestRoutes, { prefix: '/v1' });
   await app.register(sourcesRoutes, { prefix: '/v1' });

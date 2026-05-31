@@ -8,6 +8,7 @@ const primary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/chat', label: 'Ask', Icon: IconSpark },
   { href: '/conversations', label: 'Threads', Icon: IconChat },
   { href: '/search', label: 'Search', Icon: IconSearch },
+  { href: '/explain', label: 'Explain', Icon: IconChartBar },
   { href: '/sources', label: 'Sources', Icon: IconFolder },
   { href: '/saved', label: 'Saved', Icon: IconBook },
 ];

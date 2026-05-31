@@ -7,3 +7,4 @@ export * from './prompt-context.js';
 export * from './expand.js';
 export * from './answer-cache.js';
 export * from './highlight.js';
+export * from './explain.js';

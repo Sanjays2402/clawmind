@@ -57,6 +57,7 @@ export default async function Landing() {
         >
           <Link href="/chat">Ask</Link>
           <Link href="/demo">Demo</Link>
+          <Link href="/explain">Explain</Link>
           <Link href="/sources">Sources</Link>
           <Link href="/saved">Saved</Link>
           <Link href="/dashboard">Dashboard</Link>
