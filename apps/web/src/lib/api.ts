@@ -863,9 +863,23 @@ export const api = {
       body: JSON.stringify({ role }),
     }).then((r) => r.member),
   membersRemove: (userId: string) =>
-    j<{ removed: MemberRecord }>(`/v1/members/${encodeURIComponent(userId)}`, {
-      method: 'DELETE',
-    }).then((r) => r.removed),
+    j<{ removed: MemberRecord; offboarding: { keysRevoked: number; sessionsRevoked: number; keyIds: string[] } }>(
+      `/v1/members/${encodeURIComponent(userId)}`,
+      { method: 'DELETE' },
+    ),
+
+  // Offboarding cleanup. Surface API keys whose owning userId is no
+  // longer a workspace member (historical orphans), and let an owner
+  // revoke them. New removals sweep keys + sessions atomically so this
+  // list should normally stay empty.
+  offboardingOrphans: () =>
+    j<{ count: number; orphans: Array<{ id: string; userId: string; label: string; role: 'owner' | 'reader'; createdAt: number; lastUsedAt: number | null; expiresAt: number | null }> }>(
+      '/v1/offboarding/orphans',
+    ),
+  offboardingRevokeOrphan: (id: string) =>
+    j<{ ok: boolean; id: string }>(`/v1/offboarding/orphans/${encodeURIComponent(id)}/revoke`, {
+      method: 'POST',
+    }),
 
   // Periodic access reviews (SOC2 CC6.3). Owners open a campaign,
   // walk every member, mark keep / downgrade / revoke, then close to

@@ -122,9 +122,20 @@ export default function MembersPage() {
     setActionError(null);
     setActionMessage(null);
     try {
-      await api.membersRemove(m.userId);
+      const res = await api.membersRemove(m.userId);
       setMembers((cur) => cur?.filter((x) => x.userId !== m.userId) ?? null);
-      setActionMessage(`Removed ${m.userId}.`);
+      const extra: string[] = [];
+      if (res.offboarding.keysRevoked > 0) {
+        extra.push(`${res.offboarding.keysRevoked} API key${res.offboarding.keysRevoked === 1 ? '' : 's'}`);
+      }
+      if (res.offboarding.sessionsRevoked > 0) {
+        extra.push(`${res.offboarding.sessionsRevoked} session${res.offboarding.sessionsRevoked === 1 ? '' : 's'}`);
+      }
+      setActionMessage(
+        extra.length > 0
+          ? `Removed ${m.userId} and revoked ${extra.join(' and ')}.`
+          : `Removed ${m.userId}.`,
+      );
     } catch (err) {
       setActionError(explainError(err));
     } finally {

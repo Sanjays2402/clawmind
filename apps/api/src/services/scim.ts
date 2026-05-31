@@ -12,6 +12,7 @@ import {
   type MemberRecord,
   type MemberRole,
 } from './members.js';
+import { sweepUser } from './offboarding.js';
 
 // SCIM 2.0 token + adapter layer.
 //
@@ -384,7 +385,10 @@ export async function deleteScimUser(
   dataDir: string,
   userId: string,
   actorUserId: string,
-): Promise<{ ok: true; removed: MemberRecord } | { ok: false; err: ScimError }> {
+): Promise<
+  | { ok: true; removed: MemberRecord; offboarding: { keysRevoked: number; sessionsRevoked: number; keyIds: string[] } }
+  | { ok: false; err: ScimError }
+> {
   const r = await removeMember(dataDir, userId, { userId: actorUserId, role: 'owner' });
   if (!r.ok) {
     if (r.code === 'not-found') return { ok: false, err: { code: 'not-found' } };
@@ -392,7 +396,11 @@ export async function deleteScimUser(
     if (r.code === 'self-remove') return { ok: false, err: { code: 'forbidden', detail: 'cannot remove self' } };
     return { ok: false, err: { code: 'forbidden', detail: r.message ?? 'forbidden' } };
   }
-  return { ok: true, removed: r.removed };
+  // SCIM deprovisioning must terminate every long-lived credential atomically
+  // with the membership removal, otherwise an IdP-driven offboarding leaves
+  // working API keys behind: precisely the gap enterprise reviewers check.
+  const swept = await sweepUser(dataDir, userId);
+  return { ok: true, removed: r.removed, offboarding: swept };
 }
 
 export async function getScimUserById(dataDir: string, userId: string, baseUrl?: string): Promise<ScimUser | null> {

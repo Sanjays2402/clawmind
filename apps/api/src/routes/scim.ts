@@ -291,8 +291,26 @@ export const scimProtocolRoutes: FastifyPluginAsync = async (app) => {
       actor: `scim:${(req as unknown as { scimTokenId?: string }).scimTokenId ?? 'unknown'}`,
       action: 'scim.user.delete',
       resource: req.params.id,
-      meta: { ip: req.ip },
+      meta: {
+        ip: req.ip,
+        keysRevoked: r.offboarding.keysRevoked,
+        sessionsRevoked: r.offboarding.sessionsRevoked,
+      },
     });
+    if (r.offboarding.keysRevoked > 0 || r.offboarding.sessionsRevoked > 0) {
+      await app.clawmind.audit.write({
+        actor: `scim:${(req as unknown as { scimTokenId?: string }).scimTokenId ?? 'unknown'}`,
+        action: 'members.offboarding.sweep',
+        resource: req.params.id,
+        meta: {
+          ip: req.ip,
+          keyIds: r.offboarding.keyIds,
+          keysRevoked: r.offboarding.keysRevoked,
+          sessionsRevoked: r.offboarding.sessionsRevoked,
+          via: 'scim',
+        },
+      });
+    }
     return reply.code(204).send();
   });
 };

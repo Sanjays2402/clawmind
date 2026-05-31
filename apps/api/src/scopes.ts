@@ -118,6 +118,15 @@ export const Scopes = {
   MembersRead: 'members:read',
   MembersManage: 'members:admin',
 
+  // Offboarding sweep / orphaned credentials. Read lists keys whose owning
+  // userId is no longer in the member registry (a historical orphan or a
+  // race between membership and credential cleanup). Manage is owner-only
+  // with MFA step-up because revoking a key immediately breaks any client
+  // that still presents it, and an attacker who can flip an arbitrary key
+  // off can break production deploys.
+  OffboardingRead: 'offboarding:read',
+  OffboardingManage: 'offboarding:admin',
+
   // Email-token workspace invitations. Read lists pending/accepted/revoked
   // invites (admin+). Manage covers create and revoke (owner+admin, MFA).
   // Accept is intentionally unscoped: the invitee redeems with their auth

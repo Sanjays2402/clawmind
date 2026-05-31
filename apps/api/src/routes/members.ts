@@ -9,6 +9,7 @@ import {
   type MemberRole,
 } from '../services/members.js';
 import { Scopes } from '../scopes.js';
+import { sweepUser } from '../services/offboarding.js';
 
 // Workspace member management. Backs the 4-role RBAC model in
 // services/members.ts. Every mutation is MFA-stepped and audit-logged
@@ -160,13 +161,36 @@ export const memberRoutes: FastifyPluginAsyncZod = async (app) => {
         });
         return reply.code(status).send({ error: result.code, message: (result as { message?: string }).message });
       }
+      // Offboarding sweep: any API key or session that survived this user
+      // would be a dangling credential. Revoke them in the same operation
+      // and surface counts in the audit row so an external reviewer can
+      // verify the cleanup happened atomically with the membership change.
+      const swept = await sweepUser(app.clawmind.dataDir, req.params.userId);
       await app.clawmind.audit.write({
         actor: me.id,
         action: 'members.remove',
         resource: req.params.userId,
-        meta: { before: { role: result.removed.role }, ip: req.ip },
+        meta: {
+          before: { role: result.removed.role },
+          ip: req.ip,
+          keysRevoked: swept.keysRevoked,
+          sessionsRevoked: swept.sessionsRevoked,
+        },
       });
-      return { removed: result.removed };
+      if (swept.keysRevoked > 0 || swept.sessionsRevoked > 0) {
+        await app.clawmind.audit.write({
+          actor: me.id,
+          action: 'members.offboarding.sweep',
+          resource: req.params.userId,
+          meta: {
+            ip: req.ip,
+            keyIds: swept.keyIds,
+            keysRevoked: swept.keysRevoked,
+            sessionsRevoked: swept.sessionsRevoked,
+          },
+        });
+      }
+      return { removed: result.removed, offboarding: swept };
     },
   });
 };

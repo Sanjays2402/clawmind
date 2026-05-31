@@ -548,7 +548,7 @@ function TrustedDevicesCard({ reloadKey }: { reloadKey: number }) {
       {!loading && err && <div className="mt-4 text-xs text-red-600 dark:text-red-400">{err}</div>}
       {!loading && !err && devices && devices.length === 0 && (
         <div className="mt-4 rounded-md border border-dashed border-[var(--border)] p-4 text-center text-xs text-[var(--fg-muted)]">
-          No trusted devices yet. Tick "Remember this device" during a verify to add this browser.
+          No trusted devices yet. Tick &ldquo;Remember this device&rdquo; during a verify to add this browser.
         </div>
       )}
       {!loading && !err && devices && devices.length > 0 && (

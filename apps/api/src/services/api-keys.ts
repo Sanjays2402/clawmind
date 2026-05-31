@@ -386,6 +386,27 @@ export async function listKeys(dataDir: string, userId: string): Promise<ApiKeyR
   return all.filter((k) => k.userId === userId);
 }
 
+// Internal: revoke every active key matching the predicate. Used by the
+// offboarding sweep so the members route can terminate a removed user's
+// credentials without exporting the raw saveKeys writer.
+export async function revokeKeysWhere(
+  dataDir: string,
+  pred: (k: ApiKeyRecord) => boolean,
+): Promise<{ ids: string[] }> {
+  const all = await loadKeys(dataDir);
+  const now = Date.now();
+  const ids: string[] = [];
+  let changed = false;
+  const next = all.map((k) => {
+    if (k.revokedAt || !pred(k)) return k;
+    ids.push(k.id);
+    changed = true;
+    return { ...k, revokedAt: now };
+  });
+  if (changed) await saveKeys(dataDir, next);
+  return { ids };
+}
+
 export async function revokeKey(dataDir: string, userId: string, id: string): Promise<boolean> {
   const all = await loadKeys(dataDir);
   const idx = all.findIndex((k) => k.id === id && k.userId === userId);

@@ -423,6 +423,7 @@ function ShortcutsCard() {
     { href: '/settings/sessions', label: 'Active sessions', description: 'See where you are signed in and force-logout any browser.', Icon: IconKey },
     { href: '/settings/members', label: 'Members and RBAC', description: 'Invite teammates and assign owner, admin, member, or viewer.', Icon: IconShield },
     { href: '/settings/access-reviews', label: 'Access reviews', description: 'Periodic recertification of who has access. Required for SOC2 CC6.3 and ISO 27001 A.9.2.5.', Icon: IconShield },
+    { href: '/settings/offboarding', label: 'Offboarding cleanup', description: 'Revoke API keys and sessions left behind by removed members. Sweeps run automatically on every removal.', Icon: IconShield },
     { href: '/settings/invitations', label: 'Email invitations', description: 'Send one-time invitation links that pre-bind a role and expire.', Icon: IconShield },
     { href: '/settings/domains', label: 'Domain auto-join', description: 'Auto-enrol new sign-ins from verified email domains.', Icon: IconShield },
     { href: '/settings/scim', label: 'SCIM provisioning', description: 'Let Okta, Azure AD, or Google Workspace push users via SCIM 2.0.', Icon: IconShield },
