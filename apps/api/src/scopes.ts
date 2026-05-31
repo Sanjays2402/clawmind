@@ -66,6 +66,8 @@ export const Scopes = {
 
   WebhooksRead: 'webhooks:read',
   WebhooksManage: 'webhooks:admin',
+
+  UsageRead: 'usage:read',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

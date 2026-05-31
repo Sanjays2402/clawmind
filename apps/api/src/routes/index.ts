@@ -25,6 +25,7 @@ import { snapshotRoutes } from './snapshots.js';
 import { lifecycleRoutes } from './lifecycle.js';
 import { auditRoutes } from './audit.js';
 import { webhookRoutes } from './webhooks.js';
+import { usageRoutes } from './usage.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -53,4 +54,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(lifecycleRoutes, { prefix: '/v1' });
   await app.register(auditRoutes, { prefix: '/v1' });
   await app.register(webhookRoutes, { prefix: '/v1' });
+  await app.register(usageRoutes, { prefix: '/v1' });
 }

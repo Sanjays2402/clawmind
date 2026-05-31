@@ -153,6 +153,17 @@ export interface Conversation {
   turns: ConversationTurn[];
 }
 
+export interface UsageSummary {
+  userId: string;
+  period: string;
+  used: number;
+  limit: number;
+  remaining: number;
+  resetsAt: number;
+  byKind: { ask: number; search: number };
+  plan: 'free';
+}
+
 export interface ApiKey {
   id: string;
   userId: string;
@@ -297,6 +308,9 @@ export const api = {
   keyIssue: (input: { label: string; role?: 'owner' | 'reader'; scopes?: string[]; ttlMs?: number | null }) =>
     j<{ key: ApiKey; secret: string }>('/v1/keys', { method: 'POST', body: JSON.stringify(input) }),
   keyRevoke: (id: string) => j<{ ok: boolean }>(`/v1/keys/${id}`, { method: 'DELETE' }),
+
+  // Usage and quota
+  usage: () => j<UsageSummary>('/v1/usage'),
 
   webhookEvents: () => j<{ events: WebhookEvent[] }>('/v1/webhooks/events').then((r) => r.events),
   webhooksList: () => j<{ items: Webhook[] }>('/v1/webhooks').then((r) => r.items),

@@ -5,6 +5,7 @@ import { QuerySchema } from '@clawmind/types';
 import { nanoid } from 'nanoid';
 import { recordHistory } from '../services/history.js';
 import { emit as emitWebhook } from '../services/webhooks.js';
+import { enforceQuota, recordUsage } from '../services/usage.js';
 import { Scopes } from '../scopes.js';
 
 export const askRoutes: FastifyPluginAsyncZod = async (app) => {
@@ -13,6 +14,16 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
     preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     handler: async (req, reply) => {
+      const quota = await enforceQuota(app.clawmind.dataDir, req.user!.id, 1);
+      if (!quota.allowed) {
+        reply.header('x-clawmind-quota-used', String(quota.summary.used));
+        reply.header('x-clawmind-quota-limit', String(quota.summary.limit));
+        return reply.code(429).send({
+          error: 'quota exceeded',
+          message: `Monthly free-tier limit of ${quota.summary.limit} requests reached. Resets ${new Date(quota.summary.resetsAt).toISOString()}.`,
+          usage: quota.summary,
+        });
+      }
       const body = { ...req.body, q: app.aliases.expandQuery(req.body.q) };
       const key = cacheKey(body, app.clawmind.llm.id, app.corpusVersion.value);
       const cached = app.answerCache.get(key);
@@ -33,6 +44,7 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
       void emitWebhook(app.clawmind.dataDir, 'ask.completed', {
         id, query: req.body.q, answer: result.text, sources: result.sources, model: result.model,
       }, req.user!.id);
+      void recordUsage(app.clawmind.dataDir, req.user!.id, 'ask', 1).catch(() => undefined);
       return { id, ...result };
     },
   });

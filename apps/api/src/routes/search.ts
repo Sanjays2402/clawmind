@@ -3,6 +3,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { retrieve, snippetFor, queryTerms } from '@clawmind/rag';
 import { QuerySchema, type Query } from '@clawmind/types';
 import { Scopes } from '../scopes.js';
+import { enforceQuota, recordUsage } from '../services/usage.js';
 
 const SearchBody = QuerySchema.extend({
   /** When true (default), include a `snippet` with highlighted term spans. */
@@ -18,12 +19,23 @@ export const searchRoutes: FastifyPluginAsyncZod = async (app) => {
       response: { 200: z.object({ hits: z.array(z.any()) }) },
     },
     preHandler: [app.requireAuth, app.requireScope(Scopes.Search)],
-    handler: async (req) => {
+    handler: async (req, reply) => {
+      const quota = await enforceQuota(app.clawmind.dataDir, req.user!.id, 1);
+      if (!quota.allowed) {
+        reply.header('x-clawmind-quota-used', String(quota.summary.used));
+        reply.header('x-clawmind-quota-limit', String(quota.summary.limit));
+        return reply.code(429).send({
+          error: 'quota exceeded',
+          message: `Monthly free-tier limit of ${quota.summary.limit} requests reached.`,
+          usage: quota.summary,
+        });
+      }
       const { highlight, snippetWidth, ...query } = req.body;
       // Rewrite "@alias/sub/file" tokens to the real path before retrieval
       // runs so an alias acts as a query-time shortcut.
       const expanded = { ...query, q: app.aliases.expandQuery(query.q) };
       const hits = await retrieve(app.rag, expanded);
+      void recordUsage(app.clawmind.dataDir, req.user!.id, 'search', 1).catch(() => undefined);
       const decorated = hits.map((h) => {
         const short = app.aliases.shorten(h.path);
         return short ? { ...h, displayPath: short } : h;

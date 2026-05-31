@@ -26,6 +26,7 @@ const secondary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> =
   { href: '/ingest', label: 'Ingest', Icon: IconDatabase },
   { href: '/keys', label: 'Keys', Icon: IconKey },
   { href: '/webhooks', label: 'Webhooks', Icon: IconWebhook },
+  { href: '/usage', label: 'Usage', Icon: IconChartBar },
 ];
 
 export function TopNav() {

@@ -24,6 +24,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Related-document lookup and basic stats / doctor endpoints
 - API keys with per-key rate limiting, GitHub OAuth or single-user mode
 - Outbound webhooks: register a URL, get signed POSTs on `ask.completed` and `ingest.completed`, with automatic retries and a delivery log
+- Usage meter: per-user monthly request count, free-tier quota with 429 on overrun, and an in-app `/usage` page with reset countdown and upgrade CTA
 - Shareable read-only answer links
 - Installable PWA: web app manifest, offline shell, and in-app install prompt so the web UI lives on your home screen with quick shortcuts to Ask, Search, and Saved
 - File watcher for incremental reindex
@@ -198,7 +199,12 @@ curl -s -X POST http://127.0.0.1:7410/v1/webhooks/<wh_id>/test
 
 # Inspect recent deliveries (status, attempt, duration, error).
 curl -s http://127.0.0.1:7410/v1/webhooks/deliveries | jq '.items[0]'
+
+# Check your monthly usage and remaining free-tier quota.
+curl -s http://127.0.0.1:7410/v1/usage | jq
 ```
+
+Open <http://127.0.0.1:7412/usage> for the in-app quota meter with the next reset date.
 
 Verify a delivery from your receiver in Node:
 
