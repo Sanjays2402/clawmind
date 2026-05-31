@@ -718,6 +718,30 @@ curl -X DELETE -H "Authorization: Bearer $CLAWMIND_API_KEY" \
 
 Gated by `invitations:read` and `invitations:admin` (plus MFA step-up for mutations). Tokens are stored as sha256 digests, never raw. Acceptance fails closed if the authenticated email does not match the invited address, so a forwarded link cannot be redeemed by someone else. Every create, revoke, and accept writes a before/after diff into the hash-chained audit log.
 
+### Domain auto-join policies
+
+For large rollouts the operator does not want to send one invite per seat. The owner-only `/settings/domains` page lists verified email domains and the default role to assign to any brand-new sign-in from that domain. Policies only ever assign `member` or `viewer`; promotion to `admin` or `owner` still requires an explicit invite, and existing accounts are never silently re-roled.
+
+```bash
+# Preview the change before committing (dry-run, no write)
+curl -X PUT -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"dryRun":true,"policies":[{"domain":"acme.com","role":"member","enabled":true}]}' \
+  http://127.0.0.1:7410/v1/domain-policies
+
+# Atomic replace of the entire policy table
+curl -X PUT -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"policies":[{"domain":"acme.com","role":"member","enabled":true},{"domain":"partners.io","role":"viewer","enabled":true}]}' \
+  http://127.0.0.1:7410/v1/domain-policies
+
+# List current policies
+curl -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  http://127.0.0.1:7410/v1/domain-policies
+```
+
+The UI lives at <http://127.0.0.1:7412/settings/domains>. Gated by `domain-policies:read` and `domain-policies:admin` (plus MFA step-up on `PUT`). The list is capped at 50 entries, domains are case-insensitive, and every replace writes a before/after diff into the hash-chained audit log.
+
 ## Ingest
 
 Two ways to add documents.
