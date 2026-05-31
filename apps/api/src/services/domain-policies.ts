@@ -40,6 +40,14 @@ export interface DomainPolicy {
   domain: string;        // lowercased, no leading '@'
   role: AutoJoinRole;
   enabled: boolean;
+  // When true, any user whose email matches this domain MUST sign in
+  // through OIDC SSO. Sessions established via password, GitHub OAuth,
+  // or single-user mode are rejected at the auth preHandler the moment
+  // we see a session.email in this domain. The fix is to sign out and
+  // sign back in via /auth/oidc. This is the standard enterprise
+  // "require SSO for everyone @acme.com" control that procurement and
+  // SOC2 reviewers expect on any tool that holds company data.
+  requireSso: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -60,6 +68,14 @@ async function readPolicies(dataDir: string): Promise<PoliciesFile> {
     if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.policies)) {
       return { version: 1, policies: [] };
     }
+    // Backfill requireSso=false on pre-existing rows written before the
+    // require-SSO field shipped. Done at read time so the on-disk file is
+    // never rewritten on a pure read path; the next replacePolicies call
+    // will persist the explicit boolean.
+    parsed.policies = parsed.policies.map((p) => ({
+      ...p,
+      requireSso: p.requireSso === true,
+    }));
     return parsed;
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -110,6 +126,7 @@ export type ReplaceInput = ReadonlyArray<{
   domain: string;
   role: AutoJoinRole;
   enabled?: boolean;
+  requireSso?: boolean;
 }>;
 
 export type ReplaceError =
@@ -137,14 +154,19 @@ export async function replacePolicies(
   if (input.length > MAX_POLICIES) return { ok: false, code: 'too-many', max: MAX_POLICIES };
 
   const seen = new Set<string>();
-  const normalised: Array<{ domain: string; role: AutoJoinRole; enabled: boolean }> = [];
+  const normalised: Array<{ domain: string; role: AutoJoinRole; enabled: boolean; requireSso: boolean }> = [];
   for (const raw of input) {
     const domain = normalizeDomain(raw.domain);
     if (!domain) return { ok: false, code: 'invalid-domain', value: String(raw.domain ?? '') };
     if (!isAutoJoinRole(raw.role)) return { ok: false, code: 'invalid-role', value: String(raw.role ?? '') };
     if (seen.has(domain)) return { ok: false, code: 'duplicate', value: domain };
     seen.add(domain);
-    normalised.push({ domain, role: raw.role, enabled: raw.enabled !== false });
+    normalised.push({
+      domain,
+      role: raw.role,
+      enabled: raw.enabled !== false,
+      requireSso: raw.requireSso === true,
+    });
   }
 
   const file = await readPolicies(dataDir);
@@ -158,15 +180,21 @@ export async function replacePolicies(
         domain: entry.domain,
         role: entry.role,
         enabled: entry.enabled,
+        requireSso: entry.requireSso,
         createdAt: now,
         updatedAt: now,
       };
     }
-    const changed = prev.role !== entry.role || prev.enabled !== entry.enabled;
+    const prevRequireSso = prev.requireSso === true;
+    const changed =
+      prev.role !== entry.role ||
+      prev.enabled !== entry.enabled ||
+      prevRequireSso !== entry.requireSso;
     return {
       domain: entry.domain,
       role: entry.role,
       enabled: entry.enabled,
+      requireSso: entry.requireSso,
       createdAt: prev.createdAt,
       updatedAt: changed ? now : prev.updatedAt,
     };
@@ -189,4 +217,20 @@ export async function resolveDefaultRoleByEmail(
   const file = await readPolicies(dataDir);
   const match = file.policies.find((p) => p.enabled && p.domain === dom);
   return match ? match.role : null;
+}
+
+// Returns true if the user's email belongs to a domain whose enabled
+// policy has requireSso=true. The auth preHandler calls this on every
+// authenticated request and refuses any non-OIDC session whose email
+// matches. A disabled policy is treated as if it did not exist so an
+// operator can flip enforcement off without deleting the row.
+export async function isSsoRequiredForEmail(
+  dataDir: string,
+  email: string | null | undefined,
+): Promise<boolean> {
+  const dom = domainOfEmail(email ?? null);
+  if (!dom) return false;
+  const file = await readPolicies(dataDir);
+  const match = file.policies.find((p) => p.enabled && p.domain === dom);
+  return match?.requireSso === true;
 }

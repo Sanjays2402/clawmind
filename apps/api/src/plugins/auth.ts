@@ -11,7 +11,7 @@ import {
   meetsMinRole,
   type MemberRole,
 } from '../services/members.js';
-import { resolveDefaultRoleByEmail } from '../services/domain-policies.js';
+import { resolveDefaultRoleByEmail, isSsoRequiredForEmail } from '../services/domain-policies.js';
 import {
   settingsFromEnv as oidcSettingsFromEnv,
   isConfigured as oidcIsConfigured,
@@ -42,6 +42,9 @@ declare module 'fastify' {
     oidcNonce?: string;
     oidcReturnTo?: string;
     mfaVerifiedAt?: number;
+    // Which login flow produced this session: 'oidc' | 'github' | 'single-user'.
+    // Read by the auth preHandler to enforce per-domain require-SSO policies.
+    authMethod?: string;
   }
 }
 
@@ -128,6 +131,43 @@ const plugin: FastifyPluginAsync = async (app) => {
       return;
     }
     if (req.session.userId) {
+      // Per-domain require-SSO enforcement. If an enabled domain policy
+      // marks this user's email as SSO-only, any session NOT established
+      // through OIDC is rejected on the next request. This is what lets
+      // an owner say "everyone @acme.com must use Okta" and have password
+      // or GitHub sessions stop working the moment that flag flips. We
+      // tear the session down before any user-data hooks run so a stolen
+      // GitHub cookie cannot be used to read tenant data once the policy
+      // is in place.
+      const sessionEmail = req.session.email ?? null;
+      const authMethod = req.session.authMethod;
+      if (sessionEmail && authMethod && authMethod !== 'oidc') {
+        try {
+          if (await isSsoRequiredForEmail(app.clawmind.dataDir, sessionEmail)) {
+            const sid = (req.session as unknown as { sessionId?: string }).sessionId;
+            await app.clawmind.audit.write({
+              actor: req.session.userId,
+              action: 'sso.enforcement.denied',
+              resource: req.url,
+              meta: {
+                email: sessionEmail,
+                authMethod,
+                ip: req.ip,
+                sid: sid ?? null,
+              },
+            }).catch(() => undefined);
+            await req.session.destroy();
+            return reply.code(401).send({
+              error: 'sso required',
+              message: 'Your workspace requires SSO. Sign in via /auth/oidc.',
+            });
+          }
+        } catch {
+          // Fail-open on transient disk errors so a corrupt policy file
+          // does not lock everyone out. The audit log will still surface
+          // the broken policy file via the doctor route.
+        }
+      }
       // Reject session cookies whose sid has been revoked by the user from
       // the active-sessions UI. Without this check, a stolen laptop would
       // still be authenticated until the cookie naturally expired.
@@ -288,6 +328,7 @@ const plugin: FastifyPluginAsync = async (app) => {
     }
     req.session.userId = `gh:${ghUser.id}`;
     req.session.github = ghUser.login;
+    req.session.authMethod = 'github';
     await app.clawmind.audit.write({ actor: req.session.userId, action: 'login', resource: 'github' });
     const sid = (req.session as unknown as { sessionId?: string }).sessionId;
     if (sid) {
@@ -392,6 +433,7 @@ const plugin: FastifyPluginAsync = async (app) => {
         const result = await oidcCompleteLogin(oidcSettings, code, expectedNonce);
         req.session.userId = result.userId;
         req.session.email = result.email ?? undefined;
+        req.session.authMethod = 'oidc';
         await app.clawmind.audit.write({
           actor: result.userId,
           action: 'sso.login',

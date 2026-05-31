@@ -403,6 +403,10 @@ export interface Webhook {
   url: string;
   events: WebhookEvent[];
   secret?: string; // only present in the create response
+  // Set on a list response when a rotated secret is still inside its grace
+  // window. The actual previousSecret value is never sent to the browser;
+  // only the expiry so the UI can show a "old secret accepted until X" hint.
+  previousSecretExpiresAt?: number;
   active: boolean;
   createdAt: number;
   lastDeliveryAt: number | null;
@@ -823,6 +827,11 @@ export const api = {
   webhookDelete: (id: string) => j<{ ok: boolean }>(`/v1/webhooks/${id}`, { method: 'DELETE' }),
   webhookTest: (id: string) =>
     j<{ delivery: WebhookDelivery }>(`/v1/webhooks/${id}/test`, { method: 'POST' }).then((r) => r.delivery),
+  webhookRotateSecret: (id: string, graceMs?: number) =>
+    j<{ webhook: Webhook; rotatedAt: number; previousSecretExpiresAt: number | null }>(
+      `/v1/webhooks/${id}/rotate-secret`,
+      { method: 'POST', body: JSON.stringify(graceMs !== undefined ? { graceMs } : {}) },
+    ),
   webhookRedeliver: (deliveryId: string) =>
     j<{ delivery: WebhookDelivery }>(`/v1/webhooks/deliveries/${deliveryId}/redeliver`, { method: 'POST' }).then((r) => r.delivery),
   webhookDeliveries: (webhookId?: string, limit?: number) => {
@@ -1071,7 +1080,7 @@ export const api = {
     j<{ policies: DomainPolicy[]; assignableRoles: AutoJoinRole[]; maxPolicies: number }>(
       '/v1/domain-policies',
     ),
-  domainPoliciesReplace: (policies: Array<{ domain: string; role: AutoJoinRole; enabled: boolean }>) =>
+  domainPoliciesReplace: (policies: Array<{ domain: string; role: AutoJoinRole; enabled: boolean; requireSso?: boolean }>) =>
     j<{ policies: DomainPolicy[] }>('/v1/domain-policies', {
       method: 'PUT',
       body: JSON.stringify({ policies }),
@@ -1100,6 +1109,7 @@ export interface DomainPolicy {
   domain: string;
   role: AutoJoinRole;
   enabled: boolean;
+  requireSso: boolean;
   createdAt: number;
   updatedAt: number;
 }

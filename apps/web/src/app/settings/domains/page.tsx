@@ -28,7 +28,7 @@ import {
   IconWarning,
 } from '@clawmind/ui';
 
-type Draft = { domain: string; role: AutoJoinRole; enabled: boolean };
+type Draft = { domain: string; role: AutoJoinRole; enabled: boolean; requireSso: boolean };
 
 const ROLE_HELP: Record<AutoJoinRole, string> = {
   member: 'Read and write the product. Cannot manage other members.',
@@ -54,13 +54,23 @@ function explainError(err: unknown): string {
 }
 
 function rowsFromPolicies(p: readonly DomainPolicy[]): Draft[] {
-  return p.map((row) => ({ domain: row.domain, role: row.role, enabled: row.enabled }));
+  return p.map((row) => ({
+    domain: row.domain,
+    role: row.role,
+    enabled: row.enabled,
+    requireSso: row.requireSso === true,
+  }));
 }
 
 function rowsEqual(a: Draft[], b: Draft[]): boolean {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i += 1) {
-    if (a[i]!.domain !== b[i]!.domain || a[i]!.role !== b[i]!.role || a[i]!.enabled !== b[i]!.enabled) {
+    if (
+      a[i]!.domain !== b[i]!.domain ||
+      a[i]!.role !== b[i]!.role ||
+      a[i]!.enabled !== b[i]!.enabled ||
+      a[i]!.requireSso !== b[i]!.requireSso
+    ) {
       return false;
     }
   }
@@ -109,7 +119,7 @@ export default function DomainPoliciesPage() {
   const addRow = () => {
     if (!rows) return;
     if (rows.length >= maxPolicies) return;
-    setRows([...rows, { domain: '', role: 'member', enabled: true }]);
+    setRows([...rows, { domain: '', role: 'member', enabled: true, requireSso: false }]);
   };
 
   const updateRow = (idx: number, patch: Partial<Draft>) => {
@@ -131,6 +141,7 @@ export default function DomainPoliciesPage() {
         domain: r.domain.trim().replace(/^@/, '').toLowerCase(),
         role: r.role,
         enabled: r.enabled,
+        requireSso: r.requireSso,
       }));
       // Cheap client-side empty check so the user sees a useful message
       // before the server round trip. The server is the source of truth
@@ -252,6 +263,23 @@ export default function DomainPoliciesPage() {
                         </button>
                       </div>
                       <p className="mt-1 text-xs text-[var(--muted)]">{ROLE_HELP[row.role]}</p>
+                      <label className="mt-2 flex items-start gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)]/40 px-2.5 py-1.5 text-xs text-[var(--muted)]">
+                        <input
+                          type="checkbox"
+                          checked={row.requireSso}
+                          onChange={(e) => updateRow(idx, { requireSso: e.target.checked })}
+                          className="mt-0.5 h-3.5 w-3.5"
+                          aria-describedby={`require-sso-help-${idx}`}
+                        />
+                        <span>
+                          <span className="font-medium text-[var(--fg)]">Require SSO for this domain</span>
+                          <span id={`require-sso-help-${idx}`} className="mt-0.5 block">
+                            Sessions established via password or GitHub OAuth will be
+                            rejected on the next request. Users must sign in through
+                            your OIDC provider at /auth/oidc.
+                          </span>
+                        </span>
+                      </label>
                     </li>
                   ))}
                 </ul>
@@ -309,6 +337,7 @@ export default function DomainPoliciesPage() {
                 <li>Matches the part after the last @ in the email, case-insensitive.</li>
                 <li>Only assigns member or viewer. Admin and owner still require an explicit invite.</li>
                 <li>Existing members keep whatever role they already have on next login.</li>
+                <li>Require SSO blocks non-OIDC sessions for matching emails the moment you save.</li>
                 <li>Every change writes a before and after diff to the audit log.</li>
               </ul>
               <p className="mt-3 text-xs text-[var(--muted)]">

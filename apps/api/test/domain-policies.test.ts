@@ -11,6 +11,7 @@ import {
   listPolicies,
   replacePolicies,
   resolveDefaultRoleByEmail,
+  isSsoRequiredForEmail,
   domainOfEmail,
   normalizeDomain,
 } from '../src/services/domain-policies.js';
@@ -105,6 +106,41 @@ describe('domain-policies service', () => {
     });
     expect(again.role).toBe('member'); // unchanged
   });
+
+  it('persists requireSso and enforces it only for enabled matching domains', async () => {
+    await replacePolicies(dir, [
+      { domain: 'acme.com', role: 'member', requireSso: true },
+      { domain: 'partners.io', role: 'viewer', requireSso: true, enabled: false },
+      { domain: 'public.test', role: 'member' },
+    ]);
+    const stored = await listPolicies(dir);
+    expect(stored.find((p) => p.domain === 'acme.com')?.requireSso).toBe(true);
+    expect(stored.find((p) => p.domain === 'public.test')?.requireSso).toBe(false);
+
+    // Enforcement: only enabled rows with requireSso=true should match.
+    expect(await isSsoRequiredForEmail(dir, 'jane@ACME.com')).toBe(true);
+    expect(await isSsoRequiredForEmail(dir, 'guest@partners.io')).toBe(false); // disabled row
+    expect(await isSsoRequiredForEmail(dir, 'open@public.test')).toBe(false);  // requireSso not set
+    expect(await isSsoRequiredForEmail(dir, 'nobody@other.com')).toBe(false);  // no policy
+    expect(await isSsoRequiredForEmail(dir, null)).toBe(false);                // no email
+  });
+
+  it('round-trips requireSso through atomic replace without losing the flag', async () => {
+    await replacePolicies(dir, [{ domain: 'acme.com', role: 'member', requireSso: true }]);
+    // Replace with the same domain but only changing the role; requireSso
+    // is sent again so the flag should remain true. (The route layer
+    // always echoes the current value back from the UI.)
+    await replacePolicies(dir, [{ domain: 'acme.com', role: 'viewer', requireSso: true }]);
+    const after = await listPolicies(dir);
+    expect(after[0]!.role).toBe('viewer');
+    expect(after[0]!.requireSso).toBe(true);
+
+    // Now omit requireSso. Because the input is the canonical replace,
+    // an omitted field means "off" by design and the flag flips to false.
+    await replacePolicies(dir, [{ domain: 'acme.com', role: 'viewer' }]);
+    const flipped = await listPolicies(dir);
+    expect(flipped[0]!.requireSso).toBe(false);
+  });
 });
 
 function buildApp(opts: {
@@ -176,7 +212,7 @@ describe('domain-policies routes', () => {
       before: Array<{ domain: string }>; after: Array<{ domain: string; role: string }>;
     };
     expect(meta.before.map((p) => p.domain)).toEqual(['old.com']);
-    expect(meta.after).toEqual([{ domain: 'acme.com', role: 'viewer', enabled: true }]);
+    expect(meta.after).toEqual([{ domain: 'acme.com', role: 'viewer', enabled: true, requireSso: false }]);
     await app.close();
   });
 

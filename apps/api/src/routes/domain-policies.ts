@@ -22,6 +22,7 @@ const PolicyEntry = z.object({
   domain: z.string().trim().min(1).max(MAX_DOMAIN_LEN),
   role: z.enum(AUTO_JOIN_ROLES as readonly [AutoJoinRole, ...AutoJoinRole[]]),
   enabled: z.boolean().optional(),
+  requireSso: z.boolean().optional(),
 });
 
 const ReplaceBody = z.object({
@@ -33,6 +34,7 @@ const PolicyResponse = z.object({
   domain: z.string(),
   role: z.enum(AUTO_JOIN_ROLES as readonly [AutoJoinRole, ...AutoJoinRole[]]),
   enabled: z.boolean(),
+  requireSso: z.boolean(),
   createdAt: z.number(),
   updatedAt: z.number(),
 });
@@ -77,6 +79,7 @@ export const domainPoliciesRoutes: FastifyPluginAsyncZod = async (app) => {
             domain: p.domain,
             role: p.role,
             enabled: p.enabled !== false,
+            requireSso: p.requireSso === true,
           })),
         };
       }
@@ -105,8 +108,8 @@ export const domainPoliciesRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 };
 
-function slim(p: { domain: string; role: AutoJoinRole; enabled: boolean }) {
-  return { domain: p.domain, role: p.role, enabled: p.enabled };
+function slim(p: { domain: string; role: AutoJoinRole; enabled: boolean; requireSso: boolean }) {
+  return { domain: p.domain, role: p.role, enabled: p.enabled, requireSso: p.requireSso };
 }
 
 function describe(err: { code: string } & Record<string, unknown>): string {
