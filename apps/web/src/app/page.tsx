@@ -56,6 +56,7 @@ export default async function Landing() {
           }}
         >
           <Link href="/chat">Ask</Link>
+          <Link href="/demo">Demo</Link>
           <Link href="/sources">Sources</Link>
           <Link href="/saved">Saved</Link>
           <Link href="/dashboard">Dashboard</Link>
@@ -130,6 +131,19 @@ export default async function Landing() {
             }}
           >
             Open the study
+          </Link>
+          <Link
+            href="/demo"
+            style={{
+              padding: '12px 20px',
+              border: '1px solid var(--cm-border)',
+              borderRadius: 8,
+              color: 'var(--cm-fg)',
+              background: 'var(--cm-paper)',
+              fontSize: 14.5,
+            }}
+          >
+            Try a sample
           </Link>
           <Link
             href="/dashboard"

@@ -99,6 +99,24 @@ pnpm clawmind ask "what did I decide about the embed model last week?"
 
 The web UI is at <http://127.0.0.1:7412>. The API listens on <http://127.0.0.1:7410>. Data (LanceDB, BM25 index, manifest, audit log) is written to `CLAWMIND_DATA_DIR` (default `./data`).
 
+### Try it in 30 seconds
+
+Ingest the bundled sample knowledge pack and open the live demo page. It ships three preloaded sample questions you can click to see real retrieval, streaming answers, and citations against your local model.
+
+```bash
+pnpm clawmind ingest ./samples
+pnpm dev
+open http://127.0.0.1:7412/demo
+```
+
+Or hit the streaming endpoint directly:
+
+```bash
+curl -N -X POST http://127.0.0.1:7410/v1/ask/stream \
+  -H 'content-type: application/json' \
+  -d '{"q":"Summarize the kernel panic incidents and how the machine was recovered","namespaces":["memory"]}'
+```
+
 For Docker, see `infra/docker/docker-compose.dev.yml` which brings up `redis`, `embed`, `api`, and `web`.
 
 ## Configuration
