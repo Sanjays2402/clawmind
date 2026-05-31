@@ -274,6 +274,11 @@ export const api = {
       `/v1/conversations/${id}/ask`,
       { method: 'POST', body: JSON.stringify({ q, k }) },
     ),
+  conversationAskStream: (
+    id: string,
+    body: { q: string; k?: number; namespaces?: string[] },
+    onEvent: (e: { type: string; value: unknown }) => void,
+  ) => streamPost(`${BASE}/v1/conversations/${id}/ask/stream`, body, onEvent),
   conversationExportUrl: (id: string) => `${BASE}/v1/conversations/${id}/export.md`,
 
   // Tags: workspace-wide labels on source paths. Reads are open to any auth'd

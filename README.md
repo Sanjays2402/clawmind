@@ -127,6 +127,16 @@ curl -s -X POST http://127.0.0.1:7410/v1/explain \
   -d '{"q":"LanceDB hybrid retrieval with MMR","k":5,"hybridAlpha":0.5}' | jq '.candidates[0]'
 ```
 
+Multi-turn chat at <http://127.0.0.1:7412/conversations> keeps a rolling thread on disk, rewrites follow-ups so retrieval stays on topic, and now streams tokens live so each turn feels responsive. Drive it from the CLI:
+
+```bash
+CID=$(curl -s -X POST http://127.0.0.1:7410/v1/conversations \
+  -H 'content-type: application/json' -d '{"title":"recap"}' | jq -r .conversation.id)
+curl -N -X POST http://127.0.0.1:7410/v1/conversations/$CID/ask/stream \
+  -H 'content-type: application/json' \
+  -d '{"q":"what changed in projects this week?","namespaces":["memory","projects"]}'
+```
+
 For Docker, see `infra/docker/docker-compose.dev.yml` which brings up `redis`, `embed`, `api`, and `web`.
 
 ## Configuration
@@ -223,6 +233,7 @@ Conversations:
 - `POST /v1/conversations/:id/archive` | `/unarchive`
 - `POST /v1/conversations/:id/fork`
 - `POST /v1/conversations/:id/ask`
+- `POST /v1/conversations/:id/ask/stream` (SSE: `rewrite`, `sources`, `token`, `error`)
 
 Saved searches and snapshots:
 - `GET|POST /v1/saved`, `DELETE /v1/saved/:id`

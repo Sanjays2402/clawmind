@@ -2,16 +2,18 @@
 import { use, useCallback, useEffect, useRef, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
-import { api, fmtRelative, type Conversation, type Source } from '@/lib/api';
+import { api, fmtRelative, type Conversation, type ConversationTurn, type Source } from '@/lib/api';
 import {
   EmptyState,
   ErrorState,
+  NamespacePicker,
   Spinner,
   IconChat,
   IconSend,
   IconDownload,
   IconArchive,
   IconArrowRight,
+  type Ns,
 } from '@clawmind/ui';
 
 type Status = 'loading' | 'ok' | 'error';
@@ -20,16 +22,27 @@ interface PageProps {
   params: Promise<{ id: string }>;
 }
 
+// Live, streaming follow-ups against a saved conversation. Tokens render as
+// they arrive from the server; the rewrite hint and source list appear as
+// soon as the API emits them; the user turn is added optimistically so the
+// thread never feels stalled while the model is generating.
 export default function ConversationDetailPage({ params }: PageProps) {
   const { id } = use(params);
   const [conv, setConv] = useState<Conversation | null>(null);
   const [status, setStatus] = useState<Status>('loading');
   const [err, setErr] = useState<string | null>(null);
   const [q, setQ] = useState('');
+  const [namespaces, setNamespaces] = useState<Ns[]>(['memory', 'projects', 'sessions']);
   const [sending, setSending] = useState(false);
   const [rewritten, setRewritten] = useState<string | null>(null);
+  const [pendingUser, setPendingUser] = useState<string | null>(null);
+  const [streamText, setStreamText] = useState('');
+  const [streamSources, setStreamSources] = useState<Source[]>([]);
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [firstTokenMs, setFirstTokenMs] = useState<number | null>(null);
   const [, start] = useTransition();
   const endRef = useRef<HTMLDivElement | null>(null);
+  const cancelRef = useRef(false);
 
   const reload = useCallback(async () => {
     setStatus('loading');
@@ -50,29 +63,62 @@ export default function ConversationDetailPage({ params }: PageProps) {
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [conv?.turns.length]);
+  }, [conv?.turns.length, streamText, pendingUser]);
 
-  const ask = (e: React.FormEvent) => {
+  async function ask(e: React.FormEvent) {
     e.preventDefault();
     const text = q.trim();
     if (!text || sending) return;
     setSending(true);
+    setErr(null);
     setRewritten(null);
-    start(async () => {
-      try {
-        const r = await api.conversationAsk(id, text, 6);
-        if (r.rewrittenQuery && r.rewrittenQuery !== text) setRewritten(r.rewrittenQuery);
-        setQ('');
-        await reload();
-      } catch (e2) {
-        setErr((e2 as Error).message);
-      } finally {
-        setSending(false);
-      }
-    });
-  };
+    setPendingUser(text);
+    setStreamText('');
+    setStreamSources([]);
+    setLatencyMs(null);
+    setFirstTokenMs(null);
+    cancelRef.current = false;
+    setQ('');
+    const startedAt = performance.now();
+    let gotFirst = false;
+    try {
+      await api.conversationAskStream(id, { q: text, k: 6, namespaces }, (evt) => {
+        if (cancelRef.current) return;
+        if (evt.type === 'rewrite') {
+          const v = evt.value as { rewritten?: string };
+          if (v?.rewritten) setRewritten(v.rewritten);
+        } else if (evt.type === 'sources') {
+          setStreamSources(evt.value as Source[]);
+        } else if (evt.type === 'token') {
+          if (!gotFirst) {
+            gotFirst = true;
+            setFirstTokenMs(Math.round(performance.now() - startedAt));
+          }
+          setStreamText((s) => s + (evt.value as string));
+        } else if (evt.type === 'error') {
+          const v = evt.value as { message?: string };
+          setErr(v?.message ?? 'stream error');
+        }
+      });
+      setLatencyMs(Math.round(performance.now() - startedAt));
+      // Pull the canonical persisted turns so ids, timestamps, model name match.
+      await reload();
+    } catch (e2) {
+      setErr((e2 as Error).message);
+    } finally {
+      setSending(false);
+      setPendingUser(null);
+      setStreamText('');
+      setStreamSources([]);
+    }
+  }
 
-  const archive = () => {
+  function stop() {
+    cancelRef.current = true;
+    setSending(false);
+  }
+
+  function archive() {
     if (!conv) return;
     if (!window.confirm('Archive this conversation? It will be hidden from the default list.')) return;
     start(async () => {
@@ -83,229 +129,157 @@ export default function ConversationDetailPage({ params }: PageProps) {
         setErr((e2 as Error).message);
       }
     });
-  };
+  }
 
   return (
-    <div style={{ minHeight: '100vh' }}>
+    <div className="min-h-screen bg-cm-bg">
       <TopNav />
-      <main style={{ maxWidth: 880, margin: '0 auto', padding: '24px 20px 120px' }}>
-        <div style={{ marginBottom: 12, fontSize: 13 }}>
-          <Link href="/conversations" style={{ color: 'var(--cm-muted)', textDecoration: 'none' }}>
+      <main className="mx-auto w-full max-w-[920px] px-5 pb-32 pt-6 sm:px-8">
+        <div className="mb-3 text-[13px]">
+          <Link href="/conversations" className="text-cm-muted no-underline hover:text-cm-fg">
             ← All conversations
           </Link>
         </div>
 
         {status === 'loading' && (
-          <div
-            style={{
-              marginTop: 60,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              color: 'var(--cm-muted)',
-            }}
-          >
-            <Spinner /> <span style={{ marginLeft: 8 }}>Loading conversation...</span>
+          <div className="mt-16 flex items-center justify-center gap-2 text-cm-muted">
+            <Spinner /> <span>Loading conversation</span>
           </div>
         )}
 
         {status === 'error' && (
-          <div style={{ marginTop: 24 }}>
-            <ErrorState
-              title="Could not load conversation"
-              message={err ?? 'Unknown error'}
-              onRetry={reload}
-            />
+          <div className="mt-6">
+            <ErrorState title="Could not load conversation" message={err ?? 'Unknown error'} onRetry={reload} />
           </div>
         )}
 
         {status === 'ok' && conv && (
           <>
-            <header
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                gap: 12,
-                flexWrap: 'wrap',
-                alignItems: 'flex-end',
-              }}
-            >
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <h1 style={{ fontSize: 22, fontWeight: 600, margin: 0, letterSpacing: -0.3 }}>
+            <header className="flex flex-wrap items-end justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <h1 className="m-0 truncate text-[22px] font-semibold tracking-[-0.3px] text-cm-fg">
                   {conv.title || 'Untitled conversation'}
                 </h1>
-                <p style={{ marginTop: 4, fontSize: 12, color: 'var(--cm-muted)' }}>
-                  {conv.turns.length} turns · updated {fmtRelative(conv.updatedAt)}
-                  {conv.archivedAt ? ` · archived` : ''}
+                <p className="mt-1 text-[12px] text-cm-muted">
+                  {conv.turns.length} {conv.turns.length === 1 ? 'turn' : 'turns'} · updated {fmtRelative(conv.updatedAt)}
+                  {conv.archivedAt ? ' · archived' : ''}
                 </p>
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="flex items-center gap-2">
                 <a
                   href={api.conversationExportUrl(conv.id)}
-                  style={ghostBtn}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-transparent px-3 py-2 text-[13px] text-cm-fg no-underline hover:bg-cm-paper"
                   download
                 >
                   <IconDownload /> Export .md
                 </a>
                 {!conv.archivedAt && (
-                  <button onClick={archive} style={ghostBtn} aria-label="Archive">
+                  <button
+                    onClick={archive}
+                    aria-label="Archive"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-transparent px-3 py-2 text-[13px] text-cm-fg hover:bg-cm-paper"
+                  >
                     <IconArchive /> Archive
                   </button>
                 )}
               </div>
             </header>
 
-            {conv.turns.length === 0 ? (
-              <div style={{ marginTop: 32 }}>
+            <div className="mt-4 border-y border-cm-border py-3">
+              <NamespacePicker value={namespaces} onChange={setNamespaces} variant="breadcrumb" />
+            </div>
+
+            {conv.turns.length === 0 && !pendingUser ? (
+              <div className="mt-10">
                 <EmptyState
                   icon={<IconChat />}
                   title="No turns yet"
-                  body="Ask your first question below. Follow-ups will reuse this thread's history."
+                  body="Ask your first question below. Follow-ups will reuse this thread's history so you can keep digging."
                 />
               </div>
             ) : (
-              <ol
-                style={{
-                  listStyle: 'none',
-                  padding: 0,
-                  margin: '24px 0 0',
-                  display: 'grid',
-                  gap: 16,
-                }}
-              >
+              <ol className="m-0 mt-6 grid list-none gap-4 p-0">
                 {conv.turns.map((t, i) => (
-                  <li
-                    key={t.id ?? i}
-                    style={{
-                      padding: 14,
-                      border: '1px solid var(--cm-border)',
-                      borderRadius: 12,
-                      background:
-                        t.role === 'user' ? 'transparent' : 'var(--cm-accent-soft, transparent)',
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 11,
-                        textTransform: 'uppercase',
-                        letterSpacing: 0.5,
-                        color: 'var(--cm-muted)',
-                        marginBottom: 6,
-                      }}
-                    >
-                      {t.role} {t.ts ? `· ${fmtRelative(t.ts)}` : ''}
-                      {t.model ? ` · ${t.model}` : ''}
-                    </div>
-                    <div style={{ whiteSpace: 'pre-wrap', fontSize: 14, lineHeight: 1.55 }}>
-                      {t.content}
-                    </div>
-                    {t.sources && t.sources.length > 0 && (
-                      <details style={{ marginTop: 10 }}>
-                        <summary
-                          style={{
-                            cursor: 'pointer',
-                            fontSize: 12,
-                            color: 'var(--cm-muted)',
-                          }}
-                        >
-                          {t.sources.length} source{t.sources.length === 1 ? '' : 's'}
-                        </summary>
-                        <ul
-                          style={{
-                            listStyle: 'none',
-                            padding: 0,
-                            margin: '8px 0 0',
-                            display: 'grid',
-                            gap: 6,
-                          }}
-                        >
-                          {t.sources.map((s: Source, j: number) => (
-                            <li key={j} style={{ fontSize: 12 }}>
-                              <Link
-                                href={{
-                                  pathname: '/sources/view',
-                                  query: { path: s.path, start: s.startLine, end: s.endLine },
-                                }}
-                                style={{ color: 'var(--cm-fg)', textDecoration: 'none' }}
-                              >
-                                <span style={{ color: 'var(--cm-muted)' }}>
-                                  {s.displayPath || s.path}
-                                </span>{' '}
-                                <span style={{ color: 'var(--cm-muted)' }}>
-                                  L{s.startLine}–L{s.endLine}
-                                </span>{' '}
-                                <IconArrowRight size={12} />
-                              </Link>
-                            </li>
-                          ))}
-                        </ul>
-                      </details>
-                    )}
-                  </li>
+                  <TurnCard key={t.id ?? i} turn={t} />
                 ))}
+                {pendingUser && (
+                  <TurnCard
+                    turn={{ role: 'user', content: pendingUser, ts: Date.now() }}
+                    pending
+                  />
+                )}
+                {sending && (
+                  <TurnCard
+                    turn={{
+                      role: 'assistant',
+                      content: streamText,
+                      ts: Date.now(),
+                      sources: streamSources,
+                    }}
+                    streaming
+                    firstTokenMs={firstTokenMs}
+                  />
+                )}
               </ol>
             )}
 
             <div ref={endRef} />
 
             {rewritten && (
-              <div
-                style={{
-                  marginTop: 12,
-                  fontSize: 12,
-                  color: 'var(--cm-muted)',
-                  padding: '8px 10px',
-                  border: '1px dashed var(--cm-border)',
-                  borderRadius: 8,
-                }}
-              >
-                Rewrote follow-up to: <span style={{ color: 'var(--cm-fg)' }}>{rewritten}</span>
+              <div className="mt-3 rounded-md border border-dashed border-cm-border px-3 py-2 text-[12px] text-cm-muted">
+                Rewrote follow-up to: <span className="text-cm-fg">{rewritten}</span>
+              </div>
+            )}
+
+            {!sending && latencyMs !== null && (
+              <div className="cm-mono mt-2 text-[11px] text-cm-faint">
+                done in {latencyMs}ms{firstTokenMs !== null ? ` · first token ${firstTokenMs}ms` : ''}
               </div>
             )}
 
             <form
               onSubmit={ask}
-              style={{
-                marginTop: 16,
-                display: 'flex',
-                gap: 8,
-                position: 'sticky',
-                bottom: 12,
-                padding: 10,
-                border: '1px solid var(--cm-border)',
-                borderRadius: 12,
-                background: 'var(--cm-bg)',
-                backdropFilter: 'blur(6px)',
-              }}
+              className="sticky bottom-3 mt-4 flex gap-2 rounded-xl border border-cm-border bg-cm-bg/80 p-2.5 backdrop-blur"
             >
               <input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Ask a follow-up..."
+                placeholder={
+                  conv.turns.length === 0
+                    ? 'Ask something about your workspace...'
+                    : 'Ask a follow-up...'
+                }
                 disabled={sending || !!conv.archivedAt}
-                style={{
-                  flex: 1,
-                  padding: '10px 12px',
-                  border: '1px solid var(--cm-border)',
-                  borderRadius: 8,
-                  background: 'transparent',
-                  color: 'var(--cm-fg)',
-                  fontSize: 14,
-                }}
+                aria-label="Ask a follow-up"
+                className="flex-1 rounded-md border border-cm-border bg-transparent px-3 py-2.5 text-[14px] text-cm-fg outline-none placeholder:text-cm-faint focus:border-cm-fg-soft disabled:opacity-50"
               />
-              <button
-                type="submit"
-                disabled={sending || !q.trim() || !!conv.archivedAt}
-                style={primaryBtn}
-              >
-                <IconSend /> {sending ? 'Asking...' : 'Send'}
-              </button>
+              {sending ? (
+                <button
+                  type="button"
+                  onClick={stop}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-transparent px-3.5 py-2.5 text-[13px] text-cm-fg hover:bg-cm-paper"
+                >
+                  Stop
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!q.trim() || !!conv.archivedAt}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-accent-soft px-3.5 py-2.5 text-[13px] font-medium text-cm-fg hover:opacity-90 disabled:opacity-40"
+                >
+                  <IconSend /> Send
+                </button>
+              )}
             </form>
 
             {conv.archivedAt && (
-              <p style={{ marginTop: 8, fontSize: 12, color: 'var(--cm-muted)' }}>
+              <p className="mt-2 text-[12px] text-cm-muted">
                 This conversation is archived. Unarchive it from the list to continue.
               </p>
+            )}
+
+            {err && !sending && (
+              <p className="mt-2 text-[12px] text-cm-danger">{err}</p>
             )}
           </>
         )}
@@ -314,30 +288,68 @@ export default function ConversationDetailPage({ params }: PageProps) {
   );
 }
 
-const primaryBtn: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  padding: '10px 14px',
-  borderRadius: 8,
-  border: '1px solid var(--cm-border)',
-  background: 'var(--cm-accent-soft)',
-  color: 'var(--cm-fg)',
-  fontSize: 13,
-  fontWeight: 500,
-  cursor: 'pointer',
-};
-
-const ghostBtn: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  padding: '8px 12px',
-  borderRadius: 8,
-  border: '1px solid var(--cm-border)',
-  background: 'transparent',
-  color: 'var(--cm-fg)',
-  fontSize: 13,
-  cursor: 'pointer',
-  textDecoration: 'none',
-};
+function TurnCard({
+  turn,
+  pending,
+  streaming,
+  firstTokenMs,
+}: {
+  turn: ConversationTurn;
+  pending?: boolean;
+  streaming?: boolean;
+  firstTokenMs?: number | null;
+}) {
+  const isUser = turn.role === 'user';
+  return (
+    <li
+      className={[
+        'rounded-xl border p-3.5',
+        isUser ? 'border-cm-border bg-transparent' : 'border-cm-border bg-cm-paper',
+        pending ? 'opacity-60' : '',
+      ].join(' ')}
+    >
+      <div className="cm-mono mb-1.5 text-[11px] uppercase tracking-wider text-cm-muted">
+        {turn.role}
+        {turn.ts ? ` · ${fmtRelative(turn.ts)}` : ''}
+        {turn.model ? ` · ${turn.model}` : ''}
+        {streaming ? ' · streaming' : ''}
+        {streaming && firstTokenMs !== null && firstTokenMs !== undefined ? ` · first token ${firstTokenMs}ms` : ''}
+      </div>
+      <div className="whitespace-pre-wrap text-[14px] leading-[1.6] text-cm-fg">
+        {turn.content}
+        {streaming && (
+          <span
+            aria-hidden="true"
+            className="ml-0.5 inline-block h-[1em] w-[2px] translate-y-[2px] animate-pulse bg-cm-fg-soft align-middle"
+          />
+        )}
+      </div>
+      {turn.sources && turn.sources.length > 0 && (
+        <details className="mt-2.5" open={!!streaming}>
+          <summary className="cursor-pointer text-[12px] text-cm-muted">
+            {turn.sources.length} {turn.sources.length === 1 ? 'source' : 'sources'}
+          </summary>
+          <ul className="m-0 mt-2 grid list-none gap-1.5 p-0">
+            {turn.sources.map((s: Source, j: number) => (
+              <li key={j} className="text-[12px]">
+                <Link
+                  href={{
+                    pathname: '/sources/view',
+                    query: { path: s.path, start: s.startLine, end: s.endLine },
+                  }}
+                  className="inline-flex items-center gap-1 text-cm-fg no-underline hover:text-cm-accent"
+                >
+                  <span className="text-cm-muted">{s.displayPath || s.path}</span>
+                  <span className="text-cm-muted">
+                    L{s.startLine}–L{s.endLine}
+                  </span>
+                  <IconArrowRight size={12} />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </li>
+  );
+}
