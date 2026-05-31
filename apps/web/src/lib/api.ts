@@ -1393,7 +1393,37 @@ export const api = {
     j<{ items: PolicyAcceptanceSummary[] }>('/v1/policies/summary').then(
       (r) => r.items,
     ),
+
+  // Workspace query blocklist. Owner-managed list of literal/regex
+  // patterns enforced before retrieval and the LLM on /v1/ask,
+  // /v1/ask/stream, /v1/search, /v1/explain. A matched query is
+  // rejected with 422 'query-blocked'.
+  queryBlocklistList: () =>
+    j<{ rules: BlocklistRule[] }>('/v1/query-blocklist').then((r) => r.rules),
+  queryBlocklistAdd: (input: {
+    pattern: string;
+    mode?: 'literal' | 'regex';
+    label?: string | null;
+  }) =>
+    j<{ rule: BlocklistRule }>('/v1/query-blocklist', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }).then((r) => r.rule),
+  queryBlocklistRemove: (id: string) =>
+    j<{ rule: BlocklistRule }>(`/v1/query-blocklist/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }).then((r) => r.rule),
 };
+
+export interface BlocklistRule {
+  id: string;
+  pattern: string;
+  mode: 'literal' | 'regex';
+  label: string | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export type PolicyKind = 'tos' | 'dpa' | 'aup';
 

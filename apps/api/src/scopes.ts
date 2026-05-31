@@ -174,6 +174,15 @@ export const Scopes = {
   // estimate without being able to download the full bundle.
   WorkspaceExportRead: 'workspace-export:read',
   WorkspaceExportManage: 'workspace-export:admin',
+
+  // Workspace query blocklist. Owner-managed list of literal/regex
+  // patterns that any inbound query (ask / search / explain) is matched
+  // against BEFORE retrieval or LLM call. Read is admin+ so an auditor
+  // can review the closed set; Manage is owner-only (with MFA step-up)
+  // because adding a broken regex or an overly aggressive literal can
+  // immediately stop every query path in the workspace.
+  QueryBlocklistRead: 'query-blocklist:read',
+  QueryBlocklistManage: 'query-blocklist:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

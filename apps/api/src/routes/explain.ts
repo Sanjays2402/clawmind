@@ -2,6 +2,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { retrieveExplain } from '@clawmind/rag';
 import { QuerySchema } from '@clawmind/types';
 import { Scopes } from '../scopes.js';
+import { enforceQueryBlocklist } from '../lib/query-blocklist-gate.js';
 
 // POST /v1/explain
 //
@@ -16,7 +17,8 @@ export const explainRoutes: FastifyPluginAsyncZod = async (app) => {
     schema: { body: QuerySchema },
     preHandler: [app.requireAuth, app.requireScope(Scopes.Search)],
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
-    handler: async (req) => {
+    handler: async (req, reply) => {
+      if (!(await enforceQueryBlocklist(app, reply, req.user!.id, '/v1/explain', req.body.q))) return;
       const body = { ...req.body, q: app.aliases.expandQuery(req.body.q) };
       const result = await retrieveExplain(app.rag, body);
       const candidates = result.candidates.map((c) => {

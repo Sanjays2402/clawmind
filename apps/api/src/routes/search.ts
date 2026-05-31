@@ -5,6 +5,7 @@ import { QuerySchema, type Query } from '@clawmind/types';
 import { Scopes } from '../scopes.js';
 import { enforceQuota, recordUsage } from '../services/usage.js';
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
+import { enforceQueryBlocklist } from '../lib/query-blocklist-gate.js';
 
 const SearchBody = QuerySchema.extend({
   /** When true (default), include a `snippet` with highlighted term spans. */
@@ -21,6 +22,7 @@ export const searchRoutes: FastifyPluginAsyncZod = async (app) => {
     },
     preHandler: [app.requireAuth, app.requireScope(Scopes.Search)],
     handler: async (req, reply) => {
+      if (!(await enforceQueryBlocklist(app, reply, req.user!.id, '/v1/search', req.body.q))) return;
       const quota = await enforceQuota(app.clawmind.dataDir, req.user!.id, 1);
       if (!quota.allowed) {
         reply.header('x-clawmind-quota-used', String(quota.summary.used));

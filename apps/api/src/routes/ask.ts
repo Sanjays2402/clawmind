@@ -9,6 +9,7 @@ import { enforceQuota, recordUsage } from '../services/usage.js';
 import { Scopes } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
+import { enforceQueryBlocklist } from '../lib/query-blocklist-gate.js';
 
 export const askRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/ask', {
@@ -16,6 +17,7 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
     preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
     config: { rateLimit: { max: 30, timeWindow: '1 minute' } },
     handler: async (req, reply) => {
+      if (!(await enforceQueryBlocklist(app, reply, req.user!.id, '/v1/ask', req.body.q))) return;
       const quota = await enforceQuota(app.clawmind.dataDir, req.user!.id, 1);
       if (!quota.allowed) {
         reply.header('x-clawmind-quota-used', String(quota.summary.used));
@@ -76,6 +78,7 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
     schema: { body: QuerySchema },
     preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
     handler: async (req, reply) => {
+      if (!(await enforceQueryBlocklist(app, reply, req.user!.id, '/v1/ask/stream', req.body.q))) return;
       reply.raw.setHeader('content-type', 'text/event-stream');
       reply.raw.setHeader('cache-control', 'no-cache');
       reply.raw.setHeader('connection', 'keep-alive');
