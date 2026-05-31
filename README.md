@@ -166,6 +166,33 @@ curl -sS http://localhost:8787/v1/admin/audit/anchors/verify \
   -H "authorization: Bearer $CLAWMIND_KEY"
 ```
 
+## Try it: data residency
+
+Workspaces that must answer the "where does my data live" question on a
+procurement form can pin the API process to a canonical region
+(`CLAWMIND_REGION`, one of `us | eu | uk | ca | au | ap | other`) and
+restrict which regions are allowed to land writes. Every response
+carries `x-clawmind-region` so a multi-region client can confirm the
+request landed in a compliant process. Mutations from a disallowed
+region are rejected with HTTP 451 and a structured `{error,
+serverRegion, allowedRegions}` body so an SDK can retry against a
+compliant region. Reads are never blocked.
+
+```bash
+# Confirm which region this process is pinned to.
+curl -sI http://localhost:8787/healthz | grep -i x-clawmind-region
+
+# Read the workspace policy plus current server region (admin+).
+curl -sS http://localhost:8787/v1/data-residency \
+  -H "authorization: Bearer $CLAWMIND_KEY"
+
+# Restrict writes to EU + UK only (owner + MFA step-up).
+curl -sS -X PUT http://localhost:8787/v1/data-residency \
+  -H "authorization: Bearer $CLAWMIND_KEY" \
+  -H "content-type: application/json" \
+  -d '{"allowedRegions":["eu","uk"],"controller":"Acme GmbH, Frankfurt"}'
+```
+
 ## Stack
 
 - Node 20+, TypeScript, pnpm workspaces, Turborepo

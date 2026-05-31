@@ -379,6 +379,22 @@ export interface SessionPolicyLimits {
   defaultIdleMinutes: number;
 }
 
+export type Region = 'us' | 'eu' | 'uk' | 'ca' | 'au' | 'ap' | 'other';
+
+export interface DataResidencyPolicy {
+  workspaceId: string;
+  allowedRegions: Region[];
+  controller: string;
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export interface DataResidencyResponse {
+  policy: DataResidencyPolicy;
+  serverRegion: Region;
+  knownRegions: readonly Region[];
+}
+
 export type MemberRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface MemberRecord {
@@ -1039,6 +1055,17 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(input),
     }).then((r) => r.policy),
+
+  // Workspace data residency. GET returns the policy plus the current
+  // server region so the admin page can show whether the connected
+  // process is itself compliant with the configured allow-list.
+  dataResidencyGet: () =>
+    j<DataResidencyResponse>('/v1/data-residency'),
+  dataResidencySet: (input: { allowedRegions: Region[]; controller: string }) =>
+    j<DataResidencyResponse>('/v1/data-residency', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }),
 
   // Multi-factor auth. The /settings/mfa page walks the user through
   // enrollment (start, scan, confirm) and surfaces step-up state for

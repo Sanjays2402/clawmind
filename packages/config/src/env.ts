@@ -83,6 +83,15 @@ export function loadEnv() {
     // exposes.
     CLAWMIND_WEBHOOK_ALLOW_PRIVATE: bool({ default: false }),
     CLAWMIND_WEBHOOK_ALLOWED_PORTS: str({ default: '80,443,8080,8443' }),
+
+    // Data residency. CLAWMIND_REGION pins this process to a single
+    // canonical region token (us | eu | uk | ca | au | ap | other) and
+    // is surfaced on every response as `x-clawmind-region`. Workspace
+    // owners narrow the allowed set via PUT /v1/data-residency; the
+    // data-residency plugin rejects mutating requests with 451 when the
+    // workspace allow-list excludes this process's region. Unknown or
+    // empty values fall back to `us` to match the documented default.
+    CLAWMIND_REGION: str({ default: 'us' }),
   });
 }
 
