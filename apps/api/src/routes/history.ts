@@ -12,6 +12,12 @@ import {
   forgetItem as forgetHistoryTags,
   normalizeTags as normalizeHistoryTags,
 } from '../services/history-tags.js';
+import {
+  loadMap as loadHistoryTitles,
+  titleFor as historyTitleFor,
+  setTitle as setHistoryTitle,
+  forgetItem as forgetHistoryTitle,
+} from '../services/history-titles.js';
 import { Scopes } from '../scopes.js';
 
 const ListQuery = z.object({
@@ -27,6 +33,12 @@ const ListQuery = z.object({
 
 const TagsBody = z.object({
   tags: z.array(z.string().min(1).max(32)).max(32),
+});
+
+// Body for renaming a history item. Empty string clears the custom title
+// and falls back to the original query.
+const TitleBody = z.object({
+  title: z.string().max(120),
 });
 
 const ExportQuery = z.object({
@@ -55,13 +67,21 @@ export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
         limit, since, until, q, namespaces: ns,
       });
       const tagMap = await loadHistoryTags(app.clawmind.dataDir);
+      const titleMap = await loadHistoryTitles(app.clawmind.dataDir);
       const wantTags = new Set(
         normalizeHistoryTags(
           (req.query as { tags?: string }).tags?.split(',').map((s) => s.trim()) ?? [],
         ),
       );
       const withTags = items
-        .map((it) => ({ ...it, tags: historyTagsFor(tagMap, req.user!.id, it.id) }))
+        .map((it) => {
+          const title = historyTitleFor(titleMap, req.user!.id, it.id);
+          return {
+            ...it,
+            tags: historyTagsFor(tagMap, req.user!.id, it.id),
+            ...(title ? { title } : {}),
+          };
+        })
         .filter((it) =>
           wantTags.size === 0
             ? true
@@ -188,6 +208,30 @@ export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
     });
   }
 
+  // Rename a single history entry. Send an empty string to clear the
+  // custom title and fall back to the original query. The id must belong
+  // to the caller; we do not verify against the history log itself so
+  // that titles can be set optimistically before the next list refresh.
+  app.patch('/history/:id', {
+    schema: {
+      params: z.object({ id: z.string().min(1).max(200) }),
+      body: TitleBody,
+    },
+    preHandler: [app.requireAuth, app.requireScope(Scopes.HistoryWrite)],
+    handler: async (req) => {
+      const { id } = req.params as { id: string };
+      const { title } = req.body as z.infer<typeof TitleBody>;
+      const saved = await setHistoryTitle(app.clawmind.dataDir, req.user!.id, id, title);
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: saved ? 'history.rename' : 'history.unname',
+        resource: 'history',
+        meta: { id, title: saved || null },
+      });
+      return { id, title: saved };
+    },
+  });
+
   // Delete a single history entry owned by the caller. Lets users purge one
   // bad answer or a private question without nuking their whole log. The id
   // must belong to the caller; mismatches return 404 to avoid leaking
@@ -204,8 +248,9 @@ export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
         return reply.code(404).send({ error: 'history entry not found' });
       }
       // Drop any tag rows pointing at the now-deleted entry so the tag
-      // index does not accumulate dangling references.
+      // index does not accumulate dangling references. Same for titles.
       await forgetHistoryTags(app.clawmind.dataDir, req.user!.id, id);
+      await forgetHistoryTitle(app.clawmind.dataDir, req.user!.id, id);
       await app.clawmind.audit.write({
         actor: req.user!.id,
         action: 'history.delete-item',

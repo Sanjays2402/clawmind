@@ -82,6 +82,8 @@ export interface HistoryItem {
   model: string;
   sources: Array<Source & { namespace?: string }>;
   tags?: string[];
+  /** Custom user-set title; falls back to `query` when absent. */
+  title?: string;
 }
 
 export interface FeedbackEntry {
@@ -333,6 +335,11 @@ export const api = {
   ) => historyResponse(params),
   removeHistoryItem: (id: string) =>
     j<{ id: string; deleted: boolean }>(`/v1/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  renameHistoryItem: (id: string, title: string) =>
+    j<{ id: string; title: string }>(`/v1/history/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ title }),
+    }),
   setHistoryTags: (id: string, tags: string[]) =>
     j<{ id: string; tags: string[] }>(`/v1/history/${encodeURIComponent(id)}/tags`, {
       method: 'PUT',

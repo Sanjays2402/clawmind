@@ -323,6 +323,26 @@ export default function HistoryPage() {
                 item={it}
                 open={openId === it.id}
                 onToggle={() => setOpenId((cur) => (cur === it.id ? null : it.id))}
+                onRename={async (title) => {
+                  const prev = items;
+                  const trimmed = title.trim();
+                  setItems((cur) =>
+                    cur.map((x) =>
+                      x.id === it.id ? { ...x, title: trimmed || undefined } : x,
+                    ),
+                  );
+                  try {
+                    const res = await api.renameHistoryItem(it.id, trimmed);
+                    setItems((cur) =>
+                      cur.map((x) =>
+                        x.id === it.id ? { ...x, title: res.title || undefined } : x,
+                      ),
+                    );
+                  } catch (e) {
+                    setItems(prev);
+                    setError((e as Error).message);
+                  }
+                }}
                 onTagsChanged={(tags) => {
                   setItems((cur) => cur.map((x) => (x.id === it.id ? { ...x, tags } : x)));
                   setAvailableTags((cur) => {
@@ -461,15 +481,20 @@ function HistoryRow({
   open,
   onToggle,
   onDelete,
+  onRename,
   onTagsChanged,
 }: {
   item: HistoryItem;
   open: boolean;
   onToggle: () => void;
   onDelete: () => void | Promise<void>;
+  onRename: (title: string) => void | Promise<void>;
   onTagsChanged: (tags: string[]) => void;
 }) {
   const [deleting, setDeleting] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(item.title ?? '');
+  const displayTitle = item.title?.trim() || item.query;
   const sources = item.sources ?? [];
   const namespaces = useMemo(() => {
     const s = new Set<string>();
@@ -497,7 +522,24 @@ function HistoryRow({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-          <div style={{ fontWeight: 500, fontSize: 15, lineHeight: 1.4 }}>{item.query}</div>
+          <div style={{ fontWeight: 500, fontSize: 15, lineHeight: 1.4, flex: 1, minWidth: 0 }}>
+            {displayTitle}
+            {item.title && item.title.trim() && item.title.trim() !== item.query ? (
+              <div
+                style={{
+                  marginTop: 4,
+                  fontWeight: 400,
+                  fontSize: 12,
+                  color: 'var(--cm-faint)',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {item.query}
+              </div>
+            ) : null}
+          </div>
           <div className="cm-mono" style={{ fontSize: 11, color: 'var(--cm-faint)', flexShrink: 0 }}>
             {fmtRelative(item.ts)}
           </div>
@@ -675,6 +717,99 @@ function HistoryRow({
             >
               <IconChat /> Open in chat
             </Link>
+            {editingTitle ? (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setEditingTitle(false);
+                  await onRename(titleDraft);
+                }}
+                style={{ display: 'inline-flex', gap: 6, alignItems: 'center' }}
+              >
+                <input
+                  autoFocus
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setEditingTitle(false);
+                      setTitleDraft(item.title ?? '');
+                    }
+                  }}
+                  placeholder="Custom title (empty to clear)"
+                  maxLength={120}
+                  aria-label="History entry title"
+                  style={{
+                    padding: '7px 10px',
+                    background: 'var(--cm-paper)',
+                    color: 'var(--cm-fg)',
+                    border: '1px solid var(--cm-border)',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    fontFamily: 'var(--cm-font)',
+                    minWidth: 220,
+                  }}
+                />
+                <button
+                  type="submit"
+                  style={{
+                    padding: '7px 12px',
+                    background: 'var(--cm-fg)',
+                    color: 'var(--cm-paper)',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    border: 'none',
+                    fontFamily: 'var(--cm-font)',
+                  }}
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingTitle(false);
+                    setTitleDraft(item.title ?? '');
+                  }}
+                  style={{
+                    padding: '7px 12px',
+                    background: 'transparent',
+                    color: 'var(--cm-muted)',
+                    borderRadius: 8,
+                    fontSize: 13,
+                    cursor: 'pointer',
+                    border: '1px solid var(--cm-border)',
+                    fontFamily: 'var(--cm-font)',
+                  }}
+                >
+                  Cancel
+                </button>
+              </form>
+            ) : (
+              <button
+                onClick={() => {
+                  setTitleDraft(item.title ?? '');
+                  setEditingTitle(true);
+                }}
+                aria-label="Rename this history entry"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '7px 12px',
+                  background: 'var(--cm-subtle)',
+                  color: 'var(--cm-fg)',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  cursor: 'pointer',
+                  border: '1px solid var(--cm-border)',
+                  fontFamily: 'var(--cm-font)',
+                }}
+              >
+                {item.title ? 'Rename' : 'Add title'}
+              </button>
+            )}
             <button
               onClick={() => {
                 if (navigator?.clipboard) navigator.clipboard.writeText(item.answer);
