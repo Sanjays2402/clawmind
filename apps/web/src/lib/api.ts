@@ -257,7 +257,7 @@ export const api = {
   saveSearch: (input: { title: string; query: string }) =>
     j<{ item: SavedSearch }>('/v1/saved', { method: 'POST', body: JSON.stringify(input) }).then((r) => r.item),
   removeSaved: (id: string) => j<void>(`/v1/saved/${id}`, { method: 'DELETE' }),
-  share: (id: string) => j<{ id: string; query: string; answer: string }>(`/v1/share/${id}`),
+  share: (id: string) => j<{ id: string; query: string; answer: string; sources?: unknown[]; createdAt?: number }>(`/v1/share/${id}`),
 
   // Stats
   stats: () => j<StatsReport>('/v1/stats'),

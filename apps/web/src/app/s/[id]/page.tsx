@@ -1,8 +1,48 @@
 import { api } from '@/lib/api';
 import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
 import { CopyLink } from './CopyLink';
 
 export const dynamic = 'force-dynamic';
+
+function trim(s: string, n: number): string {
+  const clean = s.replace(/\s+/g, ' ').trim();
+  return clean.length <= n ? clean : clean.slice(0, n - 1).trimEnd() + '\u2026';
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const data = await api.share(id).catch(() => null);
+  if (!data) {
+    return { title: 'Shared answer not found · ClawMind' };
+  }
+  const title = trim(data.query, 80);
+  const description = trim(data.answer, 200);
+  const ogPath = `/s/${id}/opengraph-image`;
+  return {
+    title: `${title} · ClawMind`,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: 'article',
+      siteName: 'ClawMind',
+      url: `/s/${id}`,
+      images: [{ url: ogPath, width: 1200, height: 630, alt: title }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      images: [ogPath],
+    },
+    robots: { index: false, follow: false },
+  };
+}
 
 export default async function SharePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
