@@ -11,6 +11,7 @@ import {
   meetsMinRole,
   type MemberRole,
 } from '../services/members.js';
+import { resolveDefaultRoleByEmail } from '../services/domain-policies.js';
 import {
   settingsFromEnv as oidcSettingsFromEnv,
   isConfigured as oidcIsConfigured,
@@ -150,10 +151,20 @@ const plugin: FastifyPluginAsync = async (app) => {
       // 'member' and an owner promotes them from the admin UI.
       let resolvedRole: MemberRole = 'owner';
       try {
+        // If a domain auto-join policy matches this user's email and they
+        // are not already in the registry, the policy role wins over the
+        // hard-coded 'member' default. Existing members are untouched
+        // because recordSeenAndBootstrap ignores defaultRole when the user
+        // is already present.
+        const policyRole = await resolveDefaultRoleByEmail(
+          app.clawmind.dataDir,
+          req.session.email ?? null,
+        ).catch(() => null);
         const rec = await recordSeenAndBootstrap(app.clawmind.dataDir, {
           userId: req.session.userId,
           email: req.session.email ?? null,
           label: req.session.github ?? null,
+          defaultRole: policyRole ?? undefined,
         });
         resolvedRole = rec.role;
       } catch {

@@ -114,6 +114,13 @@ export const Scopes = {
   // session and the raw single-use token, no API key required.
   InvitationsRead: 'invitations:read',
   InvitationsManage: 'invitations:admin',
+
+  // Domain auto-join policies. Read lists configured policies (admin+);
+  // Manage replaces the policy table (owner+admin, MFA step-up). Policies
+  // only ever assign 'member' or 'viewer' on first login; promotion to
+  // admin/owner still requires an explicit invite.
+  DomainPoliciesRead: 'domain-policies:read',
+  DomainPoliciesManage: 'domain-policies:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

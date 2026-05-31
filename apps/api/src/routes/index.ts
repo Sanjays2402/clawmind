@@ -39,6 +39,7 @@ import { retentionRoutes } from './retention.js';
 import { adminRoutes } from './admin.js';
 import { memberRoutes } from './members.js';
 import { invitationRoutes } from './invitations.js';
+import { domainPoliciesRoutes } from './domain-policies.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -81,5 +82,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(adminRoutes, { prefix: '/v1' });
   await app.register(memberRoutes, { prefix: '/v1' });
   await app.register(invitationRoutes, { prefix: '/v1' });
-  await app.register(invitationRoutes, { prefix: '/v1' });
+  await app.register(domainPoliciesRoutes, { prefix: '/v1' });
 }

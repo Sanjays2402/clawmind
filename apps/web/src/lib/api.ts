@@ -1063,7 +1063,29 @@ export const api = {
   // "is this tenant configured safely" without clicking eight settings
   // panels.
   adminOverview: () => j<AdminOverview>('/v1/admin/overview'),
+
+  // Domain auto-join policies. Admin+ can read; owner/admin can replace
+  // with MFA step-up. The auth preHandler consults this list on every
+  // login and uses the matching role as the default for brand-new users.
+  domainPoliciesList: () =>
+    j<{ policies: DomainPolicy[]; assignableRoles: AutoJoinRole[]; maxPolicies: number }>(
+      '/v1/domain-policies',
+    ),
+  domainPoliciesReplace: (policies: Array<{ domain: string; role: AutoJoinRole; enabled: boolean }>) =>
+    j<{ policies: DomainPolicy[] }>('/v1/domain-policies', {
+      method: 'PUT',
+      body: JSON.stringify({ policies }),
+    }).then((r) => r.policies),
 };
+
+export type AutoJoinRole = 'member' | 'viewer';
+export interface DomainPolicy {
+  domain: string;
+  role: AutoJoinRole;
+  enabled: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
 
 export interface AdminOverview {
   user: { id: string; role: string };

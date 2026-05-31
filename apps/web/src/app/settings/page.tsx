@@ -421,6 +421,7 @@ function ShortcutsCard() {
     { href: '/settings/sessions', label: 'Active sessions', description: 'See where you are signed in and force-logout any browser.', Icon: IconKey },
     { href: '/settings/members', label: 'Members and RBAC', description: 'Invite teammates and assign owner, admin, member, or viewer.', Icon: IconShield },
     { href: '/settings/invitations', label: 'Email invitations', description: 'Send one-time invitation links that pre-bind a role and expire.', Icon: IconShield },
+    { href: '/settings/domains', label: 'Domain auto-join', description: 'Auto-enrol new sign-ins from verified email domains.', Icon: IconShield },
     { href: '/settings/retention', label: 'Data retention', description: 'Auto-erase history and conversations on a schedule.', Icon: IconClockCountdown },
     { href: '/settings/notifications', label: 'Notification preferences', description: 'Pick which inbox alerts you want to receive.', Icon: IconSettings },
     { href: '/usage', label: 'Usage details', description: 'Per-kind breakdown and reset timer.', Icon: IconChartBar },
