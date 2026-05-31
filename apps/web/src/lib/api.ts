@@ -1770,7 +1770,49 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify(body),
     }).then((r) => r.request),
+
+  // Trust Center. Public GET /v1/trust is the URL procurement / vendor
+  // review tools crawl, so it must stay unauthenticated. PUT is owner+MFA.
+  trustPublic: () => j<TrustPublicProfile>('/v1/trust'),
+  trustAdmin: () => j<TrustProfile>('/v1/trust/admin'),
+  trustUpdate: (body: Partial<TrustProfileInput>) =>
+    j<TrustProfile>('/v1/trust', { method: 'PUT', body: JSON.stringify(body) }),
 };
+
+export type ComplianceStatus = 'in_progress' | 'achieved' | 'not_pursued';
+export interface ComplianceFramework {
+  name: string;
+  status: ComplianceStatus;
+  issuedAt: string | null;
+  auditor: string | null;
+  reportUrl: string | null;
+}
+export interface TrustLink { label: string; url: string }
+export interface TrustProfile {
+  summary: string;
+  securityContactEmail: string | null;
+  vulnerabilityPolicyUrl: string | null;
+  frameworks: ComplianceFramework[];
+  encryptionAtRest: string | null;
+  encryptionInTransit: string | null;
+  dataResidency: string | null;
+  links: TrustLink[];
+  updatedAt: number;
+  updatedBy: string | null;
+}
+export interface TrustPublicProfile extends Omit<TrustProfile, 'updatedBy'> {
+  generatedAt: number;
+}
+export interface TrustProfileInput {
+  summary: string;
+  securityContactEmail: string | null;
+  vulnerabilityPolicyUrl: string | null;
+  frameworks: ComplianceFramework[];
+  encryptionAtRest: string | null;
+  encryptionInTransit: string | null;
+  dataResidency: string | null;
+  links: TrustLink[];
+}
 
 export type DsrKind = 'access' | 'erasure' | 'rectification' | 'portability' | 'restriction';
 export type DsrStatus = 'unverified' | 'pending' | 'acknowledged' | 'fulfilled' | 'rejected';

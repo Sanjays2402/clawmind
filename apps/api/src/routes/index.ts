@@ -57,6 +57,7 @@ import { subProcessorsRoutes } from './sub-processors.js';
 import { dataResidencyRoutes } from './data-residency.js';
 import { dsrRoutes } from './dsr.js';
 import { workspaceIpAllowlistRoutes } from './workspace-ip-allowlist.js';
+import { trustRoutes, securityTxtRoutes } from './trust.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -118,4 +119,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(dataResidencyRoutes, { prefix: '/v1' });
   await app.register(dsrRoutes, { prefix: '/v1' });
   await app.register(workspaceIpAllowlistRoutes, { prefix: '/v1' });
+  await app.register(trustRoutes, { prefix: '/v1' });
+  // RFC 9116 lives at the well-known root, not under /v1.
+  await app.register(securityTxtRoutes);
 }

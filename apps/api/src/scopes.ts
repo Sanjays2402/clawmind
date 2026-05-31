@@ -245,6 +245,13 @@ export const Scopes = {
   // design so non-members can exercise their statutory rights.
   DsrRead: 'dsr:read',
   DsrManage: 'dsr:admin',
+
+  // Workspace Trust Center. Read is admin+ so a compliance operator
+  // can pull the operator view that includes updatedBy; Manage is
+  // owner-only with MFA step-up at the route because edits land on a
+  // public, internet-facing page that procurement teams cite by URL.
+  TrustRead: 'trust:read',
+  TrustManage: 'trust:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

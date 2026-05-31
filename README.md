@@ -10,6 +10,27 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Trust Center: a public, server-rendered `/trust` page that procurement and security reviewers can cite by URL, backed by an owner-edited profile (summary, security contact, vulnerability disclosure URL, compliance frameworks with status and issued dates, encryption at rest / in transit, data residency, and additional resource links). The unauthenticated `GET /v1/trust` returns the same JSON a buyer's vendor-review tool can ingest into their questionnaire pipeline, while `GET /.well-known/security.txt` is auto-derived from the same profile so vulnerability scanners get an RFC 9116 record without anyone copy-pasting one. The operator console at `/settings/trust` is owner only with MFA step-up; every edit writes a `trust.update` row into the hash-chained audit log. Backed by `GET /v1/trust` (public), `GET /v1/trust/admin` (admin+), and `PUT /v1/trust` (owner+MFA), gated by the new `trust:read` / `trust:admin` API key scopes.
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # Public trust profile, no auth (cite this URL in your DPA)
+  curl -sS http://localhost:8787/v1/trust
+
+  # RFC 9116 security.txt, auto-derived from the trust profile
+  curl -sS http://localhost:8787/.well-known/security.txt
+
+  # Owner updates the profile (requires MFA-stepped session bearer)
+  curl -sS -X PUT http://localhost:8787/v1/trust \
+    -H "Authorization: Bearer $CLAWMIND_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"summary":"SOC 2 Type II since 2025-01.","securityContactEmail":"security@example.com","vulnerabilityPolicyUrl":"https://example.com/security/disclosure","frameworks":[{"name":"SOC 2 Type II","status":"achieved","issuedAt":"2025-01-15","auditor":"Prescient Assurance","reportUrl":null}],"encryptionAtRest":"AES-256 at the storage layer","encryptionInTransit":"TLS 1.3 for every public endpoint","dataResidency":"us-east-1 by default; EU residency available on request","links":[]}'
+
+  # Browse the public page in a browser
+  open http://localhost:3000/trust
+  ```
+
 - Hybrid retrieval: LanceDB dense vectors + BM25 lexical, merged with MMR
 - Namespaces inferred from path (memory / sessions / projects / docs / misc) for scoped queries
 - Streaming and non-streaming `/ask` with cited spans back to source files
