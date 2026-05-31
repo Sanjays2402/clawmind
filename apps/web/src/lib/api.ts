@@ -81,6 +81,7 @@ export interface HistoryItem {
   answer: string;
   model: string;
   sources: Array<Source & { namespace?: string }>;
+  tags?: string[];
 }
 
 export interface FeedbackEntry {
@@ -264,6 +265,24 @@ export interface WebhookDelivery {
   durationMs: number;
 }
 
+// Build the /v1/history querystring once so list, response, and any future
+// caller share normalisation rules (comma-separated arrays, omitted blanks).
+function historyResponse(
+  params: { q?: string; namespaces?: string[]; tags?: string[]; since?: number; until?: number; limit?: number },
+): Promise<{ items: HistoryItem[]; total: number; availableTags?: string[] }> {
+  const qs = new URLSearchParams();
+  if (params.q) qs.set('q', params.q);
+  if (params.namespaces && params.namespaces.length) qs.set('namespaces', params.namespaces.join(','));
+  if (params.tags && params.tags.length) qs.set('tags', params.tags.join(','));
+  if (params.since !== undefined) qs.set('since', String(params.since));
+  if (params.until !== undefined) qs.set('until', String(params.until));
+  if (params.limit !== undefined) qs.set('limit', String(params.limit));
+  const q = qs.toString();
+  return j<{ items: HistoryItem[]; total: number; availableTags?: string[] }>(
+    `/v1/history${q ? `?${q}` : ''}`,
+  );
+}
+
 export const api = {
   health: () =>
     j<{ ok: boolean; embed: boolean; llm: boolean; docs: number; chunks: number }>('/health'),
@@ -307,21 +326,28 @@ export const api = {
 
   // History and saved
   history: (
-    params: { q?: string; namespaces?: string[]; since?: number; until?: number; limit?: number } = {},
-  ) => {
-    const qs = new URLSearchParams();
-    if (params.q) qs.set('q', params.q);
-    if (params.namespaces && params.namespaces.length) qs.set('namespaces', params.namespaces.join(','));
-    if (params.since !== undefined) qs.set('since', String(params.since));
-    if (params.until !== undefined) qs.set('until', String(params.until));
-    if (params.limit !== undefined) qs.set('limit', String(params.limit));
-    const q = qs.toString();
-    return j<{ items: HistoryItem[]; total: number }>(
-      `/v1/history${q ? `?${q}` : ''}`,
-    ).then((r) => r.items);
-  },
+    params: { q?: string; namespaces?: string[]; tags?: string[]; since?: number; until?: number; limit?: number } = {},
+  ) => historyResponse(params).then((r) => r.items),
+  historyResponse: (
+    params: { q?: string; namespaces?: string[]; tags?: string[]; since?: number; until?: number; limit?: number } = {},
+  ) => historyResponse(params),
   removeHistoryItem: (id: string) =>
     j<{ id: string; deleted: boolean }>(`/v1/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setHistoryTags: (id: string, tags: string[]) =>
+    j<{ id: string; tags: string[] }>(`/v1/history/${encodeURIComponent(id)}/tags`, {
+      method: 'PUT',
+      body: JSON.stringify({ tags }),
+    }),
+  addHistoryTags: (id: string, tags: string[]) =>
+    j<{ id: string; tags: string[] }>(`/v1/history/${encodeURIComponent(id)}/tags`, {
+      method: 'POST',
+      body: JSON.stringify({ tags }),
+    }),
+  removeHistoryTags: (id: string, tags: string[]) =>
+    j<{ id: string; tags: string[] }>(`/v1/history/${encodeURIComponent(id)}/tags`, {
+      method: 'DELETE',
+      body: JSON.stringify({ tags }),
+    }),
   savedList: () => j<{ items: SavedSearch[] }>('/v1/saved').then((r) => r.items),
   saveSearch: (input: { title: string; query: string; tags?: string[] }) =>
     j<{ item: SavedSearch }>('/v1/saved', { method: 'POST', body: JSON.stringify(input) }).then((r) => r.item),

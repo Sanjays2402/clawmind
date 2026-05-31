@@ -19,6 +19,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Search workspace: `/search` runs hybrid retrieval with namespace chips, include and exclude tag filters (auto-completing against your tag library), client-side sort and pagination, recent searches persisted in `localStorage`, and full filter state in the URL so a shared link restores the exact view
 - Conversations: multi-turn threads with archive, fork, rename, Markdown export, and full-text search across titles and message content with highlighted snippets, paginated results, and a `/`-to-focus search box
 - History export: download every past ask as `.json`, `.csv`, or `.md`, with the same search and namespace filters the History page is showing
+- Per-question tags on history: add freeform tags to any past Q&A and filter the History page by one or more tags. Tags live in `history-tags.json` keyed by user, are scoped by the `history:read` / `history:write` API key scopes, and are returned inline on `GET /v1/history` so the page renders in one round trip
 - Feedback (thumbs / notes) on answers, used to mark good or bad chunks
 - Digests: scheduled recurring queries (e.g. "what changed this week in projects/")
 - Stale source detection (files indexed but not seen on disk recently)
@@ -125,6 +126,16 @@ Or browse <http://127.0.0.1:7412/history> to search every past question, expand 
 
 ```bash
 curl 'http://127.0.0.1:7410/v1/history?q=kernel&namespaces=memory&limit=20'
+```
+
+Tag a past question, then narrow History to just that tag (also surfaced as clickable chips at the top of <http://127.0.0.1:7412/history>):
+
+```bash
+curl -X PUT 'http://127.0.0.1:7410/v1/history/<id>/tags' \
+  -H 'content-type: application/json' \
+  -d '{"tags":["travel","research"]}'
+
+curl 'http://127.0.0.1:7410/v1/history?tags=travel&limit=50'
 ```
 
 Or open <http://127.0.0.1:7412/conversations> to find any past thread by title or by something you (or the assistant) said inside it. The search box is debounced, hits show a highlighted snippet of the matching turn, results paginate at 25 per page, and pressing `/` from anywhere on the page jumps focus into the search field. The same endpoint backs every query:

@@ -26,6 +26,8 @@ export default function HistoryPage() {
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
   const [namespaces, setNamespaces] = useState<Ns[]>([]);
+  const [activeTags, setActiveTags] = useState<string[]>([]);
+  const [availableTags, setAvailableTags] = useState<string[]>([]);
   const [openId, setOpenId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -38,21 +40,23 @@ export default function HistoryPage() {
     setLoading(true);
     setError(null);
     api
-      .history({
+      .historyResponse({
         q: debounced || undefined,
         namespaces: namespaces.length ? namespaces : undefined,
+        tags: activeTags.length ? activeTags : undefined,
         limit: 200,
       })
-      .then((rows) => {
+      .then((res) => {
         if (cancelled) return;
-        setItems(rows);
+        setItems(res.items);
+        if (res.availableTags) setAvailableTags(res.availableTags);
       })
       .catch((e: Error) => !cancelled && setError(e.message))
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [debounced, namespaces]);
+  }, [debounced, namespaces, activeTags]);
 
   const stats = useMemo(() => {
     if (!items.length) return null;
@@ -72,6 +76,10 @@ export default function HistoryPage() {
 
   function toggleNs(ns: Ns) {
     setNamespaces((prev) => (prev.includes(ns) ? prev.filter((n) => n !== ns) : [...prev, ns]));
+  }
+
+  function toggleTag(tag: string) {
+    setActiveTags((prev) => (prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]));
   }
 
   return (
@@ -183,6 +191,71 @@ export default function HistoryPage() {
           />
         </div>
 
+        {availableTags.length > 0 && (
+          <div
+            style={{
+              marginTop: 12,
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: 6,
+              alignItems: 'center',
+            }}
+          >
+            <span
+              className="cm-mono"
+              style={{
+                fontSize: 10.5,
+                textTransform: 'uppercase',
+                letterSpacing: '0.08em',
+                color: 'var(--cm-faint)',
+                marginRight: 4,
+              }}
+            >
+              tags
+            </span>
+            {availableTags.map((t) => {
+              const active = activeTags.includes(t);
+              return (
+                <button
+                  key={t}
+                  onClick={() => toggleTag(t)}
+                  aria-pressed={active}
+                  style={{
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    fontSize: 12,
+                    cursor: 'pointer',
+                    border: '1px solid var(--cm-border)',
+                    background: active ? 'var(--cm-accent)' : 'var(--cm-subtle)',
+                    color: active ? 'white' : 'var(--cm-fg)',
+                    fontFamily: 'var(--cm-font)',
+                  }}
+                >
+                  #{t}
+                </button>
+              );
+            })}
+            {activeTags.length > 0 && (
+              <button
+                onClick={() => setActiveTags([])}
+                style={{
+                  marginLeft: 4,
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  cursor: 'pointer',
+                  background: 'transparent',
+                  color: 'var(--cm-muted)',
+                  border: '1px solid var(--cm-border)',
+                  fontFamily: 'var(--cm-font)',
+                }}
+              >
+                clear tags
+              </button>
+            )}
+          </div>
+        )}
+
         {error && (
           <div style={{ marginTop: 24 }}>
             <ErrorState title="Could not load history" message={error} />
@@ -250,6 +323,14 @@ export default function HistoryPage() {
                 item={it}
                 open={openId === it.id}
                 onToggle={() => setOpenId((cur) => (cur === it.id ? null : it.id))}
+                onTagsChanged={(tags) => {
+                  setItems((cur) => cur.map((x) => (x.id === it.id ? { ...x, tags } : x)));
+                  setAvailableTags((cur) => {
+                    const next = new Set(cur);
+                    for (const t of tags) next.add(t);
+                    return Array.from(next).sort();
+                  });
+                }}
                 onDelete={async () => {
                   const ok = typeof window !== 'undefined'
                     ? window.confirm('Delete this history entry? This cannot be undone.')
@@ -380,11 +461,13 @@ function HistoryRow({
   open,
   onToggle,
   onDelete,
+  onTagsChanged,
 }: {
   item: HistoryItem;
   open: boolean;
   onToggle: () => void;
   onDelete: () => void | Promise<void>;
+  onTagsChanged: (tags: string[]) => void;
 }) {
   const [deleting, setDeleting] = useState(false);
   const sources = item.sources ?? [];
@@ -452,6 +535,20 @@ function HistoryRow({
               }}
             >
               {ns}
+            </span>
+          ))}
+          {(item.tags ?? []).map((t) => (
+            <span
+              key={`tag-${t}`}
+              style={{
+                padding: '2px 8px',
+                borderRadius: 999,
+                background: 'color-mix(in srgb, var(--cm-accent) 14%, transparent)',
+                color: 'var(--cm-accent)',
+                fontSize: 10.5,
+              }}
+            >
+              #{t}
             </span>
           ))}
           <span style={{ marginLeft: 'auto', color: 'var(--cm-muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -535,6 +632,14 @@ function HistoryRow({
           ) : (
             <div style={{ fontSize: 12, color: 'var(--cm-faint)' }}>No sources were cited for this answer.</div>
           )}
+
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <TagEditor
+              itemId={item.id}
+              tags={item.tags ?? []}
+              onChanged={onTagsChanged}
+            />
+          </div>
 
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <Link
@@ -624,5 +729,149 @@ function HistoryRow({
         </div>
       )}
     </li>
+  );
+}
+
+function TagEditor({
+  itemId,
+  tags,
+  onChanged,
+}: {
+  itemId: string;
+  tags: string[];
+  onChanged: (tags: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function add() {
+    const t = draft.trim().toLowerCase();
+    if (!t || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await api.addHistoryTags(itemId, [t]);
+      onChanged(res.tags);
+      setDraft('');
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(tag: string) {
+    if (busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const res = await api.removeHistoryTags(itemId, [tag]);
+      onChanged(res.tags);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center', width: '100%' }}>
+      <span
+        className="cm-mono"
+        style={{
+          fontSize: 10.5,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          color: 'var(--cm-faint)',
+        }}
+      >
+        tags
+      </span>
+      {tags.length === 0 && (
+        <span style={{ fontSize: 11, color: 'var(--cm-faint)' }}>none yet</span>
+      )}
+      {tags.map((t) => (
+        <span
+          key={t}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '3px 4px 3px 10px',
+            borderRadius: 999,
+            background: 'var(--cm-subtle)',
+            color: 'var(--cm-fg)',
+            fontSize: 11.5,
+            border: '1px solid var(--cm-border)',
+          }}
+        >
+          #{t}
+          <button
+            type="button"
+            aria-label={`Remove tag ${t}`}
+            onClick={() => remove(t)}
+            disabled={busy}
+            style={{
+              width: 18,
+              height: 18,
+              borderRadius: 999,
+              border: 'none',
+              background: 'transparent',
+              color: 'var(--cm-muted)',
+              cursor: busy ? 'not-allowed' : 'pointer',
+              fontSize: 12,
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          add();
+        }}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}
+      >
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder="add tag"
+          aria-label="Add a tag"
+          maxLength={32}
+          style={{
+            width: 110,
+            padding: '4px 8px',
+            borderRadius: 6,
+            border: '1px solid var(--cm-border)',
+            background: 'var(--cm-paper)',
+            color: 'var(--cm-fg)',
+            fontFamily: 'var(--cm-font)',
+            fontSize: 12,
+          }}
+        />
+        <button
+          type="submit"
+          disabled={busy || !draft.trim()}
+          style={{
+            padding: '4px 10px',
+            borderRadius: 6,
+            border: '1px solid var(--cm-border)',
+            background: 'var(--cm-subtle)',
+            color: 'var(--cm-fg)',
+            fontSize: 12,
+            cursor: busy || !draft.trim() ? 'not-allowed' : 'pointer',
+            fontFamily: 'var(--cm-font)',
+          }}
+        >
+          add
+        </button>
+      </form>
+      {err && (
+        <span style={{ fontSize: 11, color: 'var(--cm-danger, #c0392b)' }}>{err}</span>
+      )}
+    </div>
   );
 }
