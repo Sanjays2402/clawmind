@@ -432,6 +432,7 @@ function ShortcutsCard() {
     { href: '/settings/workspace-freeze', label: 'Workspace freeze', description: 'Pause every mutating endpoint while keeping reads and exports available.', Icon: IconShield },
     { href: '/settings/mfa-policy', label: 'MFA enforcement', description: 'Require every member to enrol multi-factor auth before any write is accepted.', Icon: IconShield },
     { href: '/settings/session-policy', label: 'Session lifetime', description: 'Cap how long a signed-in browser session lives and how long it can sit idle.', Icon: IconClockCountdown },
+    { href: '/settings/api-key-policy', label: 'API key policy', description: 'Cap key lifetime, require expiry, limit active keys per user, forbid wildcard scopes, and flag overdue rotations.', Icon: IconKey },
     { href: '/settings/workspace-export', label: 'Workspace export (GDPR)', description: 'Owner-only tenant-wide data export as JSON or ZIP. Required for exit and data-portability obligations.', Icon: IconShield },
     { href: '/settings/query-blocklist', label: 'Query blocklist', description: 'Block literal or regex patterns from reaching retrieval or the model on ask, search, and explain.', Icon: IconShield },
     { href: '/settings/policies', label: 'Workspace policies', description: 'Publish TOS, DPA, and AUP versions and track per-user acceptance.', Icon: IconBook },

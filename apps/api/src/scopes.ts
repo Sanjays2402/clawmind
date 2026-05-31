@@ -192,6 +192,15 @@ export const Scopes = {
   SessionPolicyRead: 'session-policy:read',
   SessionPolicyManage: 'session-policy:admin',
 
+  // Workspace-wide API-key issuance policy. Caps TTL, key count, scope
+  // count and wildcard usage at the moment keys are minted, plus a
+  // rotation reminder threshold. Read is admin+ so auditors can confirm
+  // the property is in force; Manage is owner-only with MFA step-up at
+  // the route because tightening it can immediately reject the next
+  // attempt to mint a key in CI.
+  ApiKeyPolicyRead: 'api-key-policy:read',
+  ApiKeyPolicyManage: 'api-key-policy:admin',
+
   // Tenant-wide GDPR / data-portability export. Per-user export already
   // lives under LifecycleManage; this is the owner-only "everything in
   // the workspace" path required by enterprise exit clauses. A narrow

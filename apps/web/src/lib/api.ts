@@ -417,6 +417,25 @@ export interface SessionPolicyLimits {
   defaultIdleMinutes: number;
 }
 
+export interface ApiKeyPolicy {
+  workspaceId: string;
+  maxTtlMinutes: number;
+  requireExpiry: boolean;
+  maxActiveKeysPerUser: number;
+  maxScopesPerKey: number;
+  allowWildcardScope: boolean;
+  forcedRotationDays: number;
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export interface ApiKeyPolicyLimits {
+  maxTtlMinutes: number;
+  maxActiveKeysPerUser: number;
+  maxScopesPerKey: number;
+  maxForcedRotationDays: number;
+}
+
 export type Region = 'us' | 'eu' | 'uk' | 'ca' | 'au' | 'ap' | 'other';
 
 export interface DataResidencyPolicy {
@@ -1118,6 +1137,14 @@ export const api = {
     j<{ policy: SessionPolicy; limits: SessionPolicyLimits }>('/v1/session-policy'),
   sessionPolicySet: (input: { maxLifetimeMinutes: number; idleTimeoutMinutes: number }) =>
     j<{ policy: SessionPolicy }>('/v1/session-policy', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.policy),
+
+  apiKeyPolicyGet: () =>
+    j<{ policy: ApiKeyPolicy; limits: ApiKeyPolicyLimits }>('/v1/api-key-policy'),
+  apiKeyPolicySet: (input: Partial<Omit<ApiKeyPolicy, 'workspaceId' | 'updatedAt' | 'updatedBy'>>) =>
+    j<{ policy: ApiKeyPolicy }>('/v1/api-key-policy', {
       method: 'PUT',
       body: JSON.stringify(input),
     }).then((r) => r.policy),

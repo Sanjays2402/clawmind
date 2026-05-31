@@ -1075,6 +1075,35 @@ curl -X PUT -H "Authorization: Bearer $CLAWMIND_API_KEY" \
 
 Every update writes a before/after diff to the hash-chained audit log under `session-policy.update`, and every revocation triggered by the policy writes `session.policy.expired` with the reason (`lifetime-exceeded` or `idle-timeout`), the limit, and the request id, so a compliance reviewer can prove the property was in force for any time window. Gated by the new `session-policy:read` / `session-policy:admin` API key scopes.
 
+### Workspace API key issuance policy
+
+Enterprise security teams ask the same set of questions about machine credentials on every review: can the workspace cap the maximum TTL of any API key, can it forbid never-expire keys, can it limit how many active keys one user holds, can it forbid the wildcard scope, and can it surface keys that are overdue for rotation? Per-key revoke and per-key rate limits are necessary but not sufficient; until the workspace itself enforces these properties on the issue path, the answer is "we hope so". An owner can now set them all in one place at <http://127.0.0.1:7412/settings/api-key-policy>:
+
+- `maxTtlMinutes` caps `ttlMs` at issuance. 0 disables the cap.
+- `requireExpiry` rejects never-expire keys (needs a non-zero max TTL so callers always have a legal value).
+- `maxActiveKeysPerUser` caps non-revoked, non-expired keys one user may hold.
+- `maxScopesPerKey` caps the scope array length at issuance.
+- `allowWildcardScope` when false rejects `*` and forces explicit scopes.
+- `forcedRotationDays` flags keys older than this on the `/v1/keys` list as `needsRotation: true` so operators can rotate before an auditor flags them.
+
+A fresh deployment defaults every knob to permissive so existing users see no change; owners opt in. The check runs before the secret is minted so a rejected request leaves no credential in the store, and every denial is written to the hash-chained audit log under `api_key.issue.denied` with the reason, the offending field, and the policy limit. Existing keys are never revoked retroactively; rotation is the mitigation, not the trap.
+
+Try it:
+
+```sh
+# read the current policy (admin+)
+curl -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  http://127.0.0.1:7410/v1/api-key-policy
+
+# 90 day cap, require expiry, max 5 keys per user, no wildcard, 30 day rotation
+curl -X PUT -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"maxTtlMinutes":129600,"requireExpiry":true,"maxActiveKeysPerUser":5,"allowWildcardScope":false,"forcedRotationDays":30}' \
+  http://127.0.0.1:7410/v1/api-key-policy
+```
+
+Gated by the new `api-key-policy:read` / `api-key-policy:admin` API key scopes; mutations require owner + MFA step-up to match the rest of the workspace-security family.
+
 ### Workspace policy acceptance (TOS / DPA / AUP)
 
 Procurement and SOC2 reviewers consistently ask for proof that every user has been shown and has affirmatively accepted the current Terms of Service, Data Processing Addendum, and Acceptable Use Policy. ClawMind ships this as a first-class workflow: an owner publishes a versioned policy, and every authenticated request is gated until each user has accepted the latest required version. Refusing or skipping returns `HTTP 451 Unavailable For Legal Reasons` with the unmet policy ids so a UI or script can recover deterministically.

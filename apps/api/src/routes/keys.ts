@@ -5,6 +5,11 @@ import { getUsageReport, purgeUsage } from '../services/api-key-usage.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
 import { DryRunQuery, isDryRun, auditAction } from '../lib/dry-run.js';
+import {
+  getPolicyCached as getApiKeyPolicy,
+  evaluateIssue as evaluateApiKeyIssue,
+  needsRotation as keyNeedsRotation,
+} from '../services/api-key-policy.js';
 
 const UsageQuery = z.object({
   recent: z.coerce.number().int().positive().max(200).optional(),
@@ -44,14 +49,54 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
     preHandler: [app.requireAuth, app.requireScope(Scopes.KeysManage)],
     handler: async (req) => {
       const keys = await listKeys(app.clawmind.dataDir, req.user!.id);
-      return { items: keys.map(redact) };
+      const policy = await getApiKeyPolicy(app.clawmind.dataDir);
+      const now = Date.now();
+      // Annotate each key with whether the workspace rotation policy
+      // says it is overdue. The list is the canonical surface admins
+      // see so they can act before an auditor flags it.
+      const items = keys.map((k) => ({
+        ...redact(k),
+        needsRotation: keyNeedsRotation(policy, k, now),
+      }));
+      return { items, policy: { forcedRotationDays: policy.forcedRotationDays } };
     },
   });
 
   app.post('/keys', {
     schema: { body: IssueBody },
     preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.KeysManage)],
-    handler: async (req) => {
+    handler: async (req, reply) => {
+      // Workspace-wide issuance policy: cap TTL, cap active key count,
+      // forbid wildcard scopes, etc. Enforced here BEFORE the secret is
+      // minted so a rejected request leaves no credential in the store.
+      const policy = await getApiKeyPolicy(app.clawmind.dataDir);
+      const existing = await listKeys(app.clawmind.dataDir, req.user!.id);
+      const now = Date.now();
+      const activeKeyCount = existing.filter((k) => {
+        if (k.revokedAt) return false;
+        if (k.expiresAt && k.expiresAt <= now) return false;
+        return true;
+      }).length;
+      const verdict = evaluateApiKeyIssue(policy, {
+        ttlMs: req.body.ttlMs ?? null,
+        scopes: req.body.scopes,
+        activeKeyCount,
+      });
+      if (!verdict.ok) {
+        await app.clawmind.audit.write({
+          actor: req.user!.id,
+          action: 'api_key.issue.denied',
+          resource: 'policy',
+          meta: { reason: verdict.reason, field: verdict.field, limit: verdict.limit ?? null },
+        });
+        return reply.code(409).send({
+          error: 'workspace_policy',
+          reason: verdict.reason,
+          field: verdict.field,
+          limit: verdict.limit ?? null,
+          message: verdict.message,
+        });
+      }
       const issued = await issueKey(app.clawmind.dataDir, {
         userId: req.user!.id,
         label: req.body.label,
