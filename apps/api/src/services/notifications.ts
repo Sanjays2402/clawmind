@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { nanoid } from 'nanoid';
+import { shouldDeliver } from './notification-prefs.js';
 
 // In-app notification inbox. One JSONL file per user keeps reads cheap (no
 // global scan) and writes append-only, so two concurrent producers cannot
@@ -86,7 +87,13 @@ export async function create(
   dataDir: string,
   input: CreateInput,
   now: number = Date.now(),
-): Promise<NotificationRecord> {
+): Promise<NotificationRecord | null> {
+  // Honour per-user notification preferences. A muted kind drops here
+  // before we touch the inbox file. Producers treat null as "delivered
+  // to /dev/null" and continue normally.
+  if (!(await shouldDeliver(dataDir, input.userId, input.kind))) {
+    return null;
+  }
   const items = await loadAll(dataDir, input.userId);
   if (input.dedupeKey) {
     const existing = items.find(
@@ -199,7 +206,8 @@ export async function clear(dataDir: string, userId: string): Promise<number> {
   return items.length;
 }
 
-/** Fire-and-forget helper for producers. Never throws. */
+/** Fire-and-forget helper for producers. Never throws. Returns silently
+ *  whether the notification was actually written or muted by user prefs. */
 export function notify(dataDir: string, input: CreateInput): Promise<void> {
   return create(dataDir, input).then(
     () => undefined,

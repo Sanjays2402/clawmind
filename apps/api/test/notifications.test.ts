@@ -27,8 +27,8 @@ describe('notifications service', () => {
   });
 
   it('creates a notification and lists newest first', async () => {
-    const a = await create(dir, { userId: 'u1', kind: 'system', title: 'first' }, 1);
-    const b = await create(dir, { userId: 'u1', kind: 'system', title: 'second' }, 2);
+    const a = (await create(dir, { userId: 'u1', kind: 'system', title: 'first' }, 1))!;
+    const b = (await create(dir, { userId: 'u1', kind: 'system', title: 'second' }, 2))!;
     const items = await list(dir, 'u1');
     expect(items.map((i) => i.id)).toEqual([b.id, a.id]);
     expect(await unreadCount(dir, 'u1')).toBe(2);
@@ -42,16 +42,16 @@ describe('notifications service', () => {
   });
 
   it('dedupeKey bumps existing unread row instead of inserting', async () => {
-    const first = await create(
+    const first = (await create(
       dir,
       { userId: 'u1', kind: 'share.viewed', title: '1 view', dedupeKey: 'share:abc' },
       10,
-    );
-    const second = await create(
+    ))!;
+    const second = (await create(
       dir,
       { userId: 'u1', kind: 'share.viewed', title: '2 views', dedupeKey: 'share:abc' },
       20,
-    );
+    ))!;
     expect(second.id).toBe(first.id);
     const items = await list(dir, 'u1');
     expect(items).toHaveLength(1);
@@ -61,21 +61,21 @@ describe('notifications service', () => {
   });
 
   it('dedupeKey does not fold once the row has been marked read', async () => {
-    const first = await create(
+    const first = (await create(
       dir,
       { userId: 'u1', kind: 'share.viewed', title: '1 view', dedupeKey: 'share:abc' },
-    );
+    ))!;
     await markRead(dir, 'u1', [first.id]);
-    const second = await create(
+    const second = (await create(
       dir,
       { userId: 'u1', kind: 'share.viewed', title: 'another view', dedupeKey: 'share:abc' },
-    );
+    ))!;
     expect(second.id).not.toBe(first.id);
     expect((await list(dir, 'u1'))).toHaveLength(2);
   });
 
   it('unreadOnly filter and limit on list()', async () => {
-    const a = await create(dir, { userId: 'u1', kind: 'system', title: 'a' }, 1);
+    const a = (await create(dir, { userId: 'u1', kind: 'system', title: 'a' }, 1))!;
     await create(dir, { userId: 'u1', kind: 'system', title: 'b' }, 2);
     await create(dir, { userId: 'u1', kind: 'system', title: 'c' }, 3);
     await markRead(dir, 'u1', [a.id]);
@@ -87,8 +87,8 @@ describe('notifications service', () => {
   });
 
   it('markRead is idempotent and only counts newly read', async () => {
-    const a = await create(dir, { userId: 'u1', kind: 'system', title: 'a' });
-    const b = await create(dir, { userId: 'u1', kind: 'system', title: 'b' });
+    const a = (await create(dir, { userId: 'u1', kind: 'system', title: 'a' }))!;
+    const b = (await create(dir, { userId: 'u1', kind: 'system', title: 'b' }))!;
     expect(await markRead(dir, 'u1', [a.id, b.id])).toBe(2);
     expect(await markRead(dir, 'u1', [a.id, b.id])).toBe(0);
     expect(await unreadCount(dir, 'u1')).toBe(0);
@@ -102,7 +102,7 @@ describe('notifications service', () => {
   });
 
   it('remove and clear delete rows', async () => {
-    const a = await create(dir, { userId: 'u1', kind: 'system', title: 'a' });
+    const a = (await create(dir, { userId: 'u1', kind: 'system', title: 'a' }))!;
     await create(dir, { userId: 'u1', kind: 'system', title: 'b' });
     expect(await remove(dir, 'u1', a.id)).toBe(true);
     expect(await remove(dir, 'u1', a.id)).toBe(false);

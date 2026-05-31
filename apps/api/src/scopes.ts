@@ -79,6 +79,9 @@ export const Scopes = {
   NotificationsRead: 'notifications:read',
   NotificationsWrite: 'notifications:write',
 
+  NotificationPrefsRead: 'notification-prefs:read',
+  NotificationPrefsWrite: 'notification-prefs:write',
+
   ProfileRead: 'profile:read',
   ProfileWrite: 'profile:write',
 } as const;

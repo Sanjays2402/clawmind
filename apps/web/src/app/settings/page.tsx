@@ -413,6 +413,7 @@ function ShortcutsCard() {
   const links: Array<{ href: string; label: string; description: string; Icon: typeof IconKey }> = [
     { href: '/keys', label: 'API keys', description: 'Issue, scope, and rotate keys.', Icon: IconKey },
     { href: '/webhooks', label: 'Webhooks', description: 'Outbound events on ask and ingest.', Icon: IconWebhook },
+    { href: '/settings/notifications', label: 'Notification preferences', description: 'Pick which inbox alerts you want to receive.', Icon: IconSettings },
     { href: '/usage', label: 'Usage details', description: 'Per-kind breakdown and reset timer.', Icon: IconChartBar },
   ];
   return (

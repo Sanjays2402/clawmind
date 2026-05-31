@@ -124,7 +124,11 @@ export default function NotificationsPage() {
               Notifications
             </h1>
             <p className="mt-1 text-sm text-cm-muted">
-              Activity on your shares and webhooks. Quiet by design, never email.
+              Activity on your shares and webhooks. Quiet by design, never email.{' '}
+              <Link href="/settings/notifications" className="underline hover:text-cm-fg">
+                Preferences
+              </Link>
+              .
             </p>
           </div>
           <div className="flex items-center gap-2 text-xs">

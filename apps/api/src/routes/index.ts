@@ -29,6 +29,7 @@ import { usageRoutes } from './usage.js';
 import { batchRoutes } from './batch.js';
 import { onboardingRoutes } from './onboarding.js';
 import { notificationRoutes } from './notifications.js';
+import { notificationPrefsRoutes } from './notification-prefs.js';
 import { profileRoutes } from './profile.js';
 import { collectionsRoutes } from './collections.js';
 
@@ -63,6 +64,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(batchRoutes, { prefix: '/v1' });
   await app.register(onboardingRoutes, { prefix: '/v1' });
   await app.register(notificationRoutes, { prefix: '/v1' });
+  await app.register(notificationPrefsRoutes, { prefix: '/v1' });
   await app.register(profileRoutes, { prefix: '/v1' });
   await app.register(collectionsRoutes, { prefix: '/v1' });
 }

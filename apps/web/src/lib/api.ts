@@ -761,6 +761,17 @@ export const api = {
   clearNotifications: () =>
     j<{ cleared: number }>('/v1/notifications', { method: 'DELETE' }),
 
+  // Notification preferences
+  getNotificationPreferences: () =>
+    j<{ preferences: NotificationPreferences; knownKinds: NotificationKind[] }>(
+      '/v1/notification-preferences',
+    ),
+  updateNotificationPreferences: (prefs: Partial<Record<NotificationKind, boolean>>) =>
+    j<{ preferences: NotificationPreferences; knownKinds: NotificationKind[] }>(
+      '/v1/notification-preferences',
+      { method: 'PUT', body: JSON.stringify({ prefs }) },
+    ),
+
   // Owner-only compliance audit log. The Fastify route enforces
   // role + scope, so a 401/403 here means "this user cannot review
   // the chain" and the UI should say so explicitly.
@@ -805,6 +816,12 @@ export type NotificationKind =
   | 'webhook.disabled'
   | 'webhook.failed'
   | 'system';
+
+export interface NotificationPreferences {
+  userId: string;
+  prefs: Partial<Record<NotificationKind, boolean>>;
+  updatedAt: number;
+}
 
 export interface NotificationItem {
   id: string;
