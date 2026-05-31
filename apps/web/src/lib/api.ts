@@ -4,6 +4,8 @@
 
 const BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:7410';
 
+export const API_BASE = BASE;
+
 export class ApiError extends Error {
   constructor(public status: number, public path: string, public body?: unknown) {
     super(`${path} ${status}`);

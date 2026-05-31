@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
-import { api, fmtRelative, type HistoryItem, type Source } from '@/lib/api';
+import { api, fmtRelative, API_BASE, type HistoryItem, type Source } from '@/lib/api';
 import {
   EmptyState,
   ErrorState,
@@ -174,6 +174,13 @@ export default function HistoryPage() {
               );
             })}
           </div>
+
+          <ExportMenu
+            disabled={loading || items.length === 0}
+            query={debounced}
+            namespaces={namespaces}
+            count={items.length}
+          />
         </div>
 
         {error && (
@@ -248,6 +255,96 @@ export default function HistoryPage() {
           </ul>
         )}
       </main>
+    </div>
+  );
+}
+
+function ExportMenu({
+  disabled,
+  query,
+  namespaces,
+  count,
+}: {
+  disabled: boolean;
+  query: string;
+  namespaces: string[];
+  count: number;
+}) {
+  const [open, setOpen] = useState(false);
+  function url(ext: 'json' | 'csv' | 'md') {
+    const params = new URLSearchParams();
+    if (query) params.set('q', query);
+    if (namespaces.length) params.set('namespaces', namespaces.join(','));
+    params.set('limit', '1000');
+    return `${API_BASE}/v1/history/export.${ext}?${params.toString()}`;
+  }
+  const baseBtn: React.CSSProperties = {
+    padding: '6px 12px',
+    borderRadius: 8,
+    fontSize: 12,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    border: '1px solid var(--cm-border)',
+    background: 'var(--cm-subtle)',
+    color: 'var(--cm-fg)',
+    fontFamily: 'var(--cm-font)',
+    opacity: disabled ? 0.5 : 1,
+  };
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        title={count ? `Download ${count} ${count === 1 ? 'answer' : 'answers'}` : 'Nothing to export'}
+        style={baseBtn}
+      >
+        Export {count > 0 && <span style={{ color: 'var(--cm-faint)' }}>({count})</span>}
+      </button>
+      {open && !disabled && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 'calc(100% + 6px)',
+            background: 'var(--cm-paper)',
+            border: '1px solid var(--cm-border)',
+            borderRadius: 10,
+            padding: 6,
+            display: 'grid',
+            gap: 2,
+            minWidth: 200,
+            zIndex: 10,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+          }}
+        >
+          {(['json', 'csv', 'md'] as const).map((ext) => (
+            <a
+              key={ext}
+              role="menuitem"
+              href={url(ext)}
+              onClick={() => setOpen(false)}
+              style={{
+                padding: '8px 10px',
+                borderRadius: 6,
+                fontSize: 13,
+                color: 'var(--cm-fg)',
+                textDecoration: 'none',
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 12,
+              }}
+            >
+              <span>Download .{ext}</span>
+              <span className="cm-mono" style={{ color: 'var(--cm-faint)', fontSize: 11 }}>
+                {ext === 'json' ? 'structured' : ext === 'csv' ? 'spreadsheet' : 'notes'}
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

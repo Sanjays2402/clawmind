@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { listHistory, pruneHistory } from '../services/history.js';
+import { historyToCsv, historyToJson, historyToMarkdown } from '../services/history-export.js';
 import { Scopes } from '../scopes.js';
 
 const ListQuery = z.object({
@@ -9,6 +10,14 @@ const ListQuery = z.object({
   until: z.coerce.number().int().nonnegative().optional(),
   q: z.string().min(1).max(200).optional(),
   // Comma-separated list of namespaces; expanded server-side.
+  namespaces: z.string().optional(),
+});
+
+const ExportQuery = z.object({
+  limit: z.coerce.number().int().min(1).max(10000).optional(),
+  since: z.coerce.number().int().nonnegative().optional(),
+  until: z.coerce.number().int().nonnegative().optional(),
+  q: z.string().min(1).max(200).optional(),
   namespaces: z.string().optional(),
 });
 
@@ -32,6 +41,44 @@ export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
       return { items, total: items.length };
     },
   });
+
+  // Export current user's history in the format hinted by the URL extension.
+  // Filters mirror GET /history so a customer can download exactly what the
+  // history UI is showing. Output is streamed as a download (Content-
+  // Disposition: attachment) so browsers save it instead of rendering it.
+  for (const fmt of ['json', 'csv', 'md'] as const) {
+    app.get(`/history/export.${fmt}`, {
+      schema: { querystring: ExportQuery },
+      preHandler: [app.requireAuth, app.requireScope(Scopes.HistoryRead)],
+      handler: async (req, reply) => {
+        const { limit, since, until, q, namespaces } = req.query as z.infer<typeof ExportQuery>;
+        const ns = namespaces
+          ? namespaces.split(',').map((s) => s.trim()).filter(Boolean)
+          : undefined;
+        const items = await listHistory(app.clawmind.dataDir, req.user!.id, {
+          limit: limit ?? 1000, since, until, q, namespaces: ns,
+        });
+        const stamp = new Date().toISOString().slice(0, 10);
+        const filename = `clawmind-history-${stamp}.${fmt}`;
+        if (fmt === 'json') {
+          return reply
+            .header('content-type', 'application/json; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(historyToJson(items));
+        }
+        if (fmt === 'csv') {
+          return reply
+            .header('content-type', 'text/csv; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(historyToCsv(items));
+        }
+        return reply
+          .header('content-type', 'text/markdown; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .send(historyToMarkdown(items));
+      },
+    });
+  }
 
   app.delete('/history', {
     schema: { querystring: PruneQuery },

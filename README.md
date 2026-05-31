@@ -17,6 +17,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Pins, mutes, and aliases to bias or exclude paths from retrieval
 - Tags on files, browsable as facets
 - Conversations: multi-turn threads with archive, fork, rename, and Markdown export
+- History export: download every past ask as `.json`, `.csv`, or `.md`, with the same search and namespace filters the History page is showing
 - Feedback (thumbs / notes) on answers, used to mark good or bad chunks
 - Digests: scheduled recurring queries (e.g. "what changed this week in projects/")
 - Stale source detection (files indexed but not seen on disk recently)
@@ -164,6 +165,21 @@ curl -OJ http://127.0.0.1:7410/v1/conversations/$CID/export.csv
 ```
 
 Markdown is for humans, JSON keeps the full structured payload with sources and scores, and CSV is one row per turn for spreadsheet review.
+
+### Export your history
+
+The History page (`http://127.0.0.1:7412/history`) has an Export menu that downloads every past ask in `.json`, `.csv`, or `.md`. Filters from the search box and namespace pills are passed through, so you only get what you are looking at. The same endpoint is available over the API:
+
+```sh
+# Everything
+curl -OJ 'http://127.0.0.1:7410/v1/history/export.json'
+
+# Spreadsheet-friendly, only memory + projects, matching "kernel"
+curl -OJ 'http://127.0.0.1:7410/v1/history/export.csv?q=kernel&namespaces=memory,projects&limit=500'
+
+# Markdown digest of the last 50 answers
+curl -OJ 'http://127.0.0.1:7410/v1/history/export.md?limit=50'
+```
 
 ### Webhooks
 
