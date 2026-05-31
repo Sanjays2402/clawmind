@@ -47,6 +47,24 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
     -d '{"monthlyLimit":10000,"perUserMonthlyLimit":500}'
   ```
 - Workspace quota policy: an owner-only `/settings/quota` page that sets a hard monthly ceiling on ask, search, and batch units across the whole workspace, plus an optional secondary per-member cap so one runaway integration cannot drain the shared budget. Setting the workspace ceiling to blank means unlimited (the enterprise / on-prem default); setting it to a number enforces the cap at the very front of `/v1/ask`, `/v1/ask/stream`, `/v1/search`, and `/v1/batch` so a single rogue API key cannot blow the budget regardless of which member owns it. Over-quota requests get `429 quota exceeded` with `x-clawmind-quota-scope: workspace|user`, `RateLimit-*` headers pointing at the next month boundary, and a body that includes both the per-user and workspace counters so the client can render the right banner. Backed by `GET /v1/workspace-quota` (admin+) and `PUT /v1/workspace-quota` (owner-only, MFA-stepped), gated by the new `workspace-quota:read` / `workspace-quota:admin` API key scopes, and every policy change writes to the hash-chained audit log with actor and the new limits.
+- Sub-processor registry (GDPR Article 28): an owner-only `/settings/sub-processors` page that maintains the disclosure list your Data Processing Agreement points at. The public, unauthenticated `GET /v1/sub-processors` returns the citable JSON (entity name, purpose, region, public DPA link, status, disclosed-at) so customer counsel can review without needing an account; the operator console at `GET /v1/sub-processors/admin` surfaces internal notes and `updatedBy`. Add, update, retire, and restore are owner-only with MFA step-up and support `?dry_run=true` so a procurement reviewer can preview the change before publishing. Every mutation writes a `sub-processor.add|update|retire` row to the hash-chained audit log with a before/after diff in `meta`, and broadcasts a `sub-processor.changed` in-app notification to every workspace member so customers get the advance notice that most master agreements require. Retirement is a status flip rather than a hard delete so the registry stays a complete historical disclosure record. Backed by the new `sub-processors:read` / `sub-processors:admin` API key scopes and de-duplicates active entries by case-insensitive name.
+
+  Try it locally (API on `http://localhost:8787`):
+
+  ```bash
+  # Public DPA-citable list (no auth)
+  curl -sS http://localhost:8787/v1/sub-processors
+
+  # Disclose a new sub-processor (owner key, MFA-stepped)
+  curl -sS -X POST http://localhost:8787/v1/sub-processors \
+    -H "Authorization: Bearer $CLAWMIND_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"name":"AcmeDB","purpose":"Primary database","region":"us-east-1","website":"https://acme.example/dpa"}'
+
+  # Preview a retirement without mutating
+  curl -sS -X DELETE 'http://localhost:8787/v1/sub-processors/sp_xxx?dry_run=true' \
+    -H "Authorization: Bearer $CLAWMIND_KEY"
+  ```
 - Shareable read-only answer links, created in one click from the Share button under any finished chat answer, with per-share OpenGraph cards (dynamic 1200x630 image, Twitter `summary_large_image`, title and snippet) so a pasted `/s/<id>` URL renders as a rich preview in Slack, iMessage, and X. Every link carries an expiry (default 30 days, max 365, chosen at create time) so a leaked URL stops resolving on its own with `410 Gone`; expiry, creation, and revoke are all written to the audit log. The public `/s/<id>` page also renders the cited sources (path, line range, excerpt), the share timestamp, a copy-link button, and a Try ClawMind CTA so first-time viewers can convert into users. The `/shares` page lists every link you created, with view counts, expiry countdown, an Expired badge once the TTL has elapsed, copy-link, and one-click revoke so a leaked URL is easy to kill
 - Installable PWA: web app manifest, offline shell, and in-app install prompt so the web UI lives on your home screen with quick shortcuts to Ask, Search, and Saved
 - Sandbox preview on every destructive endpoint: append `?dry_run=true` to a DELETE and the server returns the exact counts the real call would report without touching storage. Wired across the GDPR account hard-delete, bulk history prune, bulk and single notification deletes, share revoke, webhook delete, API key revoke, and session revoke, on top of the existing members / invitations / domain-policies / retention / maintenance previews. The audit log records previews under `<action>.dry_run` so an auditor can always tell a rehearsal apart from a real mutation, and the GDPR card on `/settings` exposes a one-click Preview deletion button that itemises history items, conversations, saved items, feedback votes, and keys before you type DELETE.

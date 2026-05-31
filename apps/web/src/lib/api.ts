@@ -1632,7 +1632,76 @@ export const api = {
       `/v1/api-key-bruteforce/${encodeURIComponent(ip)}`,
       { method: 'DELETE' },
     ),
+
+  // Sub-processor registry. GET /sub-processors is public (no auth) so
+  // customer DPAs can cite the URL; the admin view surfaces internal
+  // notes and updatedBy for the operator console.
+  subProcessorsPublic: () =>
+    j<{
+      intro: string;
+      contactEmail: string | null;
+      updatedAt: number;
+      entries: SubProcessor[];
+    }>('/v1/sub-processors'),
+  subProcessorsAdmin: () =>
+    j<SubProcessorRegistry>('/v1/sub-processors/admin'),
+  subProcessorsCreate: (body: {
+    name: string;
+    purpose: string;
+    region: string;
+    website?: string | null;
+    notes?: string | null;
+  }) =>
+    j<{ entry: SubProcessor; registry: SubProcessorRegistry }>(
+      '/v1/sub-processors',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  subProcessorsUpdate: (
+    id: string,
+    body: Partial<{
+      name: string;
+      purpose: string;
+      region: string;
+      website: string | null;
+      notes: string | null;
+      status: 'active' | 'retired';
+    }>,
+  ) =>
+    j<{ entry: SubProcessor; registry: SubProcessorRegistry }>(
+      `/v1/sub-processors/${encodeURIComponent(id)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  subProcessorsRetire: (id: string) =>
+    j<{ entry: SubProcessor; registry: SubProcessorRegistry }>(
+      `/v1/sub-processors/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    ),
+  subProcessorsSettings: (body: { intro?: string; contactEmail?: string | null }) =>
+    j<SubProcessorRegistry>('/v1/sub-processors/settings', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
 };
+
+export interface SubProcessor {
+  id: string;
+  name: string;
+  purpose: string;
+  region: string;
+  website: string | null;
+  status: 'active' | 'retired';
+  disclosedAt: number;
+  updatedAt: number;
+  notes: string | null;
+}
+
+export interface SubProcessorRegistry {
+  intro: string;
+  contactEmail: string | null;
+  entries: SubProcessor[];
+  updatedAt: number;
+  updatedBy: string | null;
+}
 
 export interface BlocklistRule {
   id: string;

@@ -24,6 +24,7 @@ export const KNOWN_KINDS: readonly NotificationKind[] = Object.freeze([
   'share.viewed',
   'webhook.disabled',
   'webhook.failed',
+  'sub-processor.changed',
   'system',
 ] as const);
 

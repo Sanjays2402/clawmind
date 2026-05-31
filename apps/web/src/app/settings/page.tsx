@@ -440,6 +440,7 @@ function ShortcutsCard() {
     { href: '/usage', label: 'Usage details', description: 'Per-kind breakdown and reset timer.', Icon: IconChartBar },
     { href: '/settings/quota', label: 'Workspace quota', description: 'Cap monthly ask/search/batch spend across the workspace and per member. Required for enterprise spend controls.', Icon: IconChartBar },
     { href: '/settings/api-key-bruteforce', label: 'API key brute-force monitor', description: 'See source IPs blocked after repeated failed Bearer verifications and clear individual lockouts.', Icon: IconShield },
+    { href: '/settings/sub-processors', label: 'Sub-processors', description: 'GDPR Article 28 disclosure registry referenced by your DPA. Mutations are audit logged and notify members.', Icon: IconShield },
   ];
   return (
     <Section title="Account controls" description="Manage how this account talks to the outside world.">

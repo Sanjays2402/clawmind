@@ -216,6 +216,24 @@ export const Scopes = {
   // (see ask/search/batch).
   WorkspaceQuotaRead: 'workspace-quota:read',
   WorkspaceQuotaManage: 'workspace-quota:admin',
+
+  // Sub-processor registry (GDPR Article 28 disclosure). Read is admin+
+  // because the operator view surfaces internal notes and updatedBy;
+  // the public projection at GET /v1/sub-processors has no auth at all
+  // by design so customer DPAs can cite a stable URL. Manage is
+  // owner-only with MFA step-up at the route because adding a new
+  // sub-processor is a regulatory disclosure that broadcasts an
+  // in-app notification to every member.
+  SubProcessorsRead: 'sub-processors:read',
+  SubProcessorsManage: 'sub-processors:admin',
+
+  // Workspace data residency policy. Read is admin+ so a compliance
+  // operator can quote the configured allow-list and current server
+  // region in a DPA; Manage is owner-only with MFA step-up because
+  // tightening the policy can immediately 451 every member's writes
+  // until the request is routed to a compliant region.
+  DataResidencyRead: 'data-residency:read',
+  DataResidencyManage: 'data-residency:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

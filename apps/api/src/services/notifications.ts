@@ -16,6 +16,7 @@ export type NotificationKind =
   | 'share.viewed'
   | 'webhook.disabled'
   | 'webhook.failed'
+  | 'sub-processor.changed'
   | 'system';
 
 export interface NotificationRecord {
