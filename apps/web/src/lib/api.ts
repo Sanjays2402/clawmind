@@ -1601,6 +1601,37 @@ export const api = {
     j<{ rule: BlocklistRule }>(`/v1/query-blocklist/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     }).then((r) => r.rule),
+
+  // API-key brute-force throttle. Surfaces the currently locked source
+  // IPs, recent failed attempts, and the policy parameters so an admin
+  // can demo "failed-key probing is blocked at the front door".
+  apiKeyBruteForceGet: () =>
+    j<{
+      config: { maxFails: number; windowMs: number; lockoutMs: number };
+      ips: Array<{
+        ip: string;
+        locked: boolean;
+        recent: number;
+        lockedUntil: number;
+        totalFails: number;
+        totalLocks: number;
+        lastReason: string | null;
+      }>;
+      recent: Array<{
+        ts: number;
+        event: 'fail' | 'lock' | 'unlock';
+        ip: string;
+        reason: string;
+        recent: number;
+        lockedUntil: number;
+      }>;
+      summary: { tracked: number; locked: number };
+    }>('/v1/api-key-bruteforce'),
+  apiKeyBruteForceUnlock: (ip: string) =>
+    j<{ ok: boolean; ip: string }>(
+      `/v1/api-key-bruteforce/${encodeURIComponent(ip)}`,
+      { method: 'DELETE' },
+    ),
 };
 
 export interface BlocklistRule {

@@ -3,6 +3,11 @@ import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { verifySecret, hasScope, ipAllowedByKey, originAllowedByKey } from '../services/api-keys.js';
 import { recordUsage } from '../services/api-key-usage.js';
 import { consume as consumeKeyBucket } from '../services/api-key-rate-limit.js';
+import {
+  status as bruteforceStatus,
+  recordFailure as bruteforceRecordFailure,
+  recordSuccess as bruteforceRecordSuccess,
+} from '../services/api-key-bruteforce.js';
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
 import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid, getBySid as getSessionBySid, revokeBySid as revokeSessionBySid } from '../services/sessions.js';
 import { getPolicyCached as getSessionPolicyCached, evaluateSession as evaluateSessionPolicy } from '../services/session-policy.js';
@@ -83,7 +88,51 @@ const plugin: FastifyPluginAsync = async (app) => {
     const auth = req.headers.authorization;
     if (auth && auth.startsWith('Bearer ')) {
       const presented = auth.slice('Bearer '.length).trim();
+      // Brute-force gate. If this source IP has tripped the failed-Bearer
+      // threshold we 429 the request without ever calling verifySecret, so
+      // an attacker cannot keep probing for a valid key from a fixed IP.
+      const bf = bruteforceStatus(req.ip);
+      if (bf.locked) {
+        const retrySec = Math.max(1, Math.ceil((bf.lockedUntil - Date.now()) / 1000));
+        applyRateLimitHeaders(reply, {
+          limit: bf.maxFails,
+          remaining: 0,
+          resetMs: bf.lockedUntil,
+          windowSec: Math.max(1, Math.round(bf.windowMs / 1000)),
+          policy: 'api-key-bruteforce',
+        });
+        reply.header('retry-after', String(retrySec));
+        return reply.code(429).send({
+          error: 'too many failed api key attempts',
+          scope: 'api-key-bruteforce',
+          ip: req.ip,
+          resetAt: new Date(bf.lockedUntil).toISOString(),
+        });
+      }
       const result = await verifySecret(app.clawmind.dataDir, presented);
+      if (!result.ok) {
+        const outcome = await bruteforceRecordFailure(
+          app.clawmind.dataDir,
+          req.ip,
+          result.reason,
+        );
+        if (outcome.lockedNow) {
+          void app.clawmind.audit.write({
+            actor: 'system',
+            action: 'api_key.bruteforce.lock',
+            resource: req.ip,
+            meta: {
+              ip: req.ip,
+              reason: result.reason,
+              recent: outcome.status.recent,
+              lockedUntil: outcome.status.lockedUntil,
+              route: req.url,
+            },
+          }).catch(() => undefined);
+        }
+      } else {
+        bruteforceRecordSuccess(req.ip);
+      }
       if (result.ok) {
         // Per-key IP allowlist. Reject before issuing usage credit so a
         // probing client cannot map the key's scope set from outside its

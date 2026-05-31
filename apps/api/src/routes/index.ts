@@ -52,6 +52,7 @@ import { queryBlocklistRoutes } from './query-blocklist.js';
 import { accessReviewsRoutes } from './access-reviews.js';
 import { offboardingRoutes } from './offboarding.js';
 import { workspaceQuotaRoutes } from './workspace-quota.js';
+import { apiKeyBruteForceRoutes } from './api-key-bruteforce.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -108,4 +109,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(accessReviewsRoutes, { prefix: '/v1' });
   await app.register(offboardingRoutes, { prefix: '/v1' });
   await app.register(workspaceQuotaRoutes, { prefix: '/v1' });
+  await app.register(apiKeyBruteForceRoutes, { prefix: '/v1' });
 }
