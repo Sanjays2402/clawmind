@@ -370,6 +370,55 @@ export interface MemberInviteInput {
   label?: string | null;
 }
 
+export type ReviewDecision = 'pending' | 'keep' | 'downgrade' | 'revoke';
+export type ReviewStatus = 'open' | 'closed';
+export type ReviewAppliedAction =
+  | 'none'
+  | 'downgraded'
+  | 'revoked'
+  | 'skipped-missing'
+  | 'skipped-last-owner';
+
+export interface AccessReviewItem {
+  userId: string;
+  snapshotRole: MemberRole;
+  email: string | null;
+  label: string | null;
+  snapshotLastSeenAt: number | null;
+  decision: ReviewDecision;
+  downgradeTo: MemberRole | null;
+  note: string | null;
+  decidedBy: string | null;
+  decidedAt: number | null;
+  appliedAction: ReviewAppliedAction | null;
+  appliedError: string | null;
+}
+
+export interface AccessReview {
+  id: string;
+  title: string;
+  status: ReviewStatus;
+  openedBy: string;
+  openedAt: number;
+  closedBy: string | null;
+  closedAt: number | null;
+  attestation: string | null;
+  items: AccessReviewItem[];
+}
+
+export interface AccessReviewSummary {
+  total: number;
+  open: number;
+  closed: number;
+  daysSinceLastClose: number | null;
+}
+
+export interface AccessReviewApplied {
+  userId: string;
+  action: ReviewAppliedAction;
+  error: string | null;
+}
+
 export type InvitationStatus = 'pending' | 'accepted' | 'revoked' | 'expired';
 
 export interface InvitationRecord {
@@ -811,6 +860,35 @@ export const api = {
     j<{ removed: MemberRecord }>(`/v1/members/${encodeURIComponent(userId)}`, {
       method: 'DELETE',
     }).then((r) => r.removed),
+
+  // Periodic access reviews (SOC2 CC6.3). Owners open a campaign,
+  // walk every member, mark keep / downgrade / revoke, then close to
+  // apply changes and produce an attested recertification record.
+  accessReviewsList: () =>
+    j<{ reviews: AccessReview[] }>('/v1/access-reviews').then((r) => r.reviews),
+  accessReviewsSummary: () =>
+    j<AccessReviewSummary>('/v1/access-reviews/summary'),
+  accessReviewsGet: (id: string) =>
+    j<{ review: AccessReview }>(`/v1/access-reviews/${encodeURIComponent(id)}`).then((r) => r.review),
+  accessReviewsOpen: (title: string) =>
+    j<{ review: AccessReview }>('/v1/access-reviews', {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    }).then((r) => r.review),
+  accessReviewsDecide: (
+    id: string,
+    userId: string,
+    input: { decision: 'keep' | 'downgrade' | 'revoke'; downgradeTo?: MemberRole | null; note?: string | null },
+  ) =>
+    j<{ review: AccessReview }>(
+      `/v1/access-reviews/${encodeURIComponent(id)}/decisions/${encodeURIComponent(userId)}`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ).then((r) => r.review),
+  accessReviewsClose: (id: string, attestation: string | null) =>
+    j<{ review: AccessReview; applied: AccessReviewApplied[] }>(
+      `/v1/access-reviews/${encodeURIComponent(id)}/close`,
+      { method: 'POST', body: JSON.stringify({ attestation }) },
+    ),
 
   // Email-token invitations. createInvitation returns the raw token
   // exactly once. The server stores only sha256(token); a leaked

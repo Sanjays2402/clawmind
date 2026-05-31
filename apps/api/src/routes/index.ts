@@ -49,6 +49,7 @@ import { workspaceFreezeRoutes } from './workspace-freeze.js';
 import { policyRoutes } from './policies.js';
 import { workspaceExportRoutes } from './workspace-export.js';
 import { queryBlocklistRoutes } from './query-blocklist.js';
+import { accessReviewsRoutes } from './access-reviews.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -102,4 +103,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(policyRoutes, { prefix: '/v1' });
   await app.register(workspaceExportRoutes, { prefix: '/v1' });
   await app.register(queryBlocklistRoutes, { prefix: '/v1' });
+  await app.register(accessReviewsRoutes, { prefix: '/v1' });
 }

@@ -183,6 +183,13 @@ export const Scopes = {
   // immediately stop every query path in the workspace.
   QueryBlocklistRead: 'query-blocklist:read',
   QueryBlocklistManage: 'query-blocklist:admin',
+
+  // Periodic access reviews (SOC2 CC6.3 / ISO 27001 A.9.2.5). Read is
+  // admin+ so a compliance operator can pull historic recertifications;
+  // Manage is owner-only with MFA step-up because closing a review can
+  // immediately downgrade or revoke members across the workspace.
+  AccessReviewsRead: 'access-reviews:read',
+  AccessReviewsManage: 'access-reviews:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];
