@@ -5,6 +5,7 @@ import { ask } from '@clawmind/rag';
 import { Scopes } from '../scopes.js';
 import { recordHistory } from '../services/history.js';
 import { enforceQuota, recordUsage } from '../services/usage.js';
+import { applyRateLimitHeaders } from '../services/rate-headers.js';
 import {
   BATCH_LIMITS,
   extractRows,
@@ -64,6 +65,13 @@ export const batchRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!quota.allowed) {
         reply.header('x-clawmind-quota-used', String(quota.summary.used));
         reply.header('x-clawmind-quota-limit', String(quota.summary.limit));
+        applyRateLimitHeaders(reply, {
+          limit: quota.summary.limit,
+          remaining: 0,
+          resetMs: quota.summary.resetsAt,
+          windowSec: Math.max(1, Math.round((quota.summary.resetsAt - Date.now()) / 1000)),
+          policy: 'quota:monthly',
+        });
         return reply.code(429).send({
           error: 'quota exceeded',
           message:

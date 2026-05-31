@@ -2,6 +2,8 @@ import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { verifySecret, hasScope } from '../services/api-keys.js';
 import { recordUsage } from '../services/api-key-usage.js';
+import { consume as consumeKeyBucket } from '../services/api-key-rate-limit.js';
+import { applyRateLimitHeaders } from '../services/rate-headers.js';
 import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid } from '../services/sessions.js';
 import { getStatus as getMfaStatus } from '../services/mfa.js';
 import {
@@ -80,6 +82,33 @@ const plugin: FastifyPluginAsync = async (app) => {
           apiKeyId: result.record.id,
           scopes: result.record.scopes ?? null,
         };
+        // Per-key custom rate limit (when configured). Emits standard
+        // X-RateLimit-* and Retry-After headers so SDKs back off correctly.
+        if (result.record.rateLimit) {
+          const snap = consumeKeyBucket(result.record.id, result.record.rateLimit);
+          applyRateLimitHeaders(reply, {
+            limit: snap.limit,
+            remaining: snap.remaining,
+            resetMs: snap.resetMs,
+            windowSec: Math.max(1, Math.round(snap.windowMs / 1000)),
+            policy: 'api-key',
+          });
+          if (!snap.allowed) {
+            void app.clawmind.audit.write({
+              actor: result.record.userId,
+              action: 'rate_limit.denied',
+              resource: result.record.id,
+              meta: { scope: 'api-key', limit: snap.limit, windowMs: snap.windowMs, route: req.url },
+            }).catch(() => undefined);
+            return reply.code(429).send({
+              error: 'rate limit exceeded',
+              scope: 'api-key',
+              limit: snap.limit,
+              windowMs: snap.windowMs,
+              resetAt: new Date(snap.resetMs).toISOString(),
+            });
+          }
+        }
         return;
       }
     }

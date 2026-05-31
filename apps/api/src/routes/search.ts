@@ -4,6 +4,7 @@ import { retrieve, snippetFor, queryTerms } from '@clawmind/rag';
 import { QuerySchema, type Query } from '@clawmind/types';
 import { Scopes } from '../scopes.js';
 import { enforceQuota, recordUsage } from '../services/usage.js';
+import { applyRateLimitHeaders } from '../services/rate-headers.js';
 
 const SearchBody = QuerySchema.extend({
   /** When true (default), include a `snippet` with highlighted term spans. */
@@ -24,6 +25,13 @@ export const searchRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!quota.allowed) {
         reply.header('x-clawmind-quota-used', String(quota.summary.used));
         reply.header('x-clawmind-quota-limit', String(quota.summary.limit));
+        applyRateLimitHeaders(reply, {
+          limit: quota.summary.limit,
+          remaining: 0,
+          resetMs: quota.summary.resetsAt,
+          windowSec: Math.max(1, Math.round((quota.summary.resetsAt - Date.now()) / 1000)),
+          policy: 'quota:monthly',
+        });
         return reply.code(429).send({
           error: 'quota exceeded',
           message: `Monthly free-tier limit of ${quota.summary.limit} requests reached.`,

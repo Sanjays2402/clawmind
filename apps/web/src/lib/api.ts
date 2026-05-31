@@ -283,6 +283,7 @@ export interface ApiKey {
   revokedAt: number | null;
   rotatedAt?: number | null;
   previousHashExpiresAt?: number | null;
+  rateLimit?: { max: number; windowMs: number } | null;
 }
 
 export interface KeyUsageEvent {
@@ -555,6 +556,11 @@ export const api = {
       `/v1/keys/${id}/rotate`,
       { method: 'POST' },
     ),
+  keySetRateLimit: (id: string, rateLimit: { max: number; windowMs: number } | null) =>
+    j<{ key: ApiKey }>(
+      `/v1/keys/${id}/rate-limit`,
+      { method: 'PUT', body: JSON.stringify({ rateLimit }) },
+    ).then((r) => r.key),
   keyUsage: (id: string, opts: { recent?: number; routes?: number } = {}) => {
     const q = new URLSearchParams();
     if (opts.recent) q.set('recent', String(opts.recent));

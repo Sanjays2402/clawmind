@@ -316,6 +316,43 @@ function KeyRow({
   const [usage, setUsage] = useState<KeyUsageReport | null>(null);
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState<string | null>(null);
+  const [showLimit, setShowLimit] = useState(false);
+  const [limitMax, setLimitMax] = useState(String(k.rateLimit?.max ?? 60));
+  const [limitWindowSec, setLimitWindowSec] = useState(String(Math.max(1, Math.round((k.rateLimit?.windowMs ?? 60_000) / 1000))));
+  const [limitSaving, setLimitSaving] = useState(false);
+  const [limitError, setLimitError] = useState<string | null>(null);
+
+  async function saveLimit() {
+    const max = Number(limitMax);
+    const windowSec = Number(limitWindowSec);
+    if (!Number.isInteger(max) || max < 1) { setLimitError('max must be a positive integer'); return; }
+    if (!Number.isInteger(windowSec) || windowSec < 1) { setLimitError('window must be at least 1 second'); return; }
+    setLimitSaving(true);
+    setLimitError(null);
+    try {
+      await api.keySetRateLimit(k.id, { max, windowMs: windowSec * 1000 });
+      setShowLimit(false);
+      window.location.reload();
+    } catch (err) {
+      setLimitError((err as Error).message);
+    } finally {
+      setLimitSaving(false);
+    }
+  }
+
+  async function clearLimit() {
+    setLimitSaving(true);
+    setLimitError(null);
+    try {
+      await api.keySetRateLimit(k.id, null);
+      setShowLimit(false);
+      window.location.reload();
+    } catch (err) {
+      setLimitError((err as Error).message);
+    } finally {
+      setLimitSaving(false);
+    }
+  }
 
   const loadUsage = useCallback(async () => {
     setUsageLoading(true);
@@ -367,6 +404,11 @@ function KeyRow({
           {k.rotatedAt && <span>rotated {fmtRelative(k.rotatedAt)}</span>}
           {k.expiresAt && <span>expires {fmtRelative(k.expiresAt)}</span>}
           {k.revokedAt && <span>revoked {fmtRelative(k.revokedAt)}</span>}
+          {k.rateLimit && (
+            <span title="per-key rate limit">
+              limit {k.rateLimit.max}/{Math.max(1, Math.round(k.rateLimit.windowMs / 1000))}s
+            </span>
+          )}
         </div>
         {k.scopes && k.scopes.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
@@ -385,6 +427,13 @@ function KeyRow({
           >
             <IconChartBar size={14} />
             {showUsage ? 'Hide usage' : 'Usage'}
+          </button>
+          <button
+            onClick={() => setShowLimit((v) => !v)}
+            aria-expanded={showLimit}
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
+          >
+            {showLimit ? 'Hide limit' : k.rateLimit ? 'Limit' : 'Set limit'}
           </button>
           <button
             onClick={() => onRotate(k.id)}
@@ -412,6 +461,55 @@ function KeyRow({
           usage={usage}
           onRetry={loadUsage}
         />
+      )}
+      {showLimit && (
+        <div className="mt-2 rounded-md border border-cm-border p-3">
+          <div className="mb-2 text-xs text-cm-muted">
+            Per-key rate limit. Stricter than the global ceiling. Returns 429 with standard X-RateLimit headers when exceeded.
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="flex flex-col text-xs text-cm-muted">
+              max requests
+              <input
+                type="number"
+                min={1}
+                value={limitMax}
+                onChange={(e) => setLimitMax(e.target.value)}
+                className="mt-1 w-28 rounded-md border border-cm-border bg-transparent px-2 py-1 text-sm text-cm-fg"
+              />
+            </label>
+            <label className="flex flex-col text-xs text-cm-muted">
+              per (seconds)
+              <input
+                type="number"
+                min={1}
+                value={limitWindowSec}
+                onChange={(e) => setLimitWindowSec(e.target.value)}
+                className="mt-1 w-28 rounded-md border border-cm-border bg-transparent px-2 py-1 text-sm text-cm-fg"
+              />
+            </label>
+            <button
+              onClick={saveLimit}
+              disabled={limitSaving}
+              className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-fg px-3 py-1.5 text-sm text-cm-bg hover:opacity-90 disabled:opacity-50"
+            >
+              {limitSaving ? <Spinner size={14} /> : <IconCheck size={14} />}
+              Save
+            </button>
+            {k.rateLimit && (
+              <button
+                onClick={clearLimit}
+                disabled={limitSaving}
+                className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-danger disabled:opacity-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {limitError && (
+            <div className="mt-2 text-xs text-cm-danger">{limitError}</div>
+          )}
+        </div>
       )}
     </li>
   );

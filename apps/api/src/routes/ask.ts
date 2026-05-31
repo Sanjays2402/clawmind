@@ -8,6 +8,7 @@ import { emit as emitWebhook } from '../services/webhooks.js';
 import { enforceQuota, recordUsage } from '../services/usage.js';
 import { Scopes } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
+import { applyRateLimitHeaders } from '../services/rate-headers.js';
 
 export const askRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/ask', {
@@ -19,6 +20,13 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!quota.allowed) {
         reply.header('x-clawmind-quota-used', String(quota.summary.used));
         reply.header('x-clawmind-quota-limit', String(quota.summary.limit));
+        applyRateLimitHeaders(reply, {
+          limit: quota.summary.limit,
+          remaining: 0,
+          resetMs: quota.summary.resetsAt,
+          windowSec: Math.max(1, Math.round((quota.summary.resetsAt - Date.now()) / 1000)),
+          policy: 'quota:monthly',
+        });
         return reply.code(429).send({
           error: 'quota exceeded',
           message: `Monthly free-tier limit of ${quota.summary.limit} requests reached. Resets ${new Date(quota.summary.resetsAt).toISOString()}.`,

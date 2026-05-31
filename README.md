@@ -544,7 +544,7 @@ Auth and admin:
 - `GET /v1/me/export` – download every per-user record as JSON
 - `DELETE /v1/me/data` – erase every per-user record, body `{"confirm":"DELETE"}`
 
-Requests are rate-limited globally to 240/min, keyed by API key id, session user, or IP in that order.
+Requests are rate-limited globally to 240/min, keyed by API key id, session user, or IP in that order. Individual API keys can carry a stricter custom limit set via `PUT /v1/keys/:id/rate-limit` (or the inline editor on the `/keys` page); when present it is enforced on every authenticated route and returns 429 with `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`, and `RateLimit-Policy` headers so SDKs back off correctly. Every denial is written to the audit log.
 
 ### Rotate a leaked or aging API key
 

@@ -59,6 +59,48 @@ export interface ApiKeyRecord {
   rotatedAt?: number | null;
   previousHash?: string | null;
   previousHashExpiresAt?: number | null;
+  // Optional per-key rate limit. When set, the auth layer enforces a token
+  // bucket of `max` requests per `windowMs` milliseconds keyed on this key
+  // id. Returns 429 with standard X-RateLimit-* headers. When undefined the
+  // global limiter from server.ts applies unchanged.
+  rateLimit?: { max: number; windowMs: number } | null;
+}
+
+export const MIN_RATE_WINDOW_MS = 1_000;
+export const MAX_RATE_WINDOW_MS = 24 * 60 * 60_000;
+export const MIN_RATE_MAX = 1;
+export const MAX_RATE_MAX = 1_000_000;
+
+export function isValidRateLimit(r: { max: number; windowMs: number }): boolean {
+  return (
+    Number.isInteger(r.max) && r.max >= MIN_RATE_MAX && r.max <= MAX_RATE_MAX &&
+    Number.isInteger(r.windowMs) && r.windowMs >= MIN_RATE_WINDOW_MS && r.windowMs <= MAX_RATE_WINDOW_MS
+  );
+}
+
+/**
+ * Update or clear the per-key rate limit. Returns the updated record or
+ * null if the key is not owned by the user, revoked, or expired. Pass
+ * `limit: null` to remove a previously configured limit.
+ */
+export async function setKeyRateLimit(
+  dataDir: string,
+  userId: string,
+  id: string,
+  limit: { max: number; windowMs: number } | null,
+  now: number = Date.now(),
+): Promise<ApiKeyRecord | null> {
+  if (limit && !isValidRateLimit(limit)) throw new Error('invalid rate limit');
+  const all = await loadKeys(dataDir);
+  const idx = all.findIndex((k) => k.id === id && k.userId === userId);
+  if (idx < 0) return null;
+  const cur = all[idx]!;
+  if (cur.revokedAt) return null;
+  if (cur.expiresAt && now > cur.expiresAt) return null;
+  const next: ApiKeyRecord = { ...cur, rateLimit: limit };
+  all[idx] = next;
+  await saveKeys(dataDir, all);
+  return next;
 }
 
 // Default grace period after rotation during which the old secret still
@@ -266,5 +308,6 @@ export function redact(rec: ApiKeyRecord) {
       rec.previousHash && rec.previousHashExpiresAt && rec.previousHashExpiresAt > Date.now()
         ? rec.previousHashExpiresAt
         : null,
+    rateLimit: rec.rateLimit ?? null,
   };
 }

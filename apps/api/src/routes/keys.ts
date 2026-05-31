@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys } from '../services/api-keys.js';
+import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS } from '../services/api-keys.js';
 import { getUsageReport, purgeUsage } from '../services/api-key-usage.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
@@ -121,6 +121,33 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
         secret: rotated.secret,
         previousExpiresAt: rotated.previousExpiresAt,
       };
+    },
+  });
+
+  // Set or clear the per-key custom rate limit. Pass { rateLimit: { max, windowMs } }
+  // to enforce a stricter ceiling than the global limiter, or { rateLimit: null }
+  // (or omit) to remove the limit. Audited.
+  app.put<{ Params: { id: string }; Body: { rateLimit?: { max: number; windowMs: number } | null } }>('/keys/:id/rate-limit', {
+    schema: {
+      body: z.object({
+        rateLimit: z.object({
+          max: z.number().int().min(MIN_RATE_MAX).max(MAX_RATE_MAX),
+          windowMs: z.number().int().min(MIN_RATE_WINDOW_MS).max(MAX_RATE_WINDOW_MS),
+        }).nullable().optional(),
+      }),
+    },
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.KeysManage)],
+    handler: async (req, reply) => {
+      const limit = req.body.rateLimit ?? null;
+      const updated = await setKeyRateLimit(app.clawmind.dataDir, req.user!.id, req.params.id, limit);
+      if (!updated) return reply.code(404).send({ error: 'not found' });
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: limit ? 'api_key.rate_limit.set' : 'api_key.rate_limit.clear',
+        resource: req.params.id,
+        meta: limit ? { max: limit.max, windowMs: limit.windowMs } : {},
+      });
+      return { key: redact(updated) };
     },
   });
 };
