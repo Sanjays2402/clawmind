@@ -1076,7 +1076,24 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ policies }),
     }).then((r) => r.policies),
+
+  // SCIM workspace bearer token. Plaintext is returned exactly once on
+  // rotate; the GET only surfaces metadata (presence, createdAt, lastUsedAt).
+  scimTokenGet: () =>
+    j<{ token: ScimTokenView }>('/v1/scim/token').then((r) => r.token),
+  scimTokenRotate: () =>
+    j<{ id: string; token: string; createdAt: number }>('/v1/scim/token', { method: 'POST' }),
+  scimTokenRevoke: () =>
+    j<{ revoked: boolean }>('/v1/scim/token', { method: 'DELETE' }),
 };
+
+export interface ScimTokenView {
+  present: boolean;
+  id: string | null;
+  createdAt: number | null;
+  createdBy: string | null;
+  lastUsedAt: number | null;
+}
 
 export type AutoJoinRole = 'member' | 'viewer';
 export interface DomainPolicy {

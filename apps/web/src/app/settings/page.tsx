@@ -422,6 +422,8 @@ function ShortcutsCard() {
     { href: '/settings/members', label: 'Members and RBAC', description: 'Invite teammates and assign owner, admin, member, or viewer.', Icon: IconShield },
     { href: '/settings/invitations', label: 'Email invitations', description: 'Send one-time invitation links that pre-bind a role and expire.', Icon: IconShield },
     { href: '/settings/domains', label: 'Domain auto-join', description: 'Auto-enrol new sign-ins from verified email domains.', Icon: IconShield },
+    { href: '/settings/scim', label: 'SCIM provisioning', description: 'Push user lifecycle from Okta, Azure AD, or Google Workspace.', Icon: IconShield },
+    { href: '/settings/scim', label: 'SCIM provisioning', description: 'Let Okta, Azure AD, or Google Workspace push users via SCIM 2.0.', Icon: IconShield },
     { href: '/settings/retention', label: 'Data retention', description: 'Auto-erase history and conversations on a schedule.', Icon: IconClockCountdown },
     { href: '/settings/notifications', label: 'Notification preferences', description: 'Pick which inbox alerts you want to receive.', Icon: IconSettings },
     { href: '/usage', label: 'Usage details', description: 'Per-kind breakdown and reset timer.', Icon: IconChartBar },

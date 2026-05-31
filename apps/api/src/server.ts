@@ -48,6 +48,17 @@ export async function buildApp(): Promise<any> {
   app.setValidatorCompiler(validatorCompiler);
   app.setSerializerCompiler(serializerCompiler);
 
+  // SCIM clients send application/scim+json; route the body through the
+  // built-in JSON parser so /scim/v2/Users POST/PATCH receive a parsed body.
+  app.addContentTypeParser('application/scim+json', { parseAs: 'string' }, (_req, body, done) => {
+    try {
+      const trimmed = (body as string).trim();
+      done(null, trimmed.length === 0 ? {} : JSON.parse(trimmed));
+    } catch (err) {
+      done(err as Error, undefined);
+    }
+  });
+
   await app.register(sensible);
   await app.register(cors, { origin: env.CLAWMIND_API_CORS_ORIGIN, credentials: true });
   await app.register(rateLimit, {
