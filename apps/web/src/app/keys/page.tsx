@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { TopNav } from '@/components/TopNav';
 import { api, fmtRelative, type ApiKey, type KeyUsageReport } from '@/lib/api';
+import { CurlExamples } from './CurlExamples';
 import {
   EmptyState,
   ErrorState,
@@ -234,6 +235,9 @@ export default function KeysPage() {
               <span>label: {issued.key.label} | role: {issued.key.role}</span>
               <button onClick={() => setIssued(null)} className="hover:text-cm-fg">dismiss</button>
             </div>
+            <div className="mt-4 border-t border-cm-border pt-2">
+              <CurlExamples secret={issued.secret} />
+            </div>
           </div>
         )}
 
@@ -267,6 +271,8 @@ export default function KeysPage() {
             </ul>
           )}
         </section>
+
+        <CurlExamples />
 
         {revoked.length > 0 && (
           <section className="mt-6">

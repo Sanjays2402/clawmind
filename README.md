@@ -25,7 +25,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Digests: scheduled recurring queries (e.g. "what changed this week in projects/")
 - Stale source detection (files indexed but not seen on disk recently)
 - Related-document lookup and basic stats / doctor endpoints
-- API keys with per-key rate limiting, GitHub OAuth or single-user mode. Each key carries a per-key usage log (`GET /v1/keys/:id/usage`) with 24h and 7d request totals, success vs error split, top routes, and the last 10 calls so you can confirm a key is in use before rotating or revoking it. The `/keys` page exposes the same report inline behind a Usage toggle per row.
+- API keys with per-key rate limiting, GitHub OAuth or single-user mode. Each key carries a per-key usage log (`GET /v1/keys/:id/usage`) with 24h and 7d request totals, success vs error split, top routes, and the last 10 calls so you can confirm a key is in use before rotating or revoking it. The `/keys` page exposes the same report inline behind a Usage toggle per row. When you mint a new key the issued-secret panel and a permanent reference section at the bottom of `/keys` show copy-pasteable `curl` snippets for `/v1/ask`, `/v1/search`, and `/v1/history` (pre-filled with your real secret on issue, otherwise `$CLAWMIND_KEY`) so a first-time user is one paste away from a working API call.
 - Outbound webhooks: register a URL, get signed POSTs on `ask.completed` and `ingest.completed`, with automatic retries and a delivery log
 - Batch ask: paste or upload a CSV of up to 100 questions, get a results table plus a one-click CSV download. Every row is saved to history and counts against the monthly quota.
 - Usage meter: per-user monthly request count, free-tier quota with 429 on overrun, and an in-app `/usage` page with reset countdown and upgrade CTA
@@ -508,6 +508,19 @@ curl -H "Authorization: Bearer $CLAWMIND_API_KEY" \
 ```
 
 The call is gated by the `keys:admin` scope and returns 404 across users, so one customer cannot read another's key usage even if they guess the id. Revoking a key purges its usage log.
+
+### Try the API key snippets
+
+When you issue a key from <http://127.0.0.1:7412/keys>, the freshly-minted secret panel includes copy-pasteable `curl` commands for `/v1/ask`, `/v1/search`, and `/v1/history`, pre-filled with the real secret. A permanent Using your key section at the bottom of the page shows the same snippets with a `$CLAWMIND_KEY` placeholder for returning users. Sample call:
+
+```bash
+export CLAWMIND_KEY=cm_...   # paste a secret from /keys
+
+curl -X POST http://127.0.0.1:7410/v1/ask \
+  -H "Authorization: Bearer $CLAWMIND_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"q":"What did I write about retrieval reranking?","k":6}'
+```
 
 ### Review the audit log
 
