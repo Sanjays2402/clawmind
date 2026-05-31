@@ -954,7 +954,25 @@ export const api = {
     j<{ ok: boolean; checked: number; headHash: string | null; reason?: string; brokenAt?: { file: string; line: number; id?: string } }>(
       '/v1/admin/audit/verify',
     ),
+
+  // Unified admin console aggregator. Owner-only and admin:read scoped.
+  // One round trip backs the entire /admin page so reviewers can answer
+  // "is this tenant configured safely" without clicking eight settings
+  // panels.
+  adminOverview: () => j<AdminOverview>('/v1/admin/overview'),
 };
+
+export interface AdminOverview {
+  user: { id: string; role: string };
+  mfa: { enrolled: boolean; confirmed: boolean; recoveryCodes: number };
+  sso: { configured: boolean; issuer: string | null; clientId: string | null; allowedDomains: string[] };
+  sessions: { active: number; lastSeenAt: number | null };
+  apiKeys: { total: number; active: number; revoked: number; lastUsedAt: number | null };
+  webhooks: { configured: number; deliveriesRecent: number; failuresRecent: number; lastDeliveryAt: number | null };
+  ipAllowlist: { enabled: boolean; rules: number };
+  retention: { historyDays: number | null; conversationDays: number | null; auditDays: number | null; lastSweepAt: number | null };
+  audit: { headHash: string | null; verified: boolean; recentEvents: number };
+}
 
 export interface AuditEvent {
   id: string;

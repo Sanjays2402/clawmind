@@ -96,6 +96,11 @@ export const Scopes = {
 
   RetentionRead: 'retention:read',
   RetentionManage: 'retention:admin',
+
+  // Unified admin console aggregator. Read-only by design; surfaces
+  // counts that come from already-gated services so a key cannot use
+  // this scope to escape role checks elsewhere.
+  AdminRead: 'admin:read',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];
