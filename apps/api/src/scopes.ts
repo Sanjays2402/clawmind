@@ -67,6 +67,15 @@ export const Scopes = {
   LifecycleManage: 'lifecycle:admin',
   KeysManage: 'keys:admin',
   AuditRead: 'audit:read',
+  /**
+   * Owner-only authority to record a fresh tamper-evident anchor over
+   * the audit chain head. Separate from AuditRead so a delegated
+   * reviewer can read and verify history without being able to mint a
+   * new anchor that subsequent truncation detection would key off of.
+   * Uses :admin since recording an anchor is a privileged mutation
+   * that downstream verification keys off of.
+   */
+  AuditAnchor: 'audit:admin',
 
   WebhooksRead: 'webhooks:read',
   WebhooksManage: 'webhooks:admin',

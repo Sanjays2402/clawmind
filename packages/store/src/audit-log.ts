@@ -223,6 +223,42 @@ export class AuditLog {
   }
 
   /**
+   * Return the chained `hash` of the Nth chained record (1-indexed) across
+   * every rotated sibling, in append order. Returns null if N is out of
+   * range or no chained record exists at that position. Used by the anchor
+   * store to confirm a past head still lives at the same position in the
+   * live chain (rewrite detection).
+   */
+  async hashAt(n: number): Promise<string | null> {
+    if (!Number.isInteger(n) || n < 1) return null;
+    const files = (await this.listFiles()).slice().reverse(); // oldest first
+    let seen = 0;
+    for (const f of files) {
+      const exists = await stat(f).then(() => true).catch(() => false);
+      if (!exists) continue;
+      const raw = await readFile(f, 'utf8');
+      for (const line of raw.split('\n')) {
+        if (!line) continue;
+        let ev: AuditEvent;
+        try {
+          ev = JSON.parse(line) as AuditEvent;
+        } catch {
+          continue;
+        }
+        if (!ev.hash) {
+          // Legacy pre-chain record: counted by verify() too.
+          seen++;
+          if (seen === n) return null;
+          continue;
+        }
+        seen++;
+        if (seen === n) return ev.hash;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Recover the last hash in the chain by scanning the newest file with
    * content. After rotation the active file is empty so we fall through to
    * `audit.log.1` and so on. Returns null if no chained record exists yet.

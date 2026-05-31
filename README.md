@@ -39,7 +39,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Editable profile: `GET /v1/me` and `PATCH /v1/me` back a display name, IANA timezone, and default model preference per user. The settings page exposes an inline edit form (with a one-click Use local timezone helper) so a returning user can rename themselves, pin their timezone, and lock in a preferred model without leaving the page. Profiles are stored per-user in `profiles.json`, isolated by `userId`, and gated by the `profile:read` / `profile:write` scopes for API keys
 - Onboarding: `/welcome` is a three-step first-run guide (ingest a source, ask your first question, create an API key) with per-user server-side progress, a one-click button to index the bundled sample pack, and a dismiss/restore toggle so the guide stops nagging once you are set up
 - Storage maintenance UI: an owner-only `/settings/maintenance` page that wraps the two write-side maintenance endpoints behind a real, safe-by-default workflow. The **Compact** card scans the manifest on load and surfaces how many indexed sources no longer exist on disk, lists the first paths inline, and only enables the Compact button when there is actually work to do. The **Bulk forget by pattern** card accepts up to 50 picomatch globs (one per line), runs a dry-run preview that shows the exact source paths and chunk count that would be removed, then unlocks a type-to-confirm `FORGET` gate before the destructive call. Both surfaces route through `POST /v1/maintenance/compact` and `POST /v1/maintenance/forget`, which are owner-only, MFA-stepped, rate-limited to 6 per minute, and append a `maintenance.compact` or `maintenance.forget` event to the hash-chained audit log with actor, patterns, and matched / removed counts so a reviewer can reconstruct what disappeared and why.
-- Audit log review: an owner-only `/audit` page that surfaces every mutation written to the hash-chained log. Filter by actor, action substring, resource prefix, and time window, page 50 at a time, expand any row to inspect the raw JSON, and click Verify chain to replay the on-disk hashes and prove the file has not been tampered with. Use the **Export JSONL** or **Export CSV** buttons to stream the full filtered chain straight to disk for SOC2 / regulator pulls that exceed the 1000-row query cap. Backed by `GET /v1/admin/audit`, `GET /v1/admin/audit/verify`, and `GET /v1/admin/audit/export?format=jsonl|csv`, all gated by the `audit:read` scope. The export itself is recorded in the audit log together with the head hash at the moment of export so a downloaded file can be pinned to an exact chain state later.
+- Audit log review: an owner-only `/audit` page that surfaces every mutation written to the hash-chained log. Filter by actor, action substring, resource prefix, and time window, page 50 at a time, expand any row to inspect the raw JSON, and click Verify chain to replay the on-disk hashes and prove the file has not been tampered with. Use the **Export JSONL** or **Export CSV** buttons to stream the full filtered chain straight to disk for SOC2 / regulator pulls that exceed the 1000-row query cap. The same page now records and verifies HMAC-signed *anchors* over the chain head: the hash chain catches in-place edits, but anchors catch what it cannot, truncation (the on-disk tail was deleted) and rewrite (the log was rebuilt to a different past). Each anchor is signed with the server secret, pins the head hash plus the chain length at a point in time, and is append-only in `audit-anchors.jsonl`; verify reports `chain-truncated`, `chain-rewritten`, or `bad-signature` with the offending anchor so an incident responder gets a structured signal instead of silence. Backed by `GET /v1/admin/audit`, `GET /v1/admin/audit/verify`, `GET /v1/admin/audit/export?format=jsonl|csv`, `GET /v1/admin/audit/anchors`, `GET /v1/admin/audit/anchors/verify`, and `POST /v1/admin/audit/anchors` (owner-only, requires the new `audit:admin` scope), all read paths gated by `audit:read`. The export itself and every anchor record / verify are themselves audited so a downloaded file can be pinned to an exact chain state later.
 - IP allowlist for the whole account: a `/settings/security` page lets the owner add a list of trusted IPv4 / IPv6 addresses or CIDR blocks (office egress, VPN range, CI runner subnet) and flip a single switch to enforce it. When enforcement is on, every request that is not on the list gets a `403 ip_not_allowed`, regardless of whether it presents a session cookie or a Bearer API key. The settings endpoint itself is deliberately exempt so a typo can never lock the account out. Rules are normalised (`10.0.0.5/24` becomes `10.0.0.0/24`), duplicates are rejected, denials are written to the audit log, and the whole document is per-user isolated in `ip-allowlist.json`. Backed by `GET` / `PUT /v1/ip-allowlist` and the new `ip-allowlist:read` / `ip-allowlist:write` API key scopes.
 - Active sessions with force-logout: a `/settings/sessions` page lists every browser currently signed in to the account with its short user-agent, IP, sign-in time, and last-seen time, and the current browser is clearly marked. Revoking a single session or hitting the "sign out everywhere else" button writes a tombstone to the per-user `sessions.json` registry; the next request from that session id is rejected with `401 session revoked` by the API auth hook even though the cookie still decrypts. Sids are stored as `sha256` hashes so a leaked registry file is not a leaked cookie. Every revoke is written to the audit log, and the registry is gated by the new `sessions:read` / `sessions:admin` API key scopes via `GET /v1/sessions`, `DELETE /v1/sessions/:id`, and `POST /v1/sessions/revoke-all`.
 - Enterprise SSO via OIDC: ClawMind can require single sign-on against any spec-compliant provider (Google Workspace, Okta, Azure AD / Entra ID, Auth0, Keycloak) without code changes. Set `CLAWMIND_AUTH_MODE=oidc` plus `CLAWMIND_OIDC_ISSUER`, `CLAWMIND_OIDC_CLIENT_ID`, `CLAWMIND_OIDC_CLIENT_SECRET`, and `CLAWMIND_OIDC_REDIRECT_URI` and the API exposes `GET /auth/oidc` (start) and `GET /auth/oidc/callback` (finish). The discovery document is fetched on demand, ID tokens are verified RS256-against-JWKS with audience, issuer, nonce, and expiry checks, the state and nonce are cookie-bound and single-use, and successful logins record a `sso.login` event in the hash-chained audit log. `CLAWMIND_OIDC_ALLOWED_DOMAINS=acme.com,acme.co.uk` restricts sign-in to verified emails in those domains so a contractor with a personal Gmail cannot create an account. The owner-only `/settings/sso` page shows live status (configured, enforced, issuer, client id, redirect URI, allowed domains) for procurement and IT review without ever exposing the client secret.
@@ -88,6 +88,34 @@ curl -sS -i http://localhost:8787/v1/conversations \
   -H "content-type: application/json" \
   -H "idempotency-key: launch-plan-2026-05-31" \
   -d '{"title":"Different title"}'
+```
+
+## Try it: tamper-evident audit anchors
+
+The audit log is hash-chained, so an in-place edit shows up as a hash break.
+What the chain cannot catch on its own is truncation (the tail was deleted)
+or rewrite (the file was rebuilt to a different past). Anchors are short
+HMAC-signed records that pin the chain head plus length at a point in time;
+a later verify reports `chain-truncated` or `chain-rewritten` when the
+live chain no longer matches the anchor.
+
+```bash
+# Visit the UI at http://localhost:7412/audit and use the Anchors panel,
+# or drive the API directly:
+
+# Record a fresh anchor (owner + audit:admin scope).
+curl -sS -X POST http://localhost:8787/v1/admin/audit/anchors \
+  -H "authorization: Bearer $CLAWMIND_KEY" \
+  -H "content-type: application/json" \
+  -d '{"note":"monthly SOC2 close"}'
+
+# List the most recent anchors with HMAC validity per row.
+curl -sS http://localhost:8787/v1/admin/audit/anchors \
+  -H "authorization: Bearer $CLAWMIND_KEY"
+
+# Verify the latest anchor against the live chain.
+curl -sS http://localhost:8787/v1/admin/audit/anchors/verify \
+  -H "authorization: Bearer $CLAWMIND_KEY"
 ```
 
 ## Stack

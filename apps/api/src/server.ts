@@ -5,9 +5,9 @@ import session from '@fastify/session';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
-import { loadEnv, lancedbDir, bm25Dir, manifestPath, auditPath, dataDir } from '@clawmind/config';
+import { loadEnv, lancedbDir, bm25Dir, manifestPath, auditPath, auditAnchorsPath, dataDir } from '@clawmind/config';
 import { createLogger, startTracing, initSentry } from '@clawmind/telemetry';
-import { LanceStore, BM25Index, IngestManifest, AuditLog } from '@clawmind/store';
+import { LanceStore, BM25Index, IngestManifest, AuditLog, AuditAnchorStore } from '@clawmind/store';
 import { MlxEmbedClient, OpenAIEmbedClient, FallbackEmbedProvider } from '@clawmind/embed';
 import { buildDefaultLLM } from '@clawmind/llm';
 import { registerRoutes } from './routes/index.js';
@@ -124,9 +124,17 @@ export async function buildApp(): Promise<any> {
   });
   const llm = buildDefaultLLM(env);
 
+  // Tamper-evident anchor store over the audit chain. HMAC-signed with
+  // the session secret so a file-level attacker who truncates the audit
+  // log cannot also forge a fresh anchor that hides the truncation.
+  const auditAnchors = new AuditAnchorStore(
+    auditAnchorsPath(env),
+    env.CLAWMIND_SESSION_SECRET,
+  );
+
   app.decorate('clawmind', {
     env, embed, lance, bm25, bm25File: `${bm25Dir(env)}/bm25.json`,
-    manifest, audit, llm, dataDir: dataDir(env),
+    manifest, audit, auditAnchors, llm, dataDir: dataDir(env),
   });
 
   // Wire webhook SSRF guard from env once per boot. Re-checked on every
@@ -169,6 +177,7 @@ declare module 'fastify' {
       bm25File: string;
       manifest: IngestManifest;
       audit: AuditLog;
+      auditAnchors: AuditAnchorStore;
       llm: ReturnType<typeof buildDefaultLLM>;
       dataDir: string;
     };

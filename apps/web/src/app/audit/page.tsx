@@ -41,6 +41,42 @@ interface VerifyState {
   error: string | null;
 }
 
+type AnchorRow = Awaited<ReturnType<typeof api.auditAnchorList>>['anchors'][number];
+type AnchorVerifyResult = Awaited<ReturnType<typeof api.auditAnchorVerify>>;
+
+interface AnchorsState {
+  loading: boolean;
+  rows: AnchorRow[] | null;
+  verify: AnchorVerifyResult | null;
+  error: string | null;
+  recording: boolean;
+  note: string;
+}
+
+const EMPTY_ANCHORS: AnchorsState = {
+  loading: false,
+  rows: null,
+  verify: null,
+  error: null,
+  recording: false,
+  note: '',
+};
+
+function reasonLabel(r: AnchorVerifyResult['reason']): string {
+  switch (r) {
+    case 'no-anchors':
+      return 'No anchors recorded yet.';
+    case 'bad-signature':
+      return 'Anchor HMAC failed: the anchor file was edited or the server secret rotated.';
+    case 'chain-truncated':
+      return 'Audit chain is shorter than the anchored count: the tail was deleted.';
+    case 'chain-rewritten':
+      return 'Audit chain at the anchored position no longer matches: the log was rewritten.';
+    default:
+      return '';
+  }
+}
+
 function toEpoch(localDateTime: string): number | undefined {
   if (!localDateTime) return undefined;
   const t = Date.parse(localDateTime);
@@ -67,6 +103,43 @@ export default function AuditPage() {
   const [forbidden, setForbidden] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [verify, setVerify] = useState<VerifyState>({ loading: false, result: null, error: null });
+  const [anchors, setAnchors] = useState<AnchorsState>(EMPTY_ANCHORS);
+
+  const loadAnchors = useCallback(async () => {
+    setAnchors((s) => ({ ...s, loading: true, error: null }));
+    try {
+      const [list, v] = await Promise.all([
+        api.auditAnchorList(50),
+        api.auditAnchorVerify().catch((e) => {
+          if (e instanceof ApiError && e.status === 404) return null;
+          throw e;
+        }),
+      ]);
+      setAnchors((s) => ({
+        ...s,
+        loading: false,
+        rows: list.anchors,
+        verify: v,
+        error: null,
+      }));
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Failed to load anchors.';
+      setAnchors((s) => ({ ...s, loading: false, error: msg }));
+    }
+  }, []);
+
+  const recordAnchor = useCallback(async () => {
+    setAnchors((s) => ({ ...s, recording: true, error: null }));
+    try {
+      const note = anchors.note.trim() || undefined;
+      await api.auditAnchorRecord(note);
+      setAnchors((s) => ({ ...s, recording: false, note: '' }));
+      await loadAnchors();
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : 'Failed to record anchor.';
+      setAnchors((s) => ({ ...s, recording: false, error: msg }));
+    }
+  }, [anchors.note, loadAnchors]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -96,6 +169,7 @@ export default function AuditPage() {
   }, [filters, offset]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (!forbidden) void loadAnchors(); }, [loadAnchors, forbidden]);
 
   function apply(e: React.FormEvent) {
     e.preventDefault();
@@ -233,6 +307,133 @@ export default function AuditPage() {
             {verify.error}
           </div>
         ) : null}
+
+        <section
+          aria-label="Tamper-evident anchors"
+          className="mt-6 cm-card p-4"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <h2 className="text-sm font-medium text-cm-fg">Tamper-evident anchors</h2>
+              <p className="mt-1 text-xs text-cm-muted">
+                The hash chain catches in-place edits. Anchors catch the
+                rest: truncation and rewrite of the on-disk log. Each anchor
+                is HMAC-signed with the server secret and pins the chain
+                head at a point in time.
+              </p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+              <input
+                type="text"
+                value={anchors.note}
+                onChange={(e) => setAnchors((s) => ({ ...s, note: e.target.value }))}
+                placeholder="Note (optional)"
+                maxLength={512}
+                className="w-full rounded-md border border-cm-border bg-cm-bg px-2 py-1.5 text-sm text-cm-fg placeholder:text-cm-muted focus:outline-none focus:ring-1 focus:ring-cm-fg sm:w-56"
+              />
+              <button
+                onClick={recordAnchor}
+                disabled={anchors.recording || forbidden}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg disabled:opacity-50"
+              >
+                <IconKey size={14} /> {anchors.recording ? 'Recording' : 'Record anchor'}
+              </button>
+              <button
+                onClick={loadAnchors}
+                disabled={anchors.loading}
+                className="inline-flex items-center justify-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg disabled:opacity-50"
+                title="Re-verify the most recent anchor against the live chain"
+              >
+                <IconRefresh size={14} /> Refresh
+              </button>
+            </div>
+          </div>
+
+          {anchors.error ? (
+            <div className="mt-3 rounded-md border border-rose-300/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-700">
+              {anchors.error}
+            </div>
+          ) : null}
+
+          {anchors.verify ? (
+            <div
+              className={`mt-3 flex items-start gap-2 rounded-md border px-3 py-2 text-sm ${
+                anchors.verify.ok
+                  ? 'border-emerald-300/40 bg-emerald-500/10 text-emerald-700'
+                  : anchors.verify.reason === 'no-anchors'
+                  ? 'border-cm-border bg-cm-bg text-cm-muted'
+                  : 'border-amber-400/40 bg-amber-500/10 text-amber-800'
+              }`}
+              role="status"
+            >
+              {anchors.verify.ok ? <IconCheck size={16} /> : <IconWarning size={16} />}
+              <div className="min-w-0">
+                {anchors.verify.ok && anchors.verify.anchor ? (
+                  <>
+                    Latest anchor verified. Head{' '}
+                    <code className="font-mono text-xs">
+                      {shortHash(anchors.verify.anchor.headHash)}
+                    </code>{' '}
+                    at record {anchors.verify.anchor.checked},{' '}
+                    {fmtRelative(anchors.verify.anchor.ts)}.
+                  </>
+                ) : (
+                  <>{reasonLabel(anchors.verify.reason)}</>
+                )}
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-4 overflow-x-auto">
+            {anchors.loading && !anchors.rows ? (
+              <div className="flex items-center gap-2 text-sm text-cm-muted">
+                <Spinner /> Loading anchors
+              </div>
+            ) : anchors.rows && anchors.rows.length > 0 ? (
+              <table className="min-w-full text-sm">
+                <thead className="text-left text-xs uppercase tracking-wide text-cm-muted">
+                  <tr>
+                    <th className="py-2 pr-4 font-medium">When</th>
+                    <th className="py-2 pr-4 font-medium">Records</th>
+                    <th className="py-2 pr-4 font-medium">Head hash</th>
+                    <th className="py-2 pr-4 font-medium">Note</th>
+                    <th className="py-2 pr-4 font-medium">Signature</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {anchors.rows.map((row) => (
+                    <tr key={row.id} className="border-t border-cm-border">
+                      <td className="py-2 pr-4 text-cm-muted" title={new Date(row.ts).toISOString()}>
+                        {fmtRelative(row.ts)}
+                      </td>
+                      <td className="py-2 pr-4 font-mono text-xs text-cm-fg">{row.checked}</td>
+                      <td className="py-2 pr-4 font-mono text-xs text-cm-fg" title={row.headHash}>
+                        {shortHash(row.headHash)}
+                      </td>
+                      <td className="py-2 pr-4 text-cm-fg">{row.note || ''}</td>
+                      <td className="py-2 pr-4">
+                        {row.signatureValid ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-700">
+                            <IconCheck size={14} /> valid
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-rose-700">
+                            <IconWarning size={14} /> invalid
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : anchors.rows && anchors.rows.length === 0 ? (
+              <EmptyState
+                title="No anchors yet"
+                body="Record an anchor to pin the current chain head. Future verifications will detect truncation or rewrite of the on-disk log."
+              />
+            ) : null}
+          </div>
+        </section>
 
         <form onSubmit={apply} className="mt-6 cm-card p-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">

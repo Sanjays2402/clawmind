@@ -21,3 +21,6 @@ export function manifestPath(env: { CLAWMIND_DATA_DIR: string }) {
 export function auditPath(env: { CLAWMIND_DATA_DIR: string }) {
   return resolve(dataDir(env), 'audit.log');
 }
+export function auditAnchorsPath(env: { CLAWMIND_DATA_DIR: string }) {
+  return resolve(dataDir(env), 'audit-anchors.jsonl');
+}

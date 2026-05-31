@@ -184,4 +184,113 @@ export const auditRoutes: FastifyPluginAsyncZod = async (app) => {
       return result;
     },
   });
+
+  // Record a fresh HMAC-signed anchor over the current chain head. The
+  // chain itself catches in-place tampering; anchors catch truncation
+  // and rewrite, where the on-disk file is silently shortened or
+  // rebuilt to a different past. Owner role plus the audit:anchor scope
+  // are both required so a delegated reviewer with audit:read alone
+  // cannot mint anchors that subsequent truncation checks key off of.
+  app.post('/admin/audit/anchors', {
+    schema: {
+      body: z.object({ note: z.string().min(1).max(512).optional() }).optional(),
+    },
+    preHandler: [
+      app.requireAuth,
+      app.requireRole('owner'),
+      app.requireScope(Scopes.AuditAnchor),
+    ],
+    handler: async (req, reply) => {
+      const body = (req.body ?? {}) as { note?: string };
+      const v = await app.clawmind.audit.verify();
+      if (!v.ok || !v.headHash) {
+        reply.code(409);
+        return {
+          error: 'chain_not_verified',
+          message:
+            'Audit chain failed verification; refusing to anchor a broken chain.',
+          reason: v.reason,
+          checked: v.checked,
+        };
+      }
+      const anchor = await app.clawmind.auditAnchors.record({
+        headHash: v.headHash,
+        checked: v.checked,
+        note: body.note,
+      });
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: 'audit.anchor.record',
+        resource: '/v1/admin/audit/anchors',
+        meta: {
+          anchorId: anchor.id,
+          headHash: anchor.headHash,
+          checked: anchor.checked,
+          note: anchor.note ?? null,
+        },
+      });
+      reply.code(201);
+      return anchor;
+    },
+  });
+
+  // Newest-first list of recorded anchors. Each row carries a
+  // signatureValid flag so a reviewer sees at a glance whether the
+  // HMAC over the record still matches the configured secret (a flip
+  // here means either the secret was rotated or the anchor file was
+  // edited). Reviewers with audit:read are allowed to enumerate; the
+  // act of listing is itself logged.
+  app.get('/admin/audit/anchors', {
+    schema: {
+      querystring: z.object({
+        limit: z.coerce.number().int().min(1).max(1000).optional(),
+      }),
+    },
+    preHandler: [
+      app.requireAuth,
+      app.requireRole('owner'),
+      app.requireScope(Scopes.AuditRead),
+    ],
+    handler: async (req) => {
+      const { limit } = req.query as { limit?: number };
+      const anchors = await app.clawmind.auditAnchors.list(limit ?? 100);
+      return { total: anchors.length, anchors };
+    },
+  });
+
+  // Compare the most recent anchor against the live chain. Detects
+  // truncation (chain shorter than the anchored count) and rewrite
+  // (chain long enough but the hash at the anchored position has
+  // changed). Logged so a flapping reviewer trying to find a window
+  // where the chain looks intact leaves a trace.
+  app.get('/admin/audit/anchors/verify', {
+    preHandler: [
+      app.requireAuth,
+      app.requireRole('owner'),
+      app.requireScope(Scopes.AuditRead),
+    ],
+    handler: async (req) => {
+      const v = await app.clawmind.audit.verify();
+      const result = await app.clawmind.auditAnchors.verifyLatest({
+        currentHeadHash: v.headHash,
+        currentChecked: v.checked,
+        headAt: (n) => app.clawmind.audit.hashAt(n),
+      });
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: 'audit.anchor.verify',
+        resource: '/v1/admin/audit/anchors/verify',
+        meta: {
+          ok: result.ok,
+          reason: result.reason,
+          anchorId: result.anchor?.id ?? null,
+          anchorHeadHash: result.anchor?.headHash ?? null,
+          anchorChecked: result.anchor?.checked ?? null,
+          currentHeadHash: v.headHash,
+          currentChecked: v.checked,
+        },
+      });
+      return result;
+    },
+  });
 };

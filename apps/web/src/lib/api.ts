@@ -1382,6 +1382,55 @@ export const api = {
     j<{ ok: boolean; checked: number; headHash: string | null; reason?: string; brokenAt?: { file: string; line: number; id?: string } }>(
       '/v1/admin/audit/verify',
     ),
+  // Tamper-evident anchors over the audit chain. Anchors catch what the
+  // plain chain cannot: truncation and rewrite of the on-disk log. The
+  // record endpoint is owner + audit:anchor scope; list/verify are
+  // audit:read so a delegated reviewer can still inspect them.
+  auditAnchorList: (limit = 100) =>
+    j<{
+      total: number;
+      anchors: Array<{
+        id: string;
+        ts: number;
+        headHash: string;
+        checked: number;
+        note?: string;
+        hmac: string;
+        signatureValid: boolean;
+      }>;
+    }>(`/v1/admin/audit/anchors?limit=${limit}`),
+  auditAnchorVerify: () =>
+    j<{
+      ok: boolean;
+      signatureValid: boolean;
+      chainMatches: boolean;
+      reason:
+        | 'no-anchors'
+        | 'bad-signature'
+        | 'chain-truncated'
+        | 'chain-rewritten'
+        | null;
+      anchor: {
+        id: string;
+        ts: number;
+        headHash: string;
+        checked: number;
+        note?: string;
+        hmac: string;
+      } | null;
+    }>('/v1/admin/audit/anchors/verify'),
+  auditAnchorRecord: (note?: string) =>
+    j<{
+      id: string;
+      ts: number;
+      headHash: string;
+      checked: number;
+      note?: string;
+      hmac: string;
+    }>('/v1/admin/audit/anchors', {
+      method: 'POST',
+      body: JSON.stringify(note ? { note } : {}),
+    }),
   // Stream the full chain (subject to the same filters as auditQuery)
   // as a blob the browser can save. We pull through fetch instead of a
   // raw anchor so the request inherits the same cookie credentials used
