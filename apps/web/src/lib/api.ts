@@ -844,6 +844,23 @@ export const api = {
       '/v1/me/data',
       { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) },
     ),
+  // Sandbox preview of /v1/me/data. The server returns the exact counts the
+  // real DELETE would report, without touching storage. Surfaced in the UI so
+  // a customer can see what they are about to erase before typing DELETE.
+  meDeleteDataPreview: () =>
+    j<{
+      schema: 'clawmind.user-deletion-preview.v1';
+      userId: string;
+      dryRun: true;
+      previewedAt: number;
+      wouldRemove: {
+        historyItems: number;
+        conversations: number;
+        savedItems: number;
+        feedbackVotes: number;
+        apiKeys: number;
+      };
+    }>('/v1/me/data?dry_run=true', { method: 'DELETE', body: JSON.stringify({ confirm: 'DELETE' }) }),
 
   webhookEvents: () => j<{ events: WebhookEvent[] }>('/v1/webhooks/events').then((r) => r.events),
   webhooksList: () => j<{ items: Webhook[] }>('/v1/webhooks').then((r) => r.items),

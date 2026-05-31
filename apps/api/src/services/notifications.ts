@@ -206,6 +206,13 @@ export async function clear(dataDir: string, userId: string): Promise<number> {
   return items.length;
 }
 
+/** Dry-run sibling of `clear`: returns the count that would be removed without
+ *  touching storage. Used by the sandbox `?dry_run=true` preview. */
+export async function countAll(dataDir: string, userId: string): Promise<number> {
+  const items = await loadAll(dataDir, userId);
+  return items.length;
+}
+
 /** Fire-and-forget helper for producers. Never throws. Returns silently
  *  whether the notification was actually written or muted by user prefs. */
 export function notify(dataDir: string, input: CreateInput): Promise<void> {

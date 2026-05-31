@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { listHistory, pruneHistory, deleteHistoryItem } from '../services/history.js';
+import { listHistory, pruneHistory, previewPruneHistory, deleteHistoryItem } from '../services/history.js';
 import { historyToCsv, historyToJson, historyToMarkdown } from '../services/history-export.js';
 import {
   loadMap as loadHistoryTags,
@@ -19,6 +19,7 @@ import {
   forgetItem as forgetHistoryTitle,
 } from '../services/history-titles.js';
 import { Scopes } from '../scopes.js';
+import { isDryRun, auditAction } from '../lib/dry-run.js';
 
 const ListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(1000).optional(),
@@ -52,6 +53,7 @@ const ExportQuery = z.object({
 const PruneQuery = z.object({
   before: z.coerce.number().int().nonnegative().optional(),
   keepPerUser: z.coerce.number().int().nonnegative().max(10000).optional(),
+  dry_run: z.string().optional(),
 });
 
 export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
@@ -266,17 +268,18 @@ export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
     preHandler: [app.requireAuth, app.requireScope(Scopes.HistoryWrite)],
     handler: async (req, reply) => {
       const { before, keepPerUser } = req.query as z.infer<typeof PruneQuery>;
+      const dryRun = isDryRun((req.query as { dry_run?: string }).dry_run);
       if (before === undefined && keepPerUser === undefined) {
         return reply.code(400).send({ error: 'specify at least one of: before, keepPerUser' });
       }
-      const result = await pruneHistory(app.clawmind.dataDir, req.user!.id, {
-        before, keepPerUser,
-      });
+      const result = dryRun
+        ? await previewPruneHistory(app.clawmind.dataDir, req.user!.id, { before, keepPerUser })
+        : await pruneHistory(app.clawmind.dataDir, req.user!.id, { before, keepPerUser });
       await app.clawmind.audit.write({
-        actor: req.user!.id, action: 'history.prune', resource: 'history',
-        meta: { before, keepPerUser, ...result },
+        actor: req.user!.id, action: auditAction('history.prune', dryRun), resource: 'history',
+        meta: { before, keepPerUser, ...result, dryRun },
       });
-      return result;
+      return dryRun ? { dryRun: true, wouldRemove: result.removed, wouldKeep: result.kept } : result;
     },
   });
 };

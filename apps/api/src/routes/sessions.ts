@@ -6,6 +6,7 @@ import {
   revokeAllForUser,
 } from '../services/sessions.js';
 import { Scopes } from '../scopes.js';
+import { DryRunQuery, isDryRun, auditAction } from '../lib/dry-run.js';
 
 // Active session management. Enterprise security reviewers expect every
 // signed-in user to be able to see "where am I logged in" and force-logout
@@ -42,21 +43,37 @@ export const sessionsRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   );
 
-  app.delete<{ Params: { id: string } }>(
+  app.delete<{ Params: { id: string }; Querystring: { dry_run?: string } }>(
     '/sessions/:id',
     {
       preHandler: [app.requireAuth, app.requireMfa, app.requireScope(Scopes.SessionsManage)],
       schema: {
         params: z.object({ id: z.string().regex(/^[0-9a-f]{6,64}$/i) }),
+        querystring: DryRunQuery,
         response: {
-          200: z.object({ revoked: z.number() }),
+          200: z.union([
+            z.object({ revoked: z.number() }),
+            z.object({ dryRun: z.literal(true), id: z.string(), wouldRevoke: z.literal(true) }),
+          ]),
           404: z.object({ error: z.string() }),
         },
       },
     },
     async (req, reply) => {
       const userId = req.user!.id;
-      const out = await revokeById(app.clawmind.dataDir, userId, req.params.id.toLowerCase());
+      const sid = req.params.id.toLowerCase();
+      const dryRun = isDryRun(req.query.dry_run);
+      if (dryRun) {
+        const sessions = await listForUser(app.clawmind.dataDir, userId, undefined);
+        const found = sessions.some((s) => s.id === sid);
+        if (!found) return reply.code(404).send({ error: 'session not found' });
+        await app.clawmind.audit.write({
+          actor: userId, action: auditAction('session.revoke', true),
+          resource: sid, meta: { dryRun: true },
+        });
+        return { dryRun: true, id: sid, wouldRevoke: true } as const;
+      }
+      const out = await revokeById(app.clawmind.dataDir, userId, sid);
       if (out.revoked === 0) return reply.code(404).send({ error: 'session not found' });
       await app.clawmind.audit.write({
         actor: userId,

@@ -16,6 +16,7 @@ import {
   updateWebhook,
 } from '../services/webhooks.js';
 import { Scopes } from '../scopes.js';
+import { DryRunQuery, isDryRun, auditAction } from '../lib/dry-run.js';
 
 const EventEnum = z.enum(WEBHOOK_EVENTS);
 
@@ -117,9 +118,23 @@ export const webhookRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   });
 
-  app.delete<{ Params: { id: string } }>('/webhooks/:id', {
+  app.delete<{ Params: { id: string }; Querystring: { dry_run?: string } }>('/webhooks/:id', {
+    schema: { querystring: DryRunQuery },
     preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.WebhooksManage)],
     handler: async (req, reply) => {
+      const dryRun = isDryRun(req.query.dry_run);
+      const owned = (await loadAll(app.clawmind.dataDir)).find(
+        (w) => w.id === req.params.id && w.userId === req.user!.id,
+      );
+      if (!owned) return reply.code(404).send({ error: 'not found' });
+      if (dryRun) {
+        await app.clawmind.audit.write({
+          actor: req.user!.id, action: auditAction('webhook.delete', true),
+          resource: req.params.id,
+          meta: { dryRun: true, url: owned.url, events: owned.events },
+        });
+        return { dryRun: true, id: req.params.id, wouldRevoke: true, url: owned.url, events: owned.events };
+      }
       const ok = await deleteWebhook(app.clawmind.dataDir, req.user!.id, req.params.id);
       if (!ok) return reply.code(404).send({ error: 'not found' });
       await app.clawmind.audit.write({

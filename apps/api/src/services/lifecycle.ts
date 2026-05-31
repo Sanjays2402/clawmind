@@ -134,6 +134,63 @@ export interface DeletionReport {
   };
 }
 
+export interface DeletionPreview {
+  schema: 'clawmind.user-deletion-preview.v1';
+  userId: string;
+  dryRun: true;
+  previewedAt: number;
+  /** Counts that the equivalent non-dry-run call would report as removed. */
+  wouldRemove: DeletionReport['removed'];
+}
+
+/**
+ * Count exactly what `deleteUserData` would remove, without writing anything.
+ * Reads the same files as the real deletion path so the preview cannot drift
+ * from what would actually happen. Safe to call repeatedly.
+ */
+export async function previewUserDataDeletion(
+  dataDir: string,
+  userId: string,
+): Promise<DeletionPreview> {
+  const p = paths(dataDir);
+
+  const allHistory = await readJsonl<HistoryItem>(p.history);
+  const historyItems = allHistory.filter((h) => h.userId === userId).length;
+
+  let conversations = 0;
+  try {
+    const files = await readdir(p.conversationsDir);
+    for (const name of files) {
+      if (!name.endsWith('.json')) continue;
+      const conv = await readJson<Conversation | null>(join(p.conversationsDir, name), null);
+      if (conv && conv.userId === userId) conversations += 1;
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+
+  const allSaved = await readJson<SavedItem[]>(p.saved, []);
+  const savedItems = allSaved.filter((s) => s.userId === userId).length;
+
+  const fbMap = await readJson<FeedbackMap>(p.feedback, {});
+  let feedbackVotes = 0;
+  for (const entry of Object.values(fbMap)) {
+    const vote = entry.byUser?.[userId];
+    if (vote === 1 || vote === -1) feedbackVotes += 1;
+  }
+
+  const allKeys = await readJson<ApiKeyRecord[]>(p.apiKeys, []);
+  const apiKeys = allKeys.filter((k) => k.userId === userId).length;
+
+  return {
+    schema: 'clawmind.user-deletion-preview.v1',
+    userId,
+    dryRun: true,
+    previewedAt: Date.now(),
+    wouldRemove: { historyItems, conversations, savedItems, feedbackVotes, apiKeys },
+  };
+}
+
 export async function deleteUserData(dataDir: string, userId: string): Promise<DeletionReport> {
   const p = paths(dataDir);
   const removed = {

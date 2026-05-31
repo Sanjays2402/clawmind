@@ -455,12 +455,41 @@ function ShortcutsCard() {
 function DataCard({ onChanged }: { onChanged: () => void }) {
   const [confirm, setConfirm] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [preview, setPreview] = useState<null | {
+    previewedAt: number;
+    wouldRemove: {
+      historyItems: number;
+      conversations: number;
+      savedItems: number;
+      feedbackVotes: number;
+      apiKeys: number;
+    };
+  }>(null);
   const [done, setDone] = useState<null | { removed: Record<string, number> }>(null);
   const [err, setErr] = useState<string | null>(null);
 
   const total = done
     ? Object.values(done.removed).reduce((a, b) => a + (b ?? 0), 0)
     : 0;
+  const previewTotal = preview
+    ? Object.values(preview.wouldRemove).reduce((a, b) => a + (b ?? 0), 0)
+    : 0;
+
+  const onPreview = async () => {
+    setPreviewing(true);
+    setErr(null);
+    try {
+      const res = await api.meDeleteDataPreview();
+      setPreview({ previewedAt: res.previewedAt, wouldRemove: res.wouldRemove });
+      setDone(null);
+    } catch (e) {
+      if (e instanceof ApiError) setErr(`Preview failed (${e.status})`);
+      else setErr(e instanceof Error ? e.message : 'preview failed');
+    } finally {
+      setPreviewing(false);
+    }
+  };
 
   const onDelete = async () => {
     if (confirm !== 'DELETE') return;
@@ -470,6 +499,7 @@ function DataCard({ onChanged }: { onChanged: () => void }) {
       const res = await api.meDeleteData();
       setDone({ removed: res.removed });
       setConfirm('');
+      setPreview(null);
       onChanged();
     } catch (e) {
       if (e instanceof ApiError) {
@@ -516,8 +546,33 @@ function DataCard({ onChanged }: { onChanged: () => void }) {
           </div>
           <p className="mb-2 text-xs text-[var(--fg-muted)]">
             Removes history, conversations, saved items, feedback votes, and API keys for this
-            account. Type DELETE to confirm.
+            account. Type DELETE to confirm. Use Preview first to see counts before erasing.
           </p>
+          <div className="mb-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onPreview}
+              disabled={previewing || deleting}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-[11px] font-medium text-[var(--fg)] hover:bg-[var(--bg-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {previewing ? <Spinner /> : <IconWarning size={12} />}
+              Preview deletion
+            </button>
+            {preview ? (
+              <span className="text-[11px] text-[var(--fg-muted)]">
+                {previewTotal} record{previewTotal === 1 ? '' : 's'} would be erased
+              </span>
+            ) : null}
+          </div>
+          {preview ? (
+            <ul className="mb-2 grid grid-cols-2 gap-x-3 gap-y-0.5 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2 text-[11px] text-[var(--fg-muted)]" role="status">
+              <li>History items: <span className="cm-mono text-[var(--fg)]">{preview.wouldRemove.historyItems}</span></li>
+              <li>Conversations: <span className="cm-mono text-[var(--fg)]">{preview.wouldRemove.conversations}</span></li>
+              <li>Saved items: <span className="cm-mono text-[var(--fg)]">{preview.wouldRemove.savedItems}</span></li>
+              <li>Feedback votes: <span className="cm-mono text-[var(--fg)]">{preview.wouldRemove.feedbackVotes}</span></li>
+              <li>API keys: <span className="cm-mono text-[var(--fg)]">{preview.wouldRemove.apiKeys}</span></li>
+            </ul>
+          ) : null}
           <div className="flex items-center gap-2">
             <input
               type="text"

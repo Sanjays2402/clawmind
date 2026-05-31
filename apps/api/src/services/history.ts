@@ -161,3 +161,29 @@ export async function pruneHistory(
   await rename(tmp, f);
   return { removed, kept: kept.length };
 }
+
+/**
+ * Same accounting as pruneHistory but writes nothing. Used by the dry-run
+ * sandbox preview so a customer can see exactly how many entries a prune
+ * would remove before committing to it. Returns identical shape.
+ */
+export async function previewPruneHistory(
+  dataDir: string,
+  userId: string,
+  opts: PruneOptions,
+): Promise<{ removed: number; kept: number }> {
+  if (opts.before === undefined && opts.keepPerUser === undefined) {
+    return { removed: 0, kept: 0 };
+  }
+  const items = await readAll(dataDir);
+  const mine = items.filter((i) => i.userId === userId).sort((a, b) => b.ts - a.ts);
+  let kept = mine;
+  if (opts.before !== undefined) {
+    kept = kept.filter((i) => i.ts >= opts.before!);
+  }
+  if (opts.keepPerUser !== undefined && opts.keepPerUser >= 0) {
+    kept = kept.slice(0, opts.keepPerUser);
+  }
+  return { removed: mine.length - kept.length, kept: kept.length };
+}
+

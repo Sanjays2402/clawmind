@@ -32,6 +32,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Usage meter: per-user monthly request count, free-tier quota with 429 on overrun, and an in-app `/usage` page with reset countdown and upgrade CTA
 - Shareable read-only answer links, created in one click from the Share button under any finished chat answer, with per-share OpenGraph cards (dynamic 1200x630 image, Twitter `summary_large_image`, title and snippet) so a pasted `/s/<id>` URL renders as a rich preview in Slack, iMessage, and X. The public `/s/<id>` page also renders the cited sources (path, line range, excerpt), the share timestamp, a copy-link button, and a Try ClawMind CTA so first-time viewers can convert into users. The `/shares` page lists every link you created, with view counts, copy-link, and one-click revoke so a leaked URL is easy to kill
 - Installable PWA: web app manifest, offline shell, and in-app install prompt so the web UI lives on your home screen with quick shortcuts to Ask, Search, and Saved
+- Sandbox preview on every destructive endpoint: append `?dry_run=true` to a DELETE and the server returns the exact counts the real call would report without touching storage. Wired across the GDPR account hard-delete, bulk history prune, bulk and single notification deletes, share revoke, webhook delete, API key revoke, and session revoke, on top of the existing members / invitations / domain-policies / retention / maintenance previews. The audit log records previews under `<action>.dry_run` so an auditor can always tell a rehearsal apart from a real mutation, and the GDPR card on `/settings` exposes a one-click Preview deletion button that itemises history items, conversations, saved items, feedback votes, and keys before you type DELETE.
 - Account settings: `/settings` shows your user id and plan, a live usage meter, system health, shortcuts to keys and webhooks, a one-click JSON export of every per-user record, and a type-to-confirm GDPR delete that audit-logs the wipe
 - Editable profile: `GET /v1/me` and `PATCH /v1/me` back a display name, IANA timezone, and default model preference per user. The settings page exposes an inline edit form (with a one-click Use local timezone helper) so a returning user can rename themselves, pin their timezone, and lock in a preferred model without leaving the page. Profiles are stored per-user in `profiles.json`, isolated by `userId`, and gated by the `profile:read` / `profile:write` scopes for API keys
 - Onboarding: `/welcome` is a three-step first-run guide (ingest a source, ask your first question, create an API key) with per-user server-side progress, a one-click button to index the bundled sample pack, and a dismiss/restore toggle so the guide stops nagging once you are set up
@@ -201,6 +202,25 @@ curl -OJ http://127.0.0.1:7410/v1/me/export.zip
 curl -X DELETE http://127.0.0.1:7410/v1/me/data \
   -H 'content-type: application/json' \
   -d '{"confirm":"DELETE"}'
+
+# Sandbox preview: append ?dry_run=true to any destructive endpoint to see
+# exactly what would happen without touching storage. Procurement and SRE
+# teams use this to rehearse a delete before signing off on it. The audit log
+# records the preview under '<action>.dry_run' so previews never get confused
+# with the real thing.
+curl -s -X DELETE 'http://127.0.0.1:7410/v1/me/data?dry_run=true' \
+  -H 'content-type: application/json' \
+  -d '{"confirm":"DELETE"}' | jq
+# {
+#   "schema": "clawmind.user-deletion-preview.v1",
+#   "dryRun": true,
+#   "wouldRemove": { "historyItems": 47, "conversations": 12, "savedItems": 3,
+#                    "feedbackVotes": 19, "apiKeys": 2 }
+# }
+# Supported on: DELETE /v1/me/data, DELETE /v1/history, DELETE /v1/notifications,
+# DELETE /v1/notifications/:id, DELETE /v1/share/:id, DELETE /v1/webhooks/:id,
+# DELETE /v1/keys/:id, DELETE /v1/sessions/:id, plus the existing members,
+# invitations, domain-policies, retention, and maintenance previews.
 
 # Read and update your profile (display name, IANA timezone, default model)
 curl -s http://127.0.0.1:7410/v1/me | jq '.profile'

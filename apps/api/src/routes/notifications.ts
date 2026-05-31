@@ -7,8 +7,10 @@ import {
   markAllRead,
   remove,
   clear,
+  countAll,
 } from '../services/notifications.js';
 import { Scopes } from '../scopes.js';
+import { DryRunQuery, isDryRun, auditAction } from '../lib/dry-run.js';
 
 // In-app notification inbox.
 //
@@ -68,9 +70,20 @@ export const notificationRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   app.delete('/notifications/:id', {
-    schema: { params: IdParam },
+    schema: { params: IdParam, querystring: DryRunQuery },
     preHandler: [app.requireAuth, app.requireScope(Scopes.NotificationsWrite)],
     handler: async (req, reply) => {
+      const dryRun = isDryRun((req.query as { dry_run?: string }).dry_run);
+      if (dryRun) {
+        const items = await list(app.clawmind.dataDir, req.user!.id, { limit: 200 });
+        const exists = items.some((i) => i.id === req.params.id);
+        if (!exists) return reply.code(404).send({ error: 'not found' });
+        await app.clawmind.audit.write({
+          actor: req.user!.id, action: auditAction('notification.delete', true),
+          resource: req.params.id, meta: { dryRun: true, wouldRemove: 1 },
+        });
+        return { dryRun: true, id: req.params.id, wouldRemove: 1 };
+      }
       const ok = await remove(app.clawmind.dataDir, req.user!.id, req.params.id);
       if (!ok) return reply.code(404).send({ error: 'not found' });
       return { id: req.params.id, deleted: true };
@@ -78,8 +91,18 @@ export const notificationRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   app.delete('/notifications', {
+    schema: { querystring: DryRunQuery },
     preHandler: [app.requireAuth, app.requireScope(Scopes.NotificationsWrite)],
     handler: async (req) => {
+      const dryRun = isDryRun((req.query as { dry_run?: string }).dry_run);
+      if (dryRun) {
+        const wouldClear = await countAll(app.clawmind.dataDir, req.user!.id);
+        await app.clawmind.audit.write({
+          actor: req.user!.id, action: auditAction('notifications.clear', true),
+          resource: 'notifications', meta: { dryRun: true, wouldClear },
+        });
+        return { dryRun: true, wouldClear };
+      }
       const cleared = await clear(app.clawmind.dataDir, req.user!.id);
       return { cleared };
     },

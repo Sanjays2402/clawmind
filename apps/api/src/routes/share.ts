@@ -9,6 +9,7 @@ import {
 } from '../services/share.js';
 import { Scopes } from '../scopes.js';
 import { notify } from '../services/notifications.js';
+import { DryRunQuery, isDryRun, auditAction } from '../lib/dry-run.js';
 
 // Public shares: any signed-in user can mint a /s/<id> link that anyone on
 // the internet can read without auth. We also let owners list and revoke
@@ -79,9 +80,20 @@ export const shareRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   app.delete('/share/:id', {
-    schema: { params: IdParam },
+    schema: { params: IdParam, querystring: DryRunQuery },
     preHandler: [app.requireAuth, app.requireScope(Scopes.ShareWrite)],
     handler: async (req, reply) => {
+      const dryRun = isDryRun((req.query as { dry_run?: string }).dry_run);
+      if (dryRun) {
+        const all = await listSharesByUser(app.clawmind.dataDir, req.user!.id);
+        const target = all.find((s) => s.id === req.params.id);
+        if (!target) return reply.code(404).send({ error: 'not found' });
+        await app.clawmind.audit.write({
+          actor: req.user!.id, action: auditAction('share.delete', true),
+          resource: req.params.id, meta: { dryRun: true, query: target.query, createdAt: target.createdAt },
+        });
+        return { dryRun: true, id: req.params.id, wouldRevoke: true };
+      }
       const ok = await deleteShare(app.clawmind.dataDir, req.params.id, req.user!.id);
       if (!ok) return reply.code(404).send({ error: 'not found' });
       return { id: req.params.id, deleted: true };

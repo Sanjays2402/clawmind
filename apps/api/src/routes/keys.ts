@@ -4,6 +4,7 @@ import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SC
 import { getUsageReport, purgeUsage } from '../services/api-key-usage.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
+import { DryRunQuery, isDryRun, auditAction } from '../lib/dry-run.js';
 
 const UsageQuery = z.object({
   recent: z.coerce.number().int().positive().max(200).optional(),
@@ -67,9 +68,21 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   });
 
-  app.delete<{ Params: { id: string } }>('/keys/:id', {
+  app.delete<{ Params: { id: string }; Querystring: { dry_run?: string } }>('/keys/:id', {
+    schema: { querystring: DryRunQuery },
     preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.KeysManage)],
     handler: async (req, reply) => {
+      const dryRun = isDryRun(req.query.dry_run);
+      const all = await loadKeys(app.clawmind.dataDir);
+      const owned = all.find((k) => k.id === req.params.id && k.userId === req.user!.id);
+      if (!owned) return reply.code(404).send({ error: 'not found' });
+      if (dryRun) {
+        await app.clawmind.audit.write({
+          actor: req.user!.id, action: auditAction('api_key.revoke', true), resource: req.params.id,
+          meta: { dryRun: true, label: owned.label, role: owned.role, scopes: owned.scopes ?? null },
+        });
+        return { dryRun: true, id: req.params.id, wouldRevoke: true, key: redact(owned) };
+      }
       const ok = await revokeKey(app.clawmind.dataDir, req.user!.id, req.params.id);
       if (!ok) return reply.code(404).send({ error: 'not found' });
       // Best-effort cleanup of the per-key usage log. Revoked keys cannot

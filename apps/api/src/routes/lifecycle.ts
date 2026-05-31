@@ -1,8 +1,13 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
-import { exportUserData, deleteUserData } from '../services/lifecycle.js';
+import {
+  exportUserData,
+  deleteUserData,
+  previewUserDataDeletion,
+} from '../services/lifecycle.js';
 import { bundleToZip } from '../services/zip-export.js';
 import { Scopes } from '../scopes.js';
+import { DryRunQuery, isDryRun, auditAction } from '../lib/dry-run.js';
 
 // GDPR-style data lifecycle endpoints. Both are scoped to the authenticated
 // user and write to the audit log so a regulator can see who exported or
@@ -77,10 +82,21 @@ export const lifecycleRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   app.delete('/me/data', {
-    schema: { body: deleteSchema },
+    schema: { body: deleteSchema, querystring: DryRunQuery },
     preHandler: [app.requireAuth, app.requireMfa, app.requireScope(Scopes.LifecycleManage)],
     handler: async (req) => {
       const userId = req.user!.id;
+      const dryRun = isDryRun((req.query as { dry_run?: string }).dry_run);
+      if (dryRun) {
+        const preview = await previewUserDataDeletion(app.clawmind.dataDir, userId);
+        await app.clawmind.audit.write({
+          actor: userId,
+          action: auditAction('lifecycle.delete', true),
+          resource: '/v1/me/data',
+          meta: { ...preview.wouldRemove, dryRun: true },
+        });
+        return preview;
+      }
       const report = await deleteUserData(app.clawmind.dataDir, userId);
       await app.clawmind.audit.write({
         actor: userId,
