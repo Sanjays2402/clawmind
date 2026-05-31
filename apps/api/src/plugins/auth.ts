@@ -19,6 +19,7 @@ import {
   type MemberRole,
 } from '../services/members.js';
 import { resolveDefaultRoleByEmail, isSsoRequiredForEmail } from '../services/domain-policies.js';
+import { getActiveGrant as getActiveElevation } from '../services/role-elevation.js';
 import {
   settingsFromEnv as oidcSettingsFromEnv,
   isConfigured as oidcIsConfigured,
@@ -40,6 +41,12 @@ declare module 'fastify' {
       scopes?: string[] | null;
       email?: string | null;
     };
+    elevation?: {
+      id: string;
+      fromRole: MemberRole;
+      toRole: MemberRole;
+      expiresAt: number;
+    };
   }
   interface Session {
     userId?: string;
@@ -54,6 +61,16 @@ declare module 'fastify' {
     authMethod?: string;
   }
 }
+
+// Role hierarchy used by the elevation overlay. Owners outrank admins
+// outrank members outrank viewers. Matches services/members.ts so a
+// future role addition only needs one constant updated.
+const ROLE_RANK: Record<MemberRole, number> = {
+  owner: 4,
+  admin: 3,
+  member: 2,
+  viewer: 1,
+};
 
 const plugin: FastifyPluginAsync = async (app) => {
   const env = app.clawmind.env;
@@ -350,6 +367,34 @@ const plugin: FastifyPluginAsync = async (app) => {
         via: 'session',
         email: req.session.email ?? null,
       };
+    }
+
+    // Time-bound role elevation overlay (break-glass / JIT privilege).
+    // If the authenticated user has an approved, unexpired, unrevoked
+    // elevation grant on file, overlay the elevated role on req.user for
+    // this request only. Both session and api-key callers are covered.
+    // The grant id is stashed on req.elevation so downstream audit
+    // entries can be tagged and a procurement reviewer can trace any
+    // privileged action back to a specific signed approval.
+    if (req.user) {
+      try {
+        const grant = await getActiveElevation(app.clawmind.dataDir, req.user.id);
+        if (grant) {
+          // Never weaken: only apply if the grant's role outranks the base.
+          const baseRank = ROLE_RANK[(req.user.role === 'reader' ? 'viewer' : req.user.role) as MemberRole];
+          const grantRank = ROLE_RANK[grant.toRole];
+          if (grantRank > baseRank) {
+            (req.user as { role: MemberRole }).role = grant.toRole;
+            req.elevation = { id: grant.id, fromRole: grant.fromRole, toRole: grant.toRole, expiresAt: grant.expiresAt ?? 0 };
+          }
+        }
+      } catch {
+        // Fail-closed: if the elevation store is unreadable we simply do
+        // not apply the overlay; the user keeps their base role. This is
+        // the safe direction (no surprise privilege escalation on disk
+        // errors) and matches how the IP allowlist plugin handles a
+        // missing rules file.
+      }
     }
   });
 

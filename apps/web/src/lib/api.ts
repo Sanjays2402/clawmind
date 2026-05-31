@@ -1858,7 +1858,57 @@ export const api = {
   trustAdmin: () => j<TrustProfile>('/v1/trust/admin'),
   trustUpdate: (body: Partial<TrustProfileInput>) =>
     j<TrustProfile>('/v1/trust', { method: 'PUT', body: JSON.stringify(body) }),
+
+  // Break-glass / time-bound role elevation. Members file a request with
+  // a reason and bounded duration; an owner approves with MFA step-up;
+  // the API auth plugin overlays the elevated role for the window and
+  // drops back automatically when expiresAt passes.
+  roleElevationList: () =>
+    j<{ records: RoleElevationRequest[] }>('/v1/role-elevation/requests').then((r) => r.records),
+  roleElevationCreate: (input: RoleElevationCreateInput) =>
+    j<{ request: RoleElevationRequest }>('/v1/role-elevation/requests', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }).then((r) => r.request),
+  roleElevationApprove: (id: string) =>
+    j<{ request: RoleElevationRequest }>(`/v1/role-elevation/requests/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+    }).then((r) => r.request),
+  roleElevationDeny: (id: string, reason?: string) =>
+    j<{ request: RoleElevationRequest }>(`/v1/role-elevation/requests/${encodeURIComponent(id)}/deny`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason ?? '' }),
+    }).then((r) => r.request),
+  roleElevationRevoke: (id: string) =>
+    j<{ request: RoleElevationRequest }>(`/v1/role-elevation/requests/${encodeURIComponent(id)}/revoke`, {
+      method: 'POST',
+    }).then((r) => r.request),
 };
+
+export type RoleElevationStatus = 'pending' | 'approved' | 'revoked' | 'expired' | 'denied';
+
+export interface RoleElevationRequest {
+  id: string;
+  userId: string;
+  fromRole: 'owner' | 'admin' | 'member' | 'viewer';
+  toRole: 'owner' | 'admin' | 'member' | 'viewer';
+  reason: string;
+  requestedAt: number;
+  durationMinutes: number;
+  status: RoleElevationStatus;
+  approvedBy: string | null;
+  approvedAt: number | null;
+  expiresAt: number | null;
+  revokedBy: string | null;
+  revokedAt: number | null;
+  decisionReason: string | null;
+}
+
+export interface RoleElevationCreateInput {
+  toRole: 'admin' | 'owner';
+  reason: string;
+  durationMinutes: number;
+}
 
 export type ComplianceStatus = 'in_progress' | 'achieved' | 'not_pursued';
 export interface ComplianceFramework {

@@ -10,6 +10,25 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Break-glass time-bound role elevation: enterprise procurement (SOC2 CC6.3, ISO 27001 A.9.2.3, NIST AC-6(2)) wants temporary privileged access without standing owner credentials. A member or admin files a request at `POST /v1/role-elevation/requests` with `toRole`, a written `reason`, and a bounded `durationMinutes` (5 to 240). An owner other than the requester approves at `POST /v1/role-elevation/requests/:id/approve` with MFA step-up (four-eyes rule). The auth plugin overlays the elevated role on `req.user` for every authenticated request inside the window and drops back automatically once `expiresAt` passes, so no cron is required. Owners can yank a live grant at any time with `POST /v1/role-elevation/requests/:id/revoke`. Every request, approval, denial, and revocation lands in the hash-chained audit log with the elevation id, the role transition, the duration, and the reason text, which is exactly the evidence a procurement reviewer asks for during a privileged-access walkthrough. State lives at `data/role-elevation.json`, listing is gated by `role-elevation:read` (admin+), filing a request by `role-elevation:write`, and approve / deny / revoke by `role-elevation:admin` (owner only).
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # File a 30-minute elevation request as the current member
+  curl -sS -X POST http://localhost:8787/v1/role-elevation/requests \
+    -H "Authorization: Bearer $CLAWMIND_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"toRole":"owner","reason":"Incident #1234 restore","durationMinutes":30}'
+
+  # As an owner with MFA, approve by id
+  curl -sS -X POST http://localhost:8787/v1/role-elevation/requests/<id>/approve \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY"
+
+  # Browse the settings page in a browser
+  open http://localhost:3000/settings/role-elevation
+  ```
+
 - Workspace PII redaction policy: owner-managed detector classes (email, phone, SSN, credit card, IPv4 plus custom labelled regex) enforced on every inbound query to `/v1/ask`, `/v1/ask/stream`, `/v1/search`, `/v1/explain` and `/v1/ask/batch` before retrieval or the LLM run. Each class can be `off`, `redact` (rewrite matches in place as `[REDACTED:class]`), or `block` (reject with 422 `pii-blocked`). Credit card matches are Luhn-validated to suppress false positives from order IDs, and SSN / credit_card default to `block` because a partial redaction that misses a single digit still leaks the secret. The policy file lives at `data/pii-redaction.json`, `GET /v1/pii-redaction` is admin+, `PUT /v1/pii-redaction` is owner only with MFA step-up, and every redaction or block writes a `pii-redaction.redacted` / `pii-redaction.blocked` row into the hash-chained audit log with class names and counts only, never the matched substring or the raw query. Gated by the new `pii-redaction:read` / `pii-redaction:admin` API-key scopes.
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):

@@ -276,6 +276,17 @@ export const Scopes = {
   // LLM provider on the next /v1/ask call.
   PiiRedactionRead: 'pii-redaction:read',
   PiiRedactionManage: 'pii-redaction:admin',
+
+  // Break-glass / time-bound role elevation. Read is admin+ so an
+  // operator can see who currently holds elevated access; Manage is
+  // owner-only with MFA step-up at the route because approving a
+  // request mints temporary owner-equivalent privileges. Requesters
+  // hit the create endpoint with their session, no API-key scope is
+  // needed there because a request is a human attestation, not an
+  // automated mutation worth scoping for service accounts.
+  RoleElevationRead: 'role-elevation:read',
+  RoleElevationRequest: 'role-elevation:write',
+  RoleElevationManage: 'role-elevation:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];
