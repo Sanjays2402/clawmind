@@ -10,6 +10,25 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Workspace CORS origin allowlist: owner-managed list of additional browser origins permitted to call the API on top of the static `CLAWMIND_API_CORS_ORIGIN` baseline. Enterprise customers who embed ClawMind in their own dashboard at `app.acme.com` add the origin themselves rather than file a support ticket, while the vendor still controls the default. The list is read once per CORS preflight from `data/workspace-origin-allowlist.json` (bounded to 64 origins), `GET /v1/workspace-origin-allowlist` is admin+, `PUT /v1/workspace-origin-allowlist` is owner only with MFA step-up, and every change writes a `workspace-origin-allowlist.update` row into the hash-chained audit log with the added and removed origins. Server-to-server callers (no Origin header) are unaffected since CORS only matters to browsers. Gated by the new `origin-allowlist:read` / `origin-allowlist:write` API key scopes.
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # Read the current workspace-managed origin list (admin+)
+  curl -sS http://localhost:8787/v1/workspace-origin-allowlist \
+    -H "Authorization: Bearer $CLAWMIND_KEY"
+
+  # Owner adds an internal portal origin (requires MFA-stepped session bearer)
+  curl -sS -X PUT http://localhost:8787/v1/workspace-origin-allowlist \
+    -H "Authorization: Bearer $CLAWMIND_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"enabled":true,"rules":[{"origin":"https://app.acme.com","label":"internal portal"}]}'
+
+  # Browse the settings page in a browser
+  open http://localhost:3000/settings/workspace-origin-allowlist
+  ```
+
 - Trust Center: a public, server-rendered `/trust` page that procurement and security reviewers can cite by URL, backed by an owner-edited profile (summary, security contact, vulnerability disclosure URL, compliance frameworks with status and issued dates, encryption at rest / in transit, data residency, and additional resource links). The unauthenticated `GET /v1/trust` returns the same JSON a buyer's vendor-review tool can ingest into their questionnaire pipeline, while `GET /.well-known/security.txt` is auto-derived from the same profile so vulnerability scanners get an RFC 9116 record without anyone copy-pasting one. The operator console at `/settings/trust` is owner only with MFA step-up; every edit writes a `trust.update` row into the hash-chained audit log. Backed by `GET /v1/trust` (public), `GET /v1/trust/admin` (admin+), and `PUT /v1/trust` (owner+MFA), gated by the new `trust:read` / `trust:admin` API key scopes.
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):

@@ -5,13 +5,17 @@ import session from '@fastify/session';
 import sensible from '@fastify/sensible';
 import rateLimit from '@fastify/rate-limit';
 import { serializerCompiler, validatorCompiler, ZodTypeProvider } from 'fastify-type-provider-zod';
-import { loadEnv, lancedbDir, bm25Dir, manifestPath, auditPath, auditAnchorsPath, dataDir } from '@clawmind/config';
-import { createLogger, startTracing, initSentry } from '@clawmind/telemetry';
+import { loadEnv, lancedbDir, bm25Dir, manifestPath, auditPath, auditAnchorsPath, dataDir } from '@clawmind/config';import { createLogger, startTracing, initSentry } from '@clawmind/telemetry';
 import { LanceStore, BM25Index, IngestManifest, AuditLog, AuditAnchorStore } from '@clawmind/store';
 import { MlxEmbedClient, OpenAIEmbedClient, FallbackEmbedProvider } from '@clawmind/embed';
 import { buildDefaultLLM } from '@clawmind/llm';
 import { registerRoutes } from './routes/index.js';
 import { configureWebhookUrlGuard, emitToAll as emitToAllWebhooks } from './services/webhooks.js';
+import {
+  getRecord as getWorkspaceOriginAllowlist,
+  originAllowedByWorkspace,
+} from './services/workspace-origin-allowlist.js';
+import { normaliseOrigin } from './services/api-keys.js';
 import { authPlugin } from './plugins/auth.js';
 import { ipAllowlistPlugin } from './plugins/ip-allowlist.js';
 import { workspaceIpAllowlistPlugin } from './plugins/workspace-ip-allowlist.js';
@@ -66,7 +70,49 @@ export async function buildApp(): Promise<any> {
   });
 
   await app.register(sensible);
-  await app.register(cors, { origin: env.CLAWMIND_API_CORS_ORIGIN, credentials: true });
+
+  // CORS: the static CLAWMIND_API_CORS_ORIGIN value is the vendor-managed
+  // baseline (typically the hosted dashboard). On top of that, workspace
+  // owners can add their own browser origins via the workspace-origin-
+  // allowlist API so an enterprise dashboard at app.acme.com is not blocked
+  // at preflight. We read the file on every check rather than caching to
+  // keep the surface trivially auditable; the file is bounded and parsed
+  // once per preflight, not once per request.
+  const baselineOrigins: string[] = ((): string[] => {
+    const v = env.CLAWMIND_API_CORS_ORIGIN as unknown;
+    if (Array.isArray(v)) return v.map((o) => String(o)).filter((s) => s.length > 0);
+    if (typeof v === 'string') {
+      return v
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+    }
+    return [];
+  })();
+  function originMatchesBaseline(origin: string): boolean {
+    if (baselineOrigins.length === 0) return false;
+    const normReq = normaliseOrigin(origin);
+    for (const b of baselineOrigins) {
+      if (b === '*' || b === origin) return true;
+      const norm = normaliseOrigin(b);
+      if (norm && normReq && norm === normReq) return true;
+    }
+    return false;
+  }
+  await app.register(cors, {
+    origin: (origin, cb) => {
+      // Non-browser callers omit Origin. Mirror @fastify/cors default by
+      // accepting these so curl, server-to-server, and SDK callers work.
+      if (!origin) return cb(null, true);
+      if (originMatchesBaseline(origin)) return cb(null, true);
+      // Workspace-managed additive list. Owner-controlled, audited on
+      // every change.
+      getWorkspaceOriginAllowlist(dataDir(env))
+        .then((rec) => cb(null, originAllowedByWorkspace(origin, rec)))
+        .catch(() => cb(null, false));
+    },
+    credentials: true,
+  });
   await app.register(rateLimit, {
     global: true,
     max: 240,

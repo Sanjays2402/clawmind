@@ -107,6 +107,13 @@ export const Scopes = {
   IpAllowlistRead: 'ip-allowlist:read',
   IpAllowlistWrite: 'ip-allowlist:write',
 
+  // Workspace-wide browser Origin (CORS) allowlist. Read is granted to
+  // admins+ so an operator can see what browsers are permitted; Write is
+  // owner-only with MFA step-up because a bad rule can break every
+  // browser-based integration the workspace ships.
+  OriginAllowlistRead: 'origin-allowlist:read',
+  OriginAllowlistWrite: 'origin-allowlist:write',
+
   SessionsRead: 'sessions:read',
   SessionsManage: 'sessions:admin',
 

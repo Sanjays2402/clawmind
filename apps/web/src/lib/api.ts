@@ -299,6 +299,30 @@ export interface WorkspaceIpAllowlistInput {
   confirmSelfLockoutAccepted?: boolean;
 }
 
+export interface OriginRule {
+  origin: string;
+  label: string;
+  createdAt: number;
+}
+
+export interface WorkspaceOriginAllowlistRecord {
+  enabled: boolean;
+  rules: OriginRule[];
+  updatedAt: number;
+  createdAt: number;
+  updatedBy: string | null;
+}
+
+export interface WorkspaceOriginAllowlistLimits {
+  maxRules: number;
+  maxLabel: number;
+}
+
+export interface WorkspaceOriginAllowlistInput {
+  enabled: boolean;
+  rules: Array<{ origin: string; label?: string }>;
+}
+
 export interface WebhookAllowedHost {
   host: string;
   label: string;
@@ -890,6 +914,19 @@ export const api = {
     ),
   workspaceIpAllowlistPut: (input: WorkspaceIpAllowlistInput) =>
     j<{ record: WorkspaceIpAllowlistRecord }>('/v1/workspace-ip-allowlist', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.record),
+
+  // Workspace-wide browser Origin (CORS) allowlist. Read is admins+;
+  // Put is owner-only with MFA step-up. Additive to the static
+  // CLAWMIND_API_CORS_ORIGIN env baseline.
+  workspaceOriginAllowlistGet: () =>
+    j<{ record: WorkspaceOriginAllowlistRecord; limits: WorkspaceOriginAllowlistLimits }>(
+      '/v1/workspace-origin-allowlist',
+    ),
+  workspaceOriginAllowlistPut: (input: WorkspaceOriginAllowlistInput) =>
+    j<{ record: WorkspaceOriginAllowlistRecord }>('/v1/workspace-origin-allowlist', {
       method: 'PUT',
       body: JSON.stringify(input),
     }).then((r) => r.record),
