@@ -101,6 +101,12 @@ export const Scopes = {
   // counts that come from already-gated services so a key cannot use
   // this scope to escape role checks elsewhere.
   AdminRead: 'admin:read',
+
+  // Members / RBAC. Read is granted to admins+ so a delegated operator
+  // can see who has access; Manage is owner+admin only and is the gate
+  // for invite/role-change/remove (with MFA step-up).
+  MembersRead: 'members:read',
+  MembersManage: 'members:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

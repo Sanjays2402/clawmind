@@ -7,6 +7,11 @@ import { applyRateLimitHeaders } from '../services/rate-headers.js';
 import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid } from '../services/sessions.js';
 import { getStatus as getMfaStatus } from '../services/mfa.js';
 import {
+  recordSeenAndBootstrap,
+  meetsMinRole,
+  type MemberRole,
+} from '../services/members.js';
+import {
   settingsFromEnv as oidcSettingsFromEnv,
   isConfigured as oidcIsConfigured,
   discover as oidcDiscover,
@@ -21,7 +26,7 @@ declare module 'fastify' {
     user?: {
       id: string;
       github: string | null;
-      role: 'owner' | 'reader';
+      role: 'owner' | 'admin' | 'member' | 'viewer' | 'reader';
       via?: 'session' | 'api-key';
       apiKeyId?: string;
       scopes?: string[] | null;
@@ -114,6 +119,11 @@ const plugin: FastifyPluginAsync = async (app) => {
     }
     if (env.CLAWMIND_AUTH_MODE === 'single-user') {
       req.user = { id: 'local', github: null, role: 'owner', via: 'session' };
+      try {
+        await recordSeenAndBootstrap(app.clawmind.dataDir, { userId: 'local' });
+      } catch {
+        // Registry write failure must not lock the local-mode user out.
+      }
       return;
     }
     if (req.session.userId) {
@@ -134,10 +144,27 @@ const plugin: FastifyPluginAsync = async (app) => {
           // and let the audit / health channels surface the disk problem.
         }
       }
+      // Overlay role from the members registry. The first user to log
+      // into a fresh deployment is auto-bootstrapped as owner so the
+      // deployment is never role-less; subsequent users default to
+      // 'member' and an owner promotes them from the admin UI.
+      let resolvedRole: MemberRole = 'owner';
+      try {
+        const rec = await recordSeenAndBootstrap(app.clawmind.dataDir, {
+          userId: req.session.userId,
+          email: req.session.email ?? null,
+          label: req.session.github ?? null,
+        });
+        resolvedRole = rec.role;
+      } catch {
+        // Fail-open to the historical default so a transient disk error
+        // does not lock a real user out of their own deployment.
+        resolvedRole = 'owner';
+      }
       req.user = {
         id: req.session.userId,
         github: req.session.github ?? null,
-        role: 'owner',
+        role: resolvedRole,
         via: 'session',
         email: req.session.email ?? null,
       };
@@ -155,6 +182,20 @@ const plugin: FastifyPluginAsync = async (app) => {
       if (!req.user) return reply.code(401).send({ error: 'auth required' });
       if (role === 'owner' && req.user.role !== 'owner') {
         return reply.code(403).send({ error: 'forbidden' });
+      }
+    };
+  });
+
+  // requireMinRole gates a route on the hierarchical 4-role RBAC model
+  // (owner > admin > member > viewer). API-key callers inherit the role
+  // of the key's owner, so an unscoped admin key cannot be used to bypass
+  // member management gating. Legacy 'reader' is treated as 'viewer'.
+  app.decorate('requireMinRole', function requireMinRole(min: MemberRole) {
+    return async function (req: FastifyRequest, reply: FastifyReply) {
+      if (!req.user) return reply.code(401).send({ error: 'auth required' });
+      const actual = (req.user.role === 'reader' ? 'viewer' : req.user.role) as MemberRole;
+      if (!meetsMinRole(actual, min)) {
+        return reply.code(403).send({ error: 'forbidden', requiredRole: min, currentRole: actual });
       }
     };
   });
@@ -379,6 +420,7 @@ declare module 'fastify' {
   interface FastifyInstance {
     requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireRole: (role: 'owner' | 'reader') => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireMinRole: (role: MemberRole) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireScope: (scope: string) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requireMfa: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }

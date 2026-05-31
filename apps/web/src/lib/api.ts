@@ -268,6 +268,26 @@ export interface RetentionLimits {
   maxDays: number;
 }
 
+export type MemberRole = 'owner' | 'admin' | 'member' | 'viewer';
+
+export interface MemberRecord {
+  userId: string;
+  role: MemberRole;
+  email: string | null;
+  label: string | null;
+  invitedBy: string | null;
+  createdAt: number;
+  updatedAt: number;
+  lastSeenAt: number | null;
+}
+
+export interface MemberInviteInput {
+  userId: string;
+  role: MemberRole;
+  email?: string | null;
+  label?: string | null;
+}
+
 export interface RetentionPatch {
   historyDays?: number | null;
   conversationDays?: number | null;
@@ -627,6 +647,26 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ keepCurrent }),
     }),
+
+  // Workspace members and RBAC. The 4-role hierarchy is enforced server
+  // side; the UI surfaces who has access, who invited them, and lets an
+  // owner promote/demote/remove with MFA step-up.
+  membersList: () =>
+    j<{ members: MemberRecord[] }>('/v1/members').then((r) => r.members),
+  membersInvite: (input: MemberInviteInput) =>
+    j<{ created: boolean; member: MemberRecord }>('/v1/members', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  membersSetRole: (userId: string, role: MemberRole) =>
+    j<{ member: MemberRecord }>(`/v1/members/${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    }).then((r) => r.member),
+  membersRemove: (userId: string) =>
+    j<{ removed: MemberRecord }>(`/v1/members/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+    }).then((r) => r.removed),
 
   // Per-user data retention policy. Lets a customer cap how long
   // ClawMind keeps their history and conversations before auto-erasing.
