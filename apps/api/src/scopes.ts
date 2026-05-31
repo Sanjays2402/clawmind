@@ -145,6 +145,17 @@ export const Scopes = {
   // outside the freeze/auth/export allowlist returns 423 Locked.
   WorkspaceFreezeRead: 'workspace-freeze:read',
   WorkspaceFreezeManage: 'workspace-freeze:admin',
+
+  // Workspace policy documents (TOS / DPA / AUP) and per-user acceptance
+  // records. Read is granted to every authenticated caller so the UI can
+  // render the accept screen and any client can detect the 451 gate.
+  // Accept is a separate scope so a narrow read-only key cannot record
+  // an acceptance on behalf of its owner. Manage is owner-only (with MFA
+  // step-up at the route) because publishing a new required policy can
+  // immediately gate every other user out of normal API use.
+  PoliciesRead: 'policies:read',
+  PoliciesAccept: 'policies:write',
+  PoliciesManage: 'policies:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

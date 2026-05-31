@@ -1278,7 +1278,84 @@ export const api = {
     j<{ id: string; token: string; createdAt: number }>('/v1/scim/token', { method: 'POST' }),
   scimTokenRevoke: () =>
     j<{ revoked: boolean }>('/v1/scim/token', { method: 'DELETE' }),
+
+  // Workspace policy acceptance (TOS / DPA / AUP). Read is granted to
+  // every authenticated caller so the UI can render the accept screen;
+  // publish is owner-only with MFA step-up; accept is per-user.
+  policiesCurrent: () =>
+    j<{ items: Policy[] }>('/v1/policies').then((r) => r.items),
+  policiesAll: (opts?: { kind?: PolicyKind; includeSuperseded?: boolean }) => {
+    const qs = new URLSearchParams();
+    if (opts?.kind) qs.set('kind', opts.kind);
+    if (opts?.includeSuperseded) qs.set('include_superseded', 'true');
+    const q = qs.toString();
+    return j<{ items: Policy[] }>(`/v1/policies/all${q ? `?${q}` : ''}`).then(
+      (r) => r.items,
+    );
+  },
+  policiesMe: () =>
+    j<{ acceptances: PolicyAcceptance[]; unmet: Policy[]; current: Policy[] }>(
+      '/v1/policies/me',
+    ),
+  policiesPublish: (input: {
+    kind: PolicyKind;
+    title: string;
+    body: string;
+    required?: boolean;
+    effectiveAt?: number | null;
+  }) =>
+    j<{ policy: Policy }>('/v1/policies', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }).then((r) => r.policy),
+  policiesAccept: (policyId: string) =>
+    j<{ acceptance: PolicyAcceptance }>(
+      `/v1/policies/${encodeURIComponent(policyId)}/accept`,
+      { method: 'POST' },
+    ).then((r) => r.acceptance),
+  policiesAcceptances: (opts?: { userId?: string; policyId?: string }) => {
+    const qs = new URLSearchParams();
+    if (opts?.userId) qs.set('user_id', opts.userId);
+    if (opts?.policyId) qs.set('policy_id', opts.policyId);
+    const q = qs.toString();
+    return j<{ items: PolicyAcceptance[] }>(
+      `/v1/policies/acceptances${q ? `?${q}` : ''}`,
+    ).then((r) => r.items);
+  },
+  policiesSummary: () =>
+    j<{ items: PolicyAcceptanceSummary[] }>('/v1/policies/summary').then(
+      (r) => r.items,
+    ),
 };
+
+export type PolicyKind = 'tos' | 'dpa' | 'aup';
+
+export interface Policy {
+  id: string;
+  kind: PolicyKind;
+  title: string;
+  body: string;
+  bodyHash: string;
+  required: boolean;
+  publishedBy: string;
+  publishedAt: number;
+  effectiveAt: number;
+  supersededAt: number | null;
+}
+
+export interface PolicyAcceptance {
+  policyId: string;
+  userId: string;
+  acceptedAt: number;
+  ip: string;
+  userAgent: string;
+}
+
+export interface PolicyAcceptanceSummary {
+  policy: Policy;
+  acceptedUserIds: string[];
+  acceptedCount: number;
+}
 
 export interface ScimTokenView {
   present: boolean;

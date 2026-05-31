@@ -797,6 +797,40 @@ curl -s -X DELETE -H "Authorization: Bearer $CLAWMIND_KEY" \
 
 While frozen, any blocked request emits a `workspace-freeze.denied` audit entry so support can correlate user-reported errors with the freeze. The freeze state surfaces in `GET /v1/admin/overview` so an enterprise reviewer can see a workspace pause from the same one screen they use for SSO, MFA, and IP allowlist status. Gated by the new `workspace-freeze:read` / `workspace-freeze:admin` API key scopes.
 
+### Workspace policy acceptance (TOS / DPA / AUP)
+
+Procurement and SOC2 reviewers consistently ask for proof that every user has been shown and has affirmatively accepted the current Terms of Service, Data Processing Addendum, and Acceptable Use Policy. ClawMind ships this as a first-class workflow: an owner publishes a versioned policy, and every authenticated request is gated until each user has accepted the latest required version. Refusing or skipping returns `HTTP 451 Unavailable For Legal Reasons` with the unmet policy ids so a UI or script can recover deterministically.
+
+Policies are stored as `kind + title + body` with the body fully hashed (`bodyHash`) for tamper detection. Publishing a changed body produces a new version id; the prior version is preserved so historic acceptances remain verifiable. Acceptances are append-only and capture `userId`, `acceptedAt`, `ip`, and `userAgent` for the compliance record.
+
+The UI lives at <http://127.0.0.1:7412/settings/policies>. Sample API calls:
+
+```bash
+# Read the currently-in-force policies (any authenticated caller).
+curl -s -H "Authorization: Bearer $CLAWMIND_KEY" \
+  http://127.0.0.1:7410/v1/policies
+
+# Read my acceptance status and any unmet required policies.
+curl -s -H "Authorization: Bearer $CLAWMIND_KEY" \
+  http://127.0.0.1:7410/v1/policies/me
+
+# Publish a new required version (owner role + MFA step-up).
+curl -s -H "Authorization: Bearer $CLAWMIND_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"kind":"dpa","title":"Acme DPA v3","body":"Full policy text...","required":true}' \
+  http://127.0.0.1:7410/v1/policies
+
+# Affirmatively accept a policy.
+curl -s -X POST -H "Authorization: Bearer $CLAWMIND_KEY" \
+  http://127.0.0.1:7410/v1/policies/<policy-id>/accept
+
+# Admin-only: per-policy acceptance counts.
+curl -s -H "Authorization: Bearer $CLAWMIND_KEY" \
+  http://127.0.0.1:7410/v1/policies/summary
+```
+
+The gate is enforced by the `policy-gate` Fastify plugin on every route except a small allowlist (auth, MFA enrollment, sessions, GDPR self-service export and erase, the policy endpoints themselves, and health probes) so users always have a way to reach the accept screen and so a privacy request can never be blocked by an unaccepted policy. Publish and accept actions are written to the hash-chained audit log as `policy.publish` / `policy.accept`. Gated by the new `policies:read` / `policies:write` / `policies:admin` API key scopes.
+
 ### Admin console
 
 One owner-only screen at <http://127.0.0.1:7412/admin> that aggregates SSO, MFA, sessions, API keys, webhook health, IP allowlist, retention windows, and the audit head hash so an enterprise security reviewer can sign off without clicking through every settings page. One round trip backs the whole UI:

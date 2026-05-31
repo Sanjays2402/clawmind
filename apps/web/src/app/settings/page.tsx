@@ -20,6 +20,7 @@ import {
   IconCheck,
   IconPencil,
   IconShield,
+  IconBook,
   IconClockCountdown,
 } from '@clawmind/ui';
 
@@ -427,6 +428,7 @@ function ShortcutsCard() {
     { href: '/settings/retention', label: 'Data retention', description: 'Auto-erase history and conversations on a schedule.', Icon: IconClockCountdown },
     { href: '/settings/legal-hold', label: 'Legal hold', description: 'Suppress deletion across the workspace during litigation or investigation.', Icon: IconShield },
     { href: '/settings/workspace-freeze', label: 'Workspace freeze', description: 'Pause every mutating endpoint while keeping reads and exports available.', Icon: IconShield },
+    { href: '/settings/policies', label: 'Workspace policies', description: 'Publish TOS, DPA, and AUP versions and track per-user acceptance.', Icon: IconBook },
     { href: '/settings/maintenance', label: 'Storage maintenance', description: 'Compact dangling rows and bulk forget indexed sources by glob.', Icon: IconShield },
     { href: '/settings/notifications', label: 'Notification preferences', description: 'Pick which inbox alerts you want to receive.', Icon: IconSettings },
     { href: '/usage', label: 'Usage details', description: 'Per-kind breakdown and reset timer.', Icon: IconChartBar },

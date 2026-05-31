@@ -21,6 +21,7 @@ import { httpMetricsPlugin } from './plugins/http-metrics.js';
 import { sentryPlugin } from './plugins/sentry.js';
 import { requestIdPlugin, pickRequestId } from './plugins/request-id.js';
 import { securityHeadersPlugin } from './plugins/security-headers.js';
+import policyGatePlugin from './plugins/policy-gate.js';
 
 export async function buildApp(): Promise<any> {
   const env = loadEnv();
@@ -147,6 +148,7 @@ export async function buildApp(): Promise<any> {
   await app.register(authPlugin);
   await app.register(ipAllowlistPlugin);
   await app.register(workspaceFreezePlugin);
+  await app.register(policyGatePlugin);
   await app.register(ragPlugin);
   await registerRoutes(app as unknown as Parameters<typeof registerRoutes>[0]);
 
