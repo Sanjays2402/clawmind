@@ -32,6 +32,7 @@ import { notificationRoutes } from './notifications.js';
 import { notificationPrefsRoutes } from './notification-prefs.js';
 import { profileRoutes } from './profile.js';
 import { collectionsRoutes } from './collections.js';
+import { ipAllowlistRoutes } from './ip-allowlist.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -67,4 +68,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(notificationPrefsRoutes, { prefix: '/v1' });
   await app.register(profileRoutes, { prefix: '/v1' });
   await app.register(collectionsRoutes, { prefix: '/v1' });
+  await app.register(ipAllowlistRoutes, { prefix: '/v1' });
 }

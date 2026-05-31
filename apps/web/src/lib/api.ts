@@ -230,6 +230,30 @@ export interface ProfilePatch {
   defaultModel?: string | null;
 }
 
+export interface IpRule {
+  cidr: string;
+  label: string;
+  createdAt: number;
+}
+
+export interface IpAllowlistRecord {
+  userId: string;
+  enabled: boolean;
+  rules: IpRule[];
+  updatedAt: number;
+  createdAt: number;
+}
+
+export interface IpAllowlistLimits {
+  maxRules: number;
+  maxLabel: number;
+}
+
+export interface IpAllowlistInput {
+  enabled: boolean;
+  rules: Array<{ cidr: string; label?: string }>;
+}
+
 export interface OnboardingProgress {
   completed: OnboardingStep[];
   next: OnboardingStep | null;
@@ -522,6 +546,18 @@ export const api = {
   profileGet: () => j<{ profile: ProfileRecord }>('/v1/me').then((r) => r.profile),
   profilePatch: (patch: ProfilePatch) =>
     j<{ profile: ProfileRecord }>('/v1/me', { method: 'PATCH', body: JSON.stringify(patch) }).then((r) => r.profile),
+
+  // Per-user IP allowlist. When enabled, only requests from one of the
+  // listed CIDR blocks reach the API for this user; the management
+  // endpoint itself is always reachable so a typo cannot lock the user
+  // out of their own controls.
+  ipAllowlistGet: () =>
+    j<{ record: IpAllowlistRecord; limits: IpAllowlistLimits }>('/v1/ip-allowlist'),
+  ipAllowlistPut: (input: IpAllowlistInput) =>
+    j<{ record: IpAllowlistRecord }>('/v1/ip-allowlist', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.record),
 
   // Onboarding (per-user first-run state). The /welcome page reads the
   // current record on mount and writes step completions as the user

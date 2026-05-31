@@ -12,6 +12,7 @@ import { MlxEmbedClient, OpenAIEmbedClient, FallbackEmbedProvider } from '@clawm
 import { buildDefaultLLM } from '@clawmind/llm';
 import { registerRoutes } from './routes/index.js';
 import { authPlugin } from './plugins/auth.js';
+import { ipAllowlistPlugin } from './plugins/ip-allowlist.js';
 import { auditPlugin } from './plugins/audit.js';
 import { ragPlugin } from './plugins/rag.js';
 import { httpMetricsPlugin } from './plugins/http-metrics.js';
@@ -110,6 +111,7 @@ export async function buildApp(): Promise<any> {
   await app.register(sentryPlugin);
   await app.register(auditPlugin);
   await app.register(authPlugin);
+  await app.register(ipAllowlistPlugin);
   await app.register(ragPlugin);
   await registerRoutes(app as unknown as Parameters<typeof registerRoutes>[0]);
 

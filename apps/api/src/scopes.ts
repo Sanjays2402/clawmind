@@ -84,6 +84,9 @@ export const Scopes = {
 
   ProfileRead: 'profile:read',
   ProfileWrite: 'profile:write',
+
+  IpAllowlistRead: 'ip-allowlist:read',
+  IpAllowlistWrite: 'ip-allowlist:write',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];
