@@ -181,6 +181,9 @@ export default function WebhooksPage() {
                 className="mt-1 w-full rounded-md border border-cm-border bg-cm-bg px-3 py-2 text-[13px] text-cm-fg focus:border-cm-accent focus:outline-none"
               />
             </label>
+            <p className="text-[11px] text-cm-muted">
+              Public HTTPS receivers only. Loopback, RFC1918, link-local, and cloud metadata addresses are blocked at registration and on every delivery attempt.
+            </p>
             <fieldset>
               <legend className="text-[12px] text-cm-muted">Events</legend>
               <div className="mt-1 flex flex-wrap gap-2">

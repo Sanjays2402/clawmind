@@ -69,7 +69,16 @@ export const webhookRoutes: FastifyPluginAsyncZod = async (app) => {
         // Return the secret exactly once; subsequent reads redact it.
         return reply.code(201).send({ webhook: wh });
       } catch (err) {
-        return reply.code(400).send({ error: (err as Error).message });
+        const msg = (err as Error).message;
+        if (msg.startsWith('unsafe url:')) {
+          await app.clawmind.audit.write({
+            actor: req.user!.id,
+            action: 'webhook.blocked',
+            resource: req.body.url,
+            meta: { reason: msg, op: 'create' },
+          });
+        }
+        return reply.code(400).send({ error: msg });
       }
     },
   });
@@ -92,7 +101,16 @@ export const webhookRoutes: FastifyPluginAsyncZod = async (app) => {
         });
         return { webhook: redact(wh) };
       } catch (err) {
-        return reply.code(400).send({ error: (err as Error).message });
+        const msg = (err as Error).message;
+        if (msg.startsWith('unsafe url:')) {
+          await app.clawmind.audit.write({
+            actor: req.user!.id,
+            action: 'webhook.blocked',
+            resource: req.params.id,
+            meta: { reason: msg, op: 'update' },
+          });
+        }
+        return reply.code(400).send({ error: msg });
       }
     },
   });

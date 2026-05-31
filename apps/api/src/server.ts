@@ -11,6 +11,7 @@ import { LanceStore, BM25Index, IngestManifest, AuditLog } from '@clawmind/store
 import { MlxEmbedClient, OpenAIEmbedClient, FallbackEmbedProvider } from '@clawmind/embed';
 import { buildDefaultLLM } from '@clawmind/llm';
 import { registerRoutes } from './routes/index.js';
+import { configureWebhookUrlGuard } from './services/webhooks.js';
 import { authPlugin } from './plugins/auth.js';
 import { ipAllowlistPlugin } from './plugins/ip-allowlist.js';
 import { auditPlugin } from './plugins/audit.js';
@@ -100,6 +101,16 @@ export async function buildApp(): Promise<any> {
   app.decorate('clawmind', {
     env, embed, lance, bm25, bm25File: `${bm25Dir(env)}/bm25.json`,
     manifest, audit, llm, dataDir: dataDir(env),
+  });
+
+  // Wire webhook SSRF guard from env once per boot. Re-checked on every
+  // outbound delivery so a tenant cannot DNS-rebind around it.
+  configureWebhookUrlGuard({
+    allowPrivate: env.CLAWMIND_WEBHOOK_ALLOW_PRIVATE,
+    allowedPorts: env.CLAWMIND_WEBHOOK_ALLOWED_PORTS
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isInteger(n) && n > 0 && n < 65536),
   });
 
   await app.register(requestIdPlugin);

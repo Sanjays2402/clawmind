@@ -3,6 +3,25 @@ import { join, dirname } from 'node:path';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { nanoid } from 'nanoid';
 import { notify } from './notifications.js';
+import { assertPublicUrl, parseSafeUrl, UnsafeUrlError, type UrlGuardOptions } from './url-guard.js';
+
+// Module-level guard options. The server overwrites this at boot from env
+// (allowPrivate + allowedPorts). Defaults are deny-by-default in production
+// but allow-private under NODE_ENV=test so the existing webhook tests can
+// keep using https://example.com without hitting real DNS in CI sandboxes.
+let GUARD_OPTS: UrlGuardOptions = {
+  allowPrivate: process.env.NODE_ENV === 'test',
+};
+
+export function configureWebhookUrlGuard(opts: UrlGuardOptions) {
+  GUARD_OPTS = { ...opts };
+}
+
+export function getWebhookUrlGuard(): UrlGuardOptions {
+  return GUARD_OPTS;
+}
+
+export { UnsafeUrlError } from './url-guard.js';
 
 // Outbound webhooks let a customer's own service react to ClawMind events
 // (currently `ask.completed`) without polling /v1/history. Each subscription
@@ -68,8 +87,8 @@ function logFile(dataDir: string) { return join(dataDir, 'webhook-deliveries.jso
 
 function isValidUrl(url: string): boolean {
   try {
-    const u = new URL(url);
-    return u.protocol === 'https:' || u.protocol === 'http:';
+    parseSafeUrl(url, GUARD_OPTS);
+    return true;
   } catch {
     return false;
   }
@@ -127,7 +146,14 @@ export async function createWebhook(
   url: string,
   events: WebhookEvent[],
 ): Promise<WebhookRecord> {
-  if (!isValidUrl(url)) throw new Error('invalid url');
+  // Full SSRF check (shape + DNS) at registration time. deliverOnce repeats
+  // the DNS half on every attempt to defeat rebinding.
+  try {
+    await assertPublicUrl(url, GUARD_OPTS);
+  } catch (err) {
+    if (err instanceof UnsafeUrlError) throw new Error(`unsafe url: ${err.message}`);
+    throw err;
+  }
   if (events.length === 0) throw new Error('events must not be empty');
   for (const e of events) {
     if (!(WEBHOOK_EVENTS as readonly string[]).includes(e)) {
@@ -163,7 +189,12 @@ export async function updateWebhook(
   if (idx === -1) return null;
   const cur = all[idx]!;
   if (patch.url !== undefined) {
-    if (!isValidUrl(patch.url)) throw new Error('invalid url');
+    try {
+      await assertPublicUrl(patch.url, GUARD_OPTS);
+    } catch (err) {
+      if (err instanceof UnsafeUrlError) throw new Error(`unsafe url: ${err.message}`);
+      throw err;
+    }
     cur.url = patch.url;
   }
   if (patch.events !== undefined) {
@@ -249,6 +280,22 @@ export async function deliverOnce(
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
     const started = Date.now();
+    // Re-check the target on every attempt. If the receiver's DNS now
+    // points at a private / metadata address, refuse to send instead of
+    // leaking the signed payload (which may carry attribution + tenant ids)
+    // into an internal endpoint. We intentionally do NOT retry on this
+    // failure: it is a configuration problem, not a transient network blip.
+    try {
+      await assertPublicUrl(webhook.url, GUARD_OPTS);
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err instanceof UnsafeUrlError
+        ? `blocked: ${err.message}`
+        : (err as Error).message || 'url guard failed';
+      lastStatus = null;
+      ok = false;
+      break;
+    }
     try {
       const res = await fetchImpl(webhook.url, {
         method: 'POST',

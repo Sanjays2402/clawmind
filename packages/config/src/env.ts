@@ -71,6 +71,18 @@ export function loadEnv() {
     // a TLS ingress should set CLAWMIND_HSTS_ENABLED=true.
     CLAWMIND_HSTS_ENABLED: bool({ default: false }),
     CLAWMIND_HSTS_MAX_AGE_SECONDS: num({ default: 15552000 }),
+
+    // Outbound webhook SSRF guard. By default the API rejects any webhook
+    // URL that resolves to a private, loopback, link-local, CGNAT, multicast,
+    // or reserved IP, and rejects cloud metadata hosts unconditionally. The
+    // check runs both at registration (POST /v1/webhooks) and immediately
+    // before every delivery attempt, so a tenant who flips DNS after the URL
+    // is saved cannot reach internal targets. CLAWMIND_WEBHOOK_ALLOW_PRIVATE
+    // is for local dev only; production should leave it off. Allowed ports
+    // are comma-separated; the default mirrors what a sensible reverse proxy
+    // exposes.
+    CLAWMIND_WEBHOOK_ALLOW_PRIVATE: bool({ default: false }),
+    CLAWMIND_WEBHOOK_ALLOWED_PORTS: str({ default: '80,443,8080,8443' }),
   });
 }
 
