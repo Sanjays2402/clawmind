@@ -163,8 +163,8 @@ export default function DataResidencyPage() {
             Data residency
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-foreground/70">
-            Restrict where this workspace's writes may land. The API rejects
-            mutating requests with HTTP 451 when the connected server's region
+            Restrict where this workspace&apos;s writes may land. The API rejects
+            mutating requests with HTTP 451 when the connected server&apos;s region
             is not in the allow list. Reads are never blocked. The current
             server region is also returned on every response as the
             <code className="mx-1 rounded bg-foreground/5 px-1 py-0.5 text-[11px]">x-clawmind-region</code>
