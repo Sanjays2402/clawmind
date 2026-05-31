@@ -280,6 +280,18 @@ export interface LegalHold {
   updatedAt: number;
 }
 
+export interface WorkspaceFreeze {
+  workspaceId: string;
+  active: boolean;
+  reason: string | null;
+  ticket: string | null;
+  frozenBy: string | null;
+  frozenAt: number | null;
+  releasedBy: string | null;
+  releasedAt: number | null;
+  updatedAt: number;
+}
+
 export type MemberRole = 'owner' | 'admin' | 'member' | 'viewer';
 
 export interface MemberRecord {
@@ -780,6 +792,20 @@ export const api = {
     }).then((r) => r.hold),
   legalHoldRelease: () =>
     j<{ hold: LegalHold }>('/v1/legal-hold', { method: 'DELETE' }).then((r) => r.hold),
+
+  // Workspace freeze (kill switch). When active, every mutating route
+  // outside the auth / MFA / export / freeze-management allowlist returns
+  // 423 Locked. Reads, exports, and the freeze endpoint itself remain
+  // available so customers can still pull data and owners can unfreeze.
+  workspaceFreezeGet: () =>
+    j<{ freeze: WorkspaceFreeze }>('/v1/workspace/freeze').then((r) => r.freeze),
+  workspaceFreezeActivate: (input: { reason?: string | null; ticket?: string | null }) =>
+    j<{ freeze: WorkspaceFreeze }>('/v1/workspace/freeze', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }).then((r) => r.freeze),
+  workspaceFreezeRelease: () =>
+    j<{ freeze: WorkspaceFreeze }>('/v1/workspace/freeze', { method: 'DELETE' }).then((r) => r.freeze),
 
   // Multi-factor auth. The /settings/mfa page walks the user through
   // enrollment (start, scan, confirm) and surfaces step-up state for

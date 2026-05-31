@@ -14,6 +14,7 @@ import { registerRoutes } from './routes/index.js';
 import { configureWebhookUrlGuard } from './services/webhooks.js';
 import { authPlugin } from './plugins/auth.js';
 import { ipAllowlistPlugin } from './plugins/ip-allowlist.js';
+import { workspaceFreezePlugin } from './plugins/workspace-freeze.js';
 import { auditPlugin } from './plugins/audit.js';
 import { ragPlugin } from './plugins/rag.js';
 import { httpMetricsPlugin } from './plugins/http-metrics.js';
@@ -134,6 +135,7 @@ export async function buildApp(): Promise<any> {
   await app.register(auditPlugin);
   await app.register(authPlugin);
   await app.register(ipAllowlistPlugin);
+  await app.register(workspaceFreezePlugin);
   await app.register(ragPlugin);
   await registerRoutes(app as unknown as Parameters<typeof registerRoutes>[0]);
 

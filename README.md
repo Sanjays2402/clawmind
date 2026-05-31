@@ -743,6 +743,30 @@ curl -X DELETE -H "Authorization: Bearer $CLAWMIND_API_KEY" \
 
 The UI is at <http://127.0.0.1:7412/settings/legal-hold>. Every impose, update, release, and every blocked delete attempt is written to the hash-chained audit log so an auditor can prove evidence preservation across the lifetime of the matter.
 
+### Workspace freeze (kill switch)
+
+When a workspace needs to be paused during an incident, contract dispute, or offboarding wind-down, an owner can flip a single switch and every mutating endpoint outside a narrow allowlist starts returning HTTP `423 Locked`. Reads, exports, MFA step-up, and sign-out keep working so the customer can still pull their data and an owner can sign in and unfreeze.
+
+UI lives at <http://127.0.0.1:7412/settings/workspace-freeze>. Sample API calls:
+
+```bash
+# Read current freeze state (admin+).
+curl -s -H "Authorization: Bearer $CLAWMIND_KEY" \
+  http://127.0.0.1:7410/v1/workspace/freeze
+
+# Activate freeze (owner-only, MFA step-up).
+curl -s -H "Authorization: Bearer $CLAWMIND_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"reason":"security incident","ticket":"SEC-2026-009"}' \
+  http://127.0.0.1:7410/v1/workspace/freeze
+
+# Release.
+curl -s -X DELETE -H "Authorization: Bearer $CLAWMIND_KEY" \
+  http://127.0.0.1:7410/v1/workspace/freeze
+```
+
+While frozen, any blocked request emits a `workspace-freeze.denied` audit entry so support can correlate user-reported errors with the freeze. The freeze state surfaces in `GET /v1/admin/overview` so an enterprise reviewer can see a workspace pause from the same one screen they use for SSO, MFA, and IP allowlist status. Gated by the new `workspace-freeze:read` / `workspace-freeze:admin` API key scopes.
+
 ### Admin console
 
 One owner-only screen at <http://127.0.0.1:7412/admin> that aggregates SSO, MFA, sessions, API keys, webhook health, IP allowlist, retention windows, and the audit head hash so an enterprise security reviewer can sign off without clicking through every settings page. One round trip backs the whole UI:

@@ -128,6 +128,13 @@ export const Scopes = {
   // erase and scheduled retention sweeps.
   LegalHoldRead: 'legal-hold:read',
   LegalHoldManage: 'legal-hold:admin',
+
+  // Workspace freeze (kill switch). Read lets admins see whether the
+  // workspace is currently paused; Manage gates owner-only freeze /
+  // unfreeze with MFA step-up. While frozen, every mutating route
+  // outside the freeze/auth/export allowlist returns 423 Locked.
+  WorkspaceFreezeRead: 'workspace-freeze:read',
+  WorkspaceFreezeManage: 'workspace-freeze:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

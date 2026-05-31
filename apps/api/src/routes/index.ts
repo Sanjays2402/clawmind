@@ -42,6 +42,7 @@ import { invitationRoutes } from './invitations.js';
 import { domainPoliciesRoutes } from './domain-policies.js';
 import { scimTokenRoutes, scimProtocolRoutes } from './scim.js';
 import { legalHoldRoutes } from './legal-hold.js';
+import { workspaceFreezeRoutes } from './workspace-freeze.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -88,4 +89,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(scimTokenRoutes, { prefix: '/v1' });
   await app.register(scimProtocolRoutes, { prefix: '/scim/v2' });
   await app.register(legalHoldRoutes, { prefix: '/v1' });
+  await app.register(workspaceFreezeRoutes, { prefix: '/v1' });
 }

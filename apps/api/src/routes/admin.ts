@@ -8,6 +8,7 @@ import { loadMfa } from '../services/mfa.js';
 import { getRecord as getIpAllowlist } from '../services/ip-allowlist.js';
 import { getPolicy as getRetention } from '../services/retention.js';
 import { settingsFromEnv as oidcSettingsFromEnv, isConfigured as oidcIsConfigured } from '../services/oidc.js';
+import { getFreeze } from '../services/workspace-freeze.js';
 
 // Unified admin console aggregator. Exposed at GET /v1/admin/overview.
 //
@@ -75,6 +76,12 @@ const overviewSchema = z.object({
     verified: z.boolean(),
     recentEvents: z.number().int().nonnegative(),
   }),
+  workspaceFreeze: z.object({
+    active: z.boolean(),
+    frozenAt: z.number().int().nonnegative().nullable(),
+    ticket: z.string().nullable(),
+    reason: z.string().nullable(),
+  }),
 });
 
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -95,7 +102,7 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
       const now = Date.now();
       const since = now - RECENT_WINDOW_MS;
 
-      const [mfaRec, sessions, keys, hooks, deliveries, ip, retention, audit] = await Promise.all([
+      const [mfaRec, sessions, keys, hooks, deliveries, ip, retention, audit, freeze] = await Promise.all([
         loadMfa(dataDir, userId),
         listSessions(dataDir, userId, sid),
         listKeys(dataDir, userId),
@@ -104,6 +111,7 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
         getIpAllowlist(dataDir, userId),
         getRetention(dataDir, userId),
         app.clawmind.audit.query({ since, limit: 1 }).catch(() => ({ total: 0, events: [] })),
+        getFreeze(dataDir),
       ]);
 
       const ssoSettings = oidcSettingsFromEnv(env as unknown as Parameters<typeof oidcSettingsFromEnv>[0]);
@@ -171,6 +179,12 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
           verified: verify.ok,
           recentEvents: audit.total,
         },
+        workspaceFreeze: {
+          active: freeze.active,
+          frozenAt: freeze.frozenAt,
+          ticket: freeze.ticket,
+          reason: freeze.reason,
+        },
       };
 
       await app.clawmind.audit.write({
@@ -184,6 +198,7 @@ export const adminRoutes: FastifyPluginAsyncZod = async (app) => {
           ssoConfigured: result.sso.configured,
           mfaEnrolled: result.mfa.enrolled,
           ipAllowlistEnabled: result.ipAllowlist.enabled,
+          workspaceFrozen: result.workspaceFreeze.active,
         },
       });
 
