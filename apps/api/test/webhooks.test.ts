@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   createWebhook, listForUser, updateWebhook, deleteWebhook,
-  emit, deliverOnce, listDeliveries, sign, verify, WEBHOOK_EVENTS,
+  emit, deliverOnce, listDeliveries, redeliver, sign, verify, WEBHOOK_EVENTS,
 } from '../src/services/webhooks.js';
 
 let dir: string;
@@ -127,5 +127,45 @@ describe('webhooks service', () => {
     const row = raw.find((r) => r.id === wh.id)!;
     expect(row.failureCount).toBe(1);
     expect(row.lastStatus).toBeNull();
+  });
+
+  it('redeliver replays the original payload and links to its parent', async () => {
+    const wh = await createWebhook(dir, 'u1', 'https://example.com/h', ['ask.completed']);
+    // First attempt fails so we have a real "this one didn't land" row to replay.
+    let phase: 'fail' | 'pass' = 'fail';
+    const capturedBodies: string[] = [];
+    const fakeFetch = async (_u: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }) => {
+      capturedBodies.push(init.body);
+      return phase === 'fail' ? { status: 500 } : { status: 200 };
+    };
+    await deliverOnce(dir, wh, 'ask.completed', { answer: 'hello', n: 7 }, fakeFetch);
+    const before = await listDeliveries(dir, 'u1');
+    // Latest row first; pick the original failed delivery (no parentId).
+    const original = before.find((d) => !d.parentId)!;
+    expect(original.ok).toBe(false);
+    expect(original.payload).toEqual({ answer: 'hello', n: 7 });
+
+    phase = 'pass';
+    const result = await redeliver(dir, 'u1', original.id, fakeFetch);
+    expect('delivery' in result).toBe(true);
+    if (!('delivery' in result)) throw new Error('unreachable');
+    expect(result.delivery.ok).toBe(true);
+    expect(result.delivery.parentId).toBe(original.id);
+    // Replay body must carry the same `data` field as the original POST.
+    const replayBody = JSON.parse(capturedBodies[capturedBodies.length - 1]!);
+    expect(replayBody.data).toEqual({ answer: 'hello', n: 7 });
+    expect(replayBody.event).toBe('ask.completed');
+  });
+
+  it('redeliver refuses unknown ids and cross-user access', async () => {
+    const wh = await createWebhook(dir, 'u1', 'https://example.com/h', ['ask.completed']);
+    const fakeFetch = async () => ({ status: 200 });
+    await deliverOnce(dir, wh, 'ask.completed', { ok: 1 }, fakeFetch);
+    const [row] = await listDeliveries(dir, 'u1');
+    // Other user must not be able to replay u1's delivery.
+    const denied = await redeliver(dir, 'u2', row!.id, fakeFetch);
+    expect(denied).toEqual({ error: 'not_found' });
+    const missing = await redeliver(dir, 'u1', 'dlv_nope', fakeFetch);
+    expect(missing).toEqual({ error: 'not_found' });
   });
 });

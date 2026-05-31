@@ -10,6 +10,7 @@ import {
   listForUser,
   loadAll,
   redact,
+  redeliver,
   updateWebhook,
 } from '../services/webhooks.js';
 import { Scopes } from '../scopes.js';
@@ -130,6 +131,24 @@ export const webhookRoutes: FastifyPluginAsyncZod = async (app) => {
       const { webhookId, limit } = req.query as z.infer<typeof ListDeliveriesQuery>;
       const items = await listDeliveries(app.clawmind.dataDir, req.user!.id, webhookId, limit);
       return { items };
+    },
+  });
+
+  // Manually replay a past delivery. Returns the new delivery row so the
+  // UI can show the result inline without forcing a list refresh.
+  app.post<{ Params: { id: string } }>('/webhooks/deliveries/:id/redeliver', {
+    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.WebhooksManage)],
+    handler: async (req, reply) => {
+      const result = await redeliver(app.clawmind.dataDir, req.user!.id, req.params.id);
+      if ('error' in result) {
+        const code = result.error === 'not_found' ? 404 : result.error === 'webhook_gone' ? 410 : 409;
+        return reply.code(code).send({ error: result.error });
+      }
+      await app.clawmind.audit.write({
+        actor: req.user!.id, action: 'webhook.redeliver', resource: result.delivery.webhookId,
+        meta: { originalId: req.params.id, newId: result.delivery.id, ok: result.delivery.ok, status: result.delivery.status },
+      });
+      return { delivery: result.delivery };
     },
   });
 };

@@ -301,6 +301,8 @@ export interface WebhookDelivery {
   ok: boolean;
   error?: string;
   durationMs: number;
+  payload?: unknown;
+  parentId?: string;
 }
 
 // Build the /v1/history querystring once so list, response, and any future
@@ -562,6 +564,8 @@ export const api = {
   webhookDelete: (id: string) => j<{ ok: boolean }>(`/v1/webhooks/${id}`, { method: 'DELETE' }),
   webhookTest: (id: string) =>
     j<{ delivery: WebhookDelivery }>(`/v1/webhooks/${id}/test`, { method: 'POST' }).then((r) => r.delivery),
+  webhookRedeliver: (deliveryId: string) =>
+    j<{ delivery: WebhookDelivery }>(`/v1/webhooks/deliveries/${deliveryId}/redeliver`, { method: 'POST' }).then((r) => r.delivery),
   webhookDeliveries: (webhookId?: string, limit?: number) => {
     const qs = new URLSearchParams();
     if (webhookId) qs.set('webhookId', webhookId);

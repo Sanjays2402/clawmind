@@ -44,6 +44,13 @@ export interface DeliveryRecord {
   ok: boolean;
   error?: string;
   durationMs: number;
+  // Original payload that was POSTed to the receiver, kept so a user can
+  // manually redeliver a failed event from the dashboard without having to
+  // replay the original ask. Stored as the JSON-serialisable data field
+  // (not the full event envelope, which is rebuilt at fire time).
+  payload?: unknown;
+  // When set, this row was produced by a manual redeliver of `parentId`.
+  parentId?: string;
 }
 
 const MAX_ATTEMPTS = 3;
@@ -229,6 +236,7 @@ export async function deliverOnce(
   event: WebhookEvent,
   payload: unknown,
   fetchImpl: FetchLike = globalThis.fetch as unknown as FetchLike,
+  parentId?: string,
 ): Promise<DeliveryRecord> {
   const body = JSON.stringify({ id: 'evt_' + nanoid(12), event, ts: Date.now(), data: payload });
   let lastStatus: number | null = null;
@@ -250,6 +258,7 @@ export async function deliverOnce(
           'x-clawmind-event': event,
           'x-clawmind-delivery': webhook.id,
           'x-clawmind-signature': sig,
+          ...(parentId ? { 'x-clawmind-redelivery-of': parentId } : {}),
         },
         body,
         signal: controller.signal,
@@ -276,6 +285,8 @@ export async function deliverOnce(
       ok,
       error: lastErr,
       durationMs: Date.now() - started,
+      payload,
+      ...(parentId ? { parentId } : {}),
     };
     await appendDelivery(dataDir, rec);
     if (ok) return rec;
@@ -297,7 +308,59 @@ export async function deliverOnce(
     ok,
     error: lastErr,
     durationMs: 0,
+    payload,
+    ...(parentId ? { parentId } : {}),
   };
+}
+
+/**
+ * Find a past delivery owned by `userId` and fire it again at the
+ * webhook's current URL. Useful when a receiver was down or returned a
+ * 4xx that the user has since fixed; rather than waiting for the next
+ * organic event, they can replay the failed one straight from the
+ * dashboard. The replayed attempt lands in the delivery log with a
+ * `parentId` pointing back at the original row so the history stays
+ * auditable.
+ */
+export async function redeliver(
+  dataDir: string,
+  userId: string,
+  deliveryId: string,
+  fetchImpl?: FetchLike,
+): Promise<{ delivery: DeliveryRecord } | { error: 'not_found' } | { error: 'no_payload' } | { error: 'webhook_gone' }> {
+  // Scan the log for the requested row. The log file is append-only and
+  // bounded by listDeliveries readers, so a linear scan here is fine for
+  // the local-first scale this app targets.
+  let raw = '';
+  try {
+    raw = await readFile(logFile(dataDir), 'utf8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { error: 'not_found' };
+    throw err;
+  }
+  let original: DeliveryRecord | null = null;
+  for (const line of raw.split('\n')) {
+    if (!line) continue;
+    let rec: DeliveryRecord;
+    try { rec = JSON.parse(line) as DeliveryRecord; } catch { continue; }
+    if (rec.id === deliveryId && rec.userId === userId) { original = rec; break; }
+  }
+  if (!original) return { error: 'not_found' };
+  // Deliveries logged before this feature shipped don't carry their
+  // payload. We can't faithfully replay those, so surface a clear error
+  // instead of inventing data.
+  if (typeof original.payload === 'undefined') return { error: 'no_payload' };
+  const all = await loadAll(dataDir);
+  const wh = all.find((w) => w.id === original.webhookId && w.userId === userId);
+  if (!wh) return { error: 'webhook_gone' };
+  const rec = await deliverOnce(dataDir, wh, original.event, original.payload, fetchImpl, original.id);
+  // Mirror the bookkeeping that emit() does for organic fires so the
+  // webhook card on the dashboard reflects the latest manual attempt too.
+  wh.lastDeliveryAt = Date.now();
+  wh.lastStatus = rec.status;
+  if (rec.ok) wh.failureCount = 0;
+  await saveAll(dataDir, all);
+  return { delivery: rec };
 }
 
 /**

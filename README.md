@@ -266,7 +266,7 @@ curl -OJ 'http://127.0.0.1:7410/v1/history/export.md?limit=50'
 
 ### Webhooks
 
-Wire your own service into ClawMind without polling. Register a receiver at <http://127.0.0.1:7412/webhooks>, pick the events you care about, and copy the signing secret (shown once). Every event becomes a real HTTPS POST signed with `X-ClawMind-Signature: t=<unix-ms>,v1=<hex(hmac_sha256(secret, t + "." + body))>`. Failures on 5xx or network errors retry up to three times with exponential backoff, and every attempt lands in the delivery log table on the same page.
+Wire your own service into ClawMind without polling. Register a receiver at <http://127.0.0.1:7412/webhooks>, pick the events you care about, and copy the signing secret (shown once). Every event becomes a real HTTPS POST signed with `X-ClawMind-Signature: t=<unix-ms>,v1=<hex(hmac_sha256(secret, t + "." + body))>`. Failures on 5xx or network errors retry up to three times with exponential backoff, and every attempt lands in the delivery log table on the same page. When a delivery still ends up red after your receiver was fixed, hit the **Redeliver** button on that row to fire the exact same payload at the webhook again. Replayed attempts carry the `X-ClawMind-Redelivery-Of` header so your handler can tell organic events from manual replays.
 
 Headless flow:
 
@@ -281,6 +281,9 @@ curl -s -X POST http://127.0.0.1:7410/v1/webhooks/<wh_id>/test
 
 # Inspect recent deliveries (status, attempt, duration, error).
 curl -s http://127.0.0.1:7410/v1/webhooks/deliveries | jq '.items[0]'
+
+# Manually replay a past delivery (handy when your receiver was down).
+curl -s -X POST http://127.0.0.1:7410/v1/webhooks/deliveries/<dlv_id>/redeliver | jq '.delivery'
 
 # Check your monthly usage and remaining free-tier quota.
 curl -s http://127.0.0.1:7410/v1/usage | jq

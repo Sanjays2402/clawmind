@@ -32,6 +32,9 @@ export default function WebhooksPage() {
 
   const [busy, setBusy] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<WebhookDelivery | null>(null);
+  const [redeliverBusy, setRedeliverBusy] = useState<string | null>(null);
+  const [redeliverError, setRedeliverError] = useState<string | null>(null);
+  const [redeliverResult, setRedeliverResult] = useState<WebhookDelivery | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -105,6 +108,35 @@ export default function WebhooksPage() {
       setError((err as Error).message);
     } finally {
       setBusy(null);
+    }
+  }
+
+  // Replay a past delivery. Fires the original event payload at the
+  // webhook's current URL; the new attempt shows up at the top of the
+  // deliveries table once the list refreshes.
+  async function redeliverOne(deliveryId: string) {
+    setRedeliverBusy(deliveryId);
+    setRedeliverError(null);
+    setRedeliverResult(null);
+    try {
+      const res = await api.webhookRedeliver(deliveryId);
+      setRedeliverResult(res);
+      await load();
+    } catch (err) {
+      const msg = (err as Error).message;
+      // Surface the structured errors the API returns so the user knows
+      // why a replay was refused rather than seeing a generic toast.
+      if (msg.includes('no_payload')) {
+        setRedeliverError('This delivery was logged before redeliver shipped, so the original payload is gone. Fire a fresh event to enable replay.');
+      } else if (msg.includes('webhook_gone')) {
+        setRedeliverError('The webhook this delivery belonged to was deleted.');
+      } else if (msg.includes('not_found')) {
+        setRedeliverError('Delivery not found.');
+      } else {
+        setRedeliverError(msg);
+      }
+    } finally {
+      setRedeliverBusy(null);
     }
   }
 
@@ -294,6 +326,22 @@ export default function WebhooksPage() {
 
         <section className="mt-8">
           <h2 className="mb-3 text-[13px] font-medium text-cm-fg">Recent deliveries</h2>
+          {redeliverError && (
+            <div className="mb-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-200">
+              {redeliverError}
+            </div>
+          )}
+          {redeliverResult && (
+            <div className="mb-3 rounded-md border border-cm-border bg-cm-panel px-3 py-2 text-[12px] text-cm-muted">
+              Replayed: attempt {redeliverResult.attempt}{' '}
+              {redeliverResult.status !== null ? `HTTP ${redeliverResult.status}` : 'no response'} in {redeliverResult.durationMs}ms{' '}
+              {redeliverResult.ok ? (
+                <span className="text-emerald-400">ok</span>
+              ) : (
+                <span className="text-rose-400">failed{redeliverResult.error ? `: ${redeliverResult.error}` : ''}</span>
+              )}
+            </div>
+          )}
           {deliveries.length === 0 ? (
             <EmptyState
               icon={<IconRefresh size={26} />}
@@ -311,21 +359,43 @@ export default function WebhooksPage() {
                     <th className="px-3 py-2">Attempt</th>
                     <th className="px-3 py-2">Duration</th>
                     <th className="px-3 py-2">URL</th>
+                    <th className="px-3 py-2 text-right">Replay</th>
                   </tr>
                 </thead>
                 <tbody className="text-cm-fg">
-                  {deliveries.map((d) => (
-                    <tr key={d.id} className="border-t border-cm-border">
-                      <td className="px-3 py-2 text-cm-muted">{fmtRelative(d.ts)}</td>
-                      <td className="px-3 py-2 font-mono">{d.event}</td>
-                      <td className={['px-3 py-2 font-mono', d.ok ? 'text-emerald-500' : 'text-rose-500'].join(' ')}>
-                        {d.status ?? d.error ?? 'n/a'}
-                      </td>
-                      <td className="px-3 py-2 text-cm-muted">{d.attempt}</td>
-                      <td className="px-3 py-2 text-cm-muted">{d.durationMs}ms</td>
-                      <td className="px-3 py-2 font-mono text-cm-muted">{d.url}</td>
-                    </tr>
-                  ))}
+                  {deliveries.map((d) => {
+                    const canReplay = typeof d.payload !== 'undefined' && !d.parentId;
+                    const isBusy = redeliverBusy === d.id;
+                    return (
+                      <tr key={d.id} className="border-t border-cm-border">
+                        <td className="px-3 py-2 text-cm-muted">
+                          {fmtRelative(d.ts)}
+                          {d.parentId && (
+                            <span className="ml-2 rounded bg-cm-bg px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-cm-muted">replay</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-mono">{d.event}</td>
+                        <td className={['px-3 py-2 font-mono', d.ok ? 'text-emerald-500' : 'text-rose-500'].join(' ')}>
+                          {d.status ?? d.error ?? 'n/a'}
+                        </td>
+                        <td className="px-3 py-2 text-cm-muted">{d.attempt}</td>
+                        <td className="px-3 py-2 text-cm-muted">{d.durationMs}ms</td>
+                        <td className="px-3 py-2 font-mono text-cm-muted">{d.url}</td>
+                        <td className="px-3 py-2 text-right">
+                          <button
+                            type="button"
+                            onClick={() => redeliverOne(d.id)}
+                            disabled={!canReplay || isBusy}
+                            title={canReplay ? 'Fire this exact payload at the webhook again' : d.parentId ? 'This row is already a replay' : 'No stored payload to replay'}
+                            className="inline-flex items-center gap-1 rounded-md border border-cm-border bg-cm-bg px-2 py-1 text-[11px] text-cm-fg transition hover:border-cm-fg/40 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            {isBusy ? <Spinner /> : <IconRefresh size={12} />}
+                            <span>{isBusy ? 'Sending' : 'Redeliver'}</span>
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
