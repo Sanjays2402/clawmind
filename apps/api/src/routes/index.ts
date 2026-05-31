@@ -49,6 +49,7 @@ import { domainPoliciesRoutes } from './domain-policies.js';
 import { scimTokenRoutes, scimProtocolRoutes } from './scim.js';
 import { legalHoldRoutes } from './legal-hold.js';
 import { workspaceFreezeRoutes } from './workspace-freeze.js';
+import { workspaceDeletionRoutes } from './workspace-deletion.js';
 import { policyRoutes } from './policies.js';
 import { workspaceExportRoutes } from './workspace-export.js';
 import { queryBlocklistRoutes } from './query-blocklist.js';
@@ -119,6 +120,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(scimProtocolRoutes, { prefix: '/scim/v2' });
   await app.register(legalHoldRoutes, { prefix: '/v1' });
   await app.register(workspaceFreezeRoutes, { prefix: '/v1' });
+  await app.register(workspaceDeletionRoutes, { prefix: '/v1' });
   await app.register(policyRoutes, { prefix: '/v1' });
   await app.register(workspaceExportRoutes, { prefix: '/v1' });
   await app.register(queryBlocklistRoutes, { prefix: '/v1' });

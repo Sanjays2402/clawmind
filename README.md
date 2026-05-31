@@ -10,6 +10,29 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Workspace scheduled deletion: enterprise exit clauses (GDPR Article 17 "right to erasure" at the tenant level) require that a customer can put a documented, cancelable timer on the destruction of their entire workspace, see the countdown, and still pull a final export bundle while the clock runs. `POST /v1/workspace/deletion` (owner + MFA) schedules a wipe with a grace window clamped to `[1 hour, 90 days]` (default 7 days), persists `scheduledFor`, `scheduledBy`, the reason, and a ticket reference, and immediately flips the workspace into a pending state where every mutating endpoint outside the allowlist returns HTTP 423. The allowlist keeps reads, MFA step-up, sign-out, the workspace export download, and the deletion endpoint itself open so the customer can pull data and the owner can change their mind. `DELETE /v1/workspace/deletion` cancels and restores writes. After `scheduledFor` passes, an out-of-band operator script runs the actual wipe and posts to `/v1/workspace/deletion/complete` to anchor the completion in the hash-chained audit log. The web console at `/settings/workspace-deletion` shows a live countdown, a cancel button, and a `Mark wipe complete` action that only appears once the window has elapsed. Read is gated by `workspace-deletion:read` (admin+), and every mutation by `workspace-deletion:admin` (owner + MFA).
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # See current state (admin+ key)
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:8787/v1/workspace/deletion
+
+  # Schedule a 24h deletion (owner + MFA required)
+  curl -sS -X POST http://localhost:8787/v1/workspace/deletion \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"graceMs": 86400000, "reason": "contract exit", "ticket": "CS-014"}'
+
+  # Cancel before scheduledFor
+  curl -sS -X DELETE http://localhost:8787/v1/workspace/deletion \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY"
+
+  # Open the deletion console in a browser
+  open http://localhost:3000/settings/workspace-deletion
+  ```
+
 - Sign-in activity log: every login attempt against the API is recorded in a focused, append-only log so a security reviewer doesn't have to grep the global audit chain during an incident. Each record carries the canonical actor, the auth method (`github`, `oidc`, ...), the outcome (`success`, `failure`, `logout`), the source IP, a truncated user-agent, and an optional reason on failure. The self-view at `GET /v1/sign-in-log` is scoped to the caller and is gated by `sign-in-log:read`; the workspace view at `GET /v1/sign-in-log/all` is admin+ and gated by `sign-in-log:admin` because the full feed exposes probing attempts that never resolved to a user. Both endpoints paginate newest-first with a stable cursor. State lives at `data/sign-in-log.json` capped at 5000 rows. The web console renders the same data at `/settings/sign-in-log` with outcome filters and a one-click toggle between the self and workspace views.
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):

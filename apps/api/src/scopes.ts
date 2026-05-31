@@ -306,6 +306,15 @@ export const Scopes = {
   RoleElevationRequest: 'role-elevation:write',
   RoleElevationManage: 'role-elevation:admin',
 
+  // Workspace scheduled deletion (GDPR Article 17 right to erasure at
+  // the tenant level). Read is admin+ so a delegated operator can see the
+  // countdown without being able to schedule or cancel; Manage is
+  // owner-only with MFA step-up at the route because scheduling a wipe
+  // blocks every other write across the workspace and a wrongful cancel
+  // can defeat a legally required retention deadline.
+  WorkspaceDeletionRead: 'workspace-deletion:read',
+  WorkspaceDeletionManage: 'workspace-deletion:admin',
+
   // Sign-in activity log. The self-view (SignInLogRead) lets a user audit
   // their own login history from any client, which is the table-stakes
   // "recent sign-ins" surface every enterprise security review asks for.

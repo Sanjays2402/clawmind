@@ -399,6 +399,30 @@ export interface WorkspaceFreeze {
   updatedAt: number;
 }
 
+export type WorkspaceDeletionState = 'none' | 'pending' | 'cancelled' | 'completed';
+
+export interface WorkspaceDeletion {
+  workspaceId: string;
+  state: WorkspaceDeletionState;
+  reason: string | null;
+  ticket: string | null;
+  graceMs: number | null;
+  scheduledAt: number | null;
+  scheduledFor: number | null;
+  scheduledBy: string | null;
+  cancelledAt: number | null;
+  cancelledBy: string | null;
+  completedAt: number | null;
+  completedBy: string | null;
+  updatedAt: number;
+}
+
+export interface WorkspaceDeletionEnvelope {
+  deletion: WorkspaceDeletion;
+  pastDue: boolean;
+  limits: { minGraceMs: number; defaultGraceMs: number; maxGraceMs: number };
+}
+
 export interface MfaPolicy {
   workspaceId: string;
   enforced: boolean;
@@ -1223,6 +1247,27 @@ export const api = {
     }).then((r) => r.freeze),
   workspaceFreezeRelease: () =>
     j<{ freeze: WorkspaceFreeze }>('/v1/workspace/freeze', { method: 'DELETE' }).then((r) => r.freeze),
+
+  // Workspace scheduled deletion (GDPR right to erasure, tenant level).
+  // Schedules a hard wipe N days out (default 7, clamped to [1h, 90d]).
+  // While pending, every mutating endpoint outside the allowlist returns
+  // 423 so no new state accrues during the wind-down. Owner-only with
+  // MFA step-up at the route. Cancel before scheduledFor to abort.
+  workspaceDeletionGet: () =>
+    j<WorkspaceDeletionEnvelope>('/v1/workspace/deletion'),
+  workspaceDeletionSchedule: (input: {
+    reason?: string | null;
+    ticket?: string | null;
+    graceMs?: number | null;
+  }) =>
+    j<WorkspaceDeletionEnvelope>('/v1/workspace/deletion', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+  workspaceDeletionCancel: () =>
+    j<WorkspaceDeletionEnvelope>('/v1/workspace/deletion', { method: 'DELETE' }),
+  workspaceDeletionComplete: () =>
+    j<WorkspaceDeletionEnvelope>('/v1/workspace/deletion/complete', { method: 'POST' }),
 
   // Workspace MFA enforcement policy. When enforced, every signed-in
   // human must enrol TOTP MFA before any mutating endpoint will accept
