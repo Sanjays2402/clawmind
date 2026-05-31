@@ -239,7 +239,7 @@ export default function PoliciesPage() {
                 <EmptyState
                   icon={<IconShield size={18} />}
                   title="No policies published"
-                  description="An owner has not yet published a TOS, DPA, or AUP. Publish one below to start tracking acceptance."
+                  body="An owner has not yet published a TOS, DPA, or AUP. Publish one below to start tracking acceptance."
                 />
               ) : (
                 <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)] bg-[var(--surface)]">
