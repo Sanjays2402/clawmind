@@ -285,6 +285,20 @@ export interface IpAllowlistInput {
   rules: Array<{ cidr: string; label?: string }>;
 }
 
+export interface WorkspaceIpAllowlistRecord {
+  enabled: boolean;
+  rules: IpRule[];
+  updatedAt: number;
+  createdAt: number;
+  updatedBy: string | null;
+}
+
+export interface WorkspaceIpAllowlistInput {
+  enabled: boolean;
+  rules: Array<{ cidr: string; label?: string }>;
+  confirmSelfLockoutAccepted?: boolean;
+}
+
 export interface WebhookAllowedHost {
   host: string;
   label: string;
@@ -861,6 +875,21 @@ export const api = {
     j<{ record: IpAllowlistRecord; limits: IpAllowlistLimits }>('/v1/ip-allowlist'),
   ipAllowlistPut: (input: IpAllowlistInput) =>
     j<{ record: IpAllowlistRecord }>('/v1/ip-allowlist', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.record),
+
+  // Workspace-wide IP allowlist. When enabled, every authenticated
+  // request from every member (session or API key) must come from one
+  // of the listed CIDR blocks. Get is gated by ip-allowlist:read; Put
+  // is owner-only with MFA. The management endpoint is itself never
+  // gated, so an owner can always recover from a bad rule.
+  workspaceIpAllowlistGet: () =>
+    j<{ record: WorkspaceIpAllowlistRecord; limits: IpAllowlistLimits }>(
+      '/v1/workspace-ip-allowlist',
+    ),
+  workspaceIpAllowlistPut: (input: WorkspaceIpAllowlistInput) =>
+    j<{ record: WorkspaceIpAllowlistRecord }>('/v1/workspace-ip-allowlist', {
       method: 'PUT',
       body: JSON.stringify(input),
     }).then((r) => r.record),

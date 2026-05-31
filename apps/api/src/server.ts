@@ -14,6 +14,7 @@ import { registerRoutes } from './routes/index.js';
 import { configureWebhookUrlGuard, emitToAll as emitToAllWebhooks } from './services/webhooks.js';
 import { authPlugin } from './plugins/auth.js';
 import { ipAllowlistPlugin } from './plugins/ip-allowlist.js';
+import { workspaceIpAllowlistPlugin } from './plugins/workspace-ip-allowlist.js';
 import { workspaceFreezePlugin } from './plugins/workspace-freeze.js';
 import { dataResidencyPlugin } from './plugins/data-residency.js';
 import { mfaPolicyPlugin } from './plugins/mfa-policy.js';
@@ -158,6 +159,7 @@ export async function buildApp(): Promise<any> {
   await app.register(auditPlugin);
   await app.register(authPlugin);
   await app.register(ipAllowlistPlugin);
+  await app.register(workspaceIpAllowlistPlugin);
   await app.register(workspaceFreezePlugin);
   await app.register(dataResidencyPlugin);
   await app.register(mfaPolicyPlugin);

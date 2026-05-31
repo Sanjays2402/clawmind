@@ -56,6 +56,7 @@ import { apiKeyBruteForceRoutes } from './api-key-bruteforce.js';
 import { subProcessorsRoutes } from './sub-processors.js';
 import { dataResidencyRoutes } from './data-residency.js';
 import { dsrRoutes } from './dsr.js';
+import { workspaceIpAllowlistRoutes } from './workspace-ip-allowlist.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -116,4 +117,5 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(subProcessorsRoutes, { prefix: '/v1' });
   await app.register(dataResidencyRoutes, { prefix: '/v1' });
   await app.register(dsrRoutes, { prefix: '/v1' });
+  await app.register(workspaceIpAllowlistRoutes, { prefix: '/v1' });
 }
