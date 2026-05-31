@@ -36,6 +36,9 @@ export const Scopes = {
   SavedRead: 'saved:read',
   SavedWrite: 'saved:write',
 
+  CollectionsRead: 'collections:read',
+  CollectionsWrite: 'collections:write',
+
   PinsWrite: 'pins:write',
   MutesWrite: 'mutes:write',
 

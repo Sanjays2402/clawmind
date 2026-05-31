@@ -13,6 +13,7 @@ const primary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/explain', label: 'Explain', Icon: IconChartBar },
   { href: '/sources', label: 'Sources', Icon: IconFolder },
   { href: '/saved', label: 'Saved', Icon: IconBook },
+  { href: '/collections', label: 'Collections', Icon: IconFolder },
 ];
 
 const secondary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [

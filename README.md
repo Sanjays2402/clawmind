@@ -14,6 +14,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Namespaces inferred from path (memory / sessions / projects / docs / misc) for scoped queries
 - Streaming and non-streaming `/ask` with cited spans back to source files
 - Saved searches with snapshot history so you can diff results over time, plus inline rename, taggable groups, and a tag filter on the Saved page
+- Collections: group saved searches into named folders (with an accent color and an optional description) so onboarding playbooks stay separate from incident reviews. The `/collections` page lists every folder with a live count, lets you create, rename, recolor, or delete folders, and opens an inline drawer where you tick saved searches in or out without leaving the page. Backed by `/v1/collections` and `/v1/collections/:id/members`, isolated per user, and gated by the `collections:read` / `collections:write` scopes for API keys
 - Pins, mutes, and aliases to bias or exclude paths from retrieval
 - Tags on files, browsable as facets
 - Search workspace: `/search` runs hybrid retrieval with namespace chips, include and exclude tag filters (auto-completing against your tag library), client-side sort and pagination, recent searches persisted in `localStorage`, and full filter state in the URL so a shared link restores the exact view
@@ -426,6 +427,24 @@ Try it: visit <http://127.0.0.1:7412/saved> to add tags inline, filter by tag, a
 curl -X PATCH http://127.0.0.1:7411/v1/saved/$ID \
   -H 'authorization: Bearer $TOKEN' -H 'content-type: application/json' \
   -d '{"title":"Weekly ingest digest","tags":["work","ops"]}'
+```
+
+Collections (group saved searches into folders):
+- `GET /v1/collections` (list with per-folder item count)
+- `POST /v1/collections` (create with optional `description` and palette `color`)
+- `PATCH|DELETE /v1/collections/:id`
+- `GET /v1/collections/:id` (collection plus hydrated saved-search rows)
+- `POST /v1/collections/:id/members` (assign one saved search)
+- `PUT /v1/collections/:id/members` (replace the full set)
+- `DELETE /v1/collections/:id/members/:savedId`
+- `GET /v1/collections/_membership` (saved-id to collection-id map for the saved-searches page)
+
+Try it locally: with the web app running at <http://127.0.0.1:7412/collections>, create a folder, click Manage, then tick saved searches in or out. From the CLI:
+
+```bash
+curl -X POST http://127.0.0.1:7411/v1/collections \
+  -H 'authorization: Bearer $TOKEN' -H 'content-type: application/json' \
+  -d '{"name":"Onboarding playbooks","color":"violet","description":"Things new hires ask in week one"}'
 ```
 
 History, share, feedback:

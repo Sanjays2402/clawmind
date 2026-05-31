@@ -120,6 +120,19 @@ export interface DigestSummary {
   runs: number;
 }
 
+export type CollectionColor = 'slate' | 'violet' | 'emerald' | 'amber' | 'rose' | 'sky';
+
+export interface Collection {
+  id: string;
+  userId: string;
+  name: string;
+  description: string;
+  color: CollectionColor;
+  createdAt: number;
+  updatedAt: number;
+  itemCount?: number;
+}
+
 export interface SavedSearch {
   id: string;
   title: string;
@@ -384,6 +397,37 @@ export const api = {
   updateSaved: (id: string, patch: { title?: string; query?: string; tags?: string[] }) =>
     j<{ item: SavedSearch }>(`/v1/saved/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }).then((r) => r.item),
   removeSaved: (id: string) => j<void>(`/v1/saved/${id}`, { method: 'DELETE' }),
+
+  // Collections: group saved searches under a named folder. The membership
+  // mapping is fetched separately so the saved-searches view can render chips
+  // without N+1 round trips.
+  collectionsList: () =>
+    j<{ items: Collection[] }>('/v1/collections').then((r) => r.items),
+  collectionsMembership: () =>
+    j<{ membership: Record<string, string[]> }>('/v1/collections/_membership').then((r) => r.membership),
+  collectionGet: (id: string) =>
+    j<{ collection: Collection; items: SavedSearch[] }>(`/v1/collections/${encodeURIComponent(id)}`),
+  collectionCreate: (input: { name: string; description?: string; color?: CollectionColor }) =>
+    j<{ item: Collection }>('/v1/collections', { method: 'POST', body: JSON.stringify(input) }).then((r) => r.item),
+  collectionUpdate: (id: string, patch: { name?: string; description?: string; color?: CollectionColor }) =>
+    j<{ item: Collection }>(`/v1/collections/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(patch) }).then((r) => r.item),
+  collectionDelete: (id: string) =>
+    j<{ ok: boolean }>(`/v1/collections/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  collectionAddMember: (id: string, savedId: string) =>
+    j<{ ok: boolean; added: boolean }>(`/v1/collections/${encodeURIComponent(id)}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ savedId }),
+    }),
+  collectionRemoveMember: (id: string, savedId: string) =>
+    j<{ ok: boolean; removed: boolean }>(
+      `/v1/collections/${encodeURIComponent(id)}/members/${encodeURIComponent(savedId)}`,
+      { method: 'DELETE' },
+    ),
+  collectionSetMembers: (id: string, savedIds: string[]) =>
+    j<{ savedIds: string[] }>(`/v1/collections/${encodeURIComponent(id)}/members`, {
+      method: 'PUT',
+      body: JSON.stringify({ savedIds }),
+    }).then((r) => r.savedIds),
   share: (id: string) => j<{ id: string; query: string; answer: string; sources?: Source[]; createdAt?: number; views?: number }>(`/v1/share/${id}`),
   createShare: (input: { query: string; answer: string; sources: Source[] }) =>
     j<{ id: string; url: string }>('/v1/share', { method: 'POST', body: JSON.stringify(input) }),
