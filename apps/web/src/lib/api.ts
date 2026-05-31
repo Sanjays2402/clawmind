@@ -502,6 +502,7 @@ export interface ApiKey {
   previousHashExpiresAt?: number | null;
   rateLimit?: { max: number; windowMs: number } | null;
   allowedIps?: string[] | null;
+  allowedOrigins?: string[] | null;
 }
 
 export interface KeyUsageEvent {
@@ -787,6 +788,11 @@ export const api = {
     j<{ key: ApiKey }>(
       `/v1/keys/${id}/ip-allowlist`,
       { method: 'PUT', body: JSON.stringify({ allowedIps }) },
+    ).then((r) => r.key),
+  keySetAllowedOrigins: (id: string, allowedOrigins: string[] | null) =>
+    j<{ key: ApiKey }>(
+      `/v1/keys/${id}/origin-allowlist`,
+      { method: 'PUT', body: JSON.stringify({ allowedOrigins }) },
     ).then((r) => r.key),
   keyUsage: (id: string, opts: { recent?: number; routes?: number } = {}) => {
     const q = new URLSearchParams();

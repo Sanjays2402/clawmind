@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS, setKeyAllowedIps, normaliseKeyIpRules, MAX_KEY_IP_RULES } from '../services/api-keys.js';
+import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS, setKeyAllowedIps, normaliseKeyIpRules, MAX_KEY_IP_RULES, setKeyAllowedOrigins, normaliseKeyOriginRules, MAX_KEY_ORIGIN_RULES, MAX_ORIGIN_LENGTH } from '../services/api-keys.js';
 import { getUsageReport, purgeUsage } from '../services/api-key-usage.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
@@ -198,6 +198,51 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
         action: normalised.length > 0 ? 'api_key.ip_allowlist.set' : 'api_key.ip_allowlist.clear',
         resource: req.params.id,
         meta: { count: normalised.length, rules: normalised },
+      });
+      return { key: redact(updated) };
+    },
+  });
+
+  // Set or clear the per-key Origin allowlist. Useful when a key is
+  // deliberately embedded in a first-party browser bundle: server-to-server
+  // callers (which omit Origin) keep working unchanged, but a stolen key
+  // replayed from a different web origin is rejected with 403. Each entry
+  // must be a bare scheme+host[:port] origin; wildcards are intentionally
+  // not supported. Audited on every change.
+  app.put<{ Params: { id: string }; Body: { allowedOrigins?: string[] | null } }>('/keys/:id/origin-allowlist', {
+    schema: {
+      body: z.object({
+        allowedOrigins: z
+          .array(z.string().min(1).max(MAX_ORIGIN_LENGTH))
+          .max(MAX_KEY_ORIGIN_RULES)
+          .nullable()
+          .optional(),
+      }),
+    },
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.KeysManage)],
+    handler: async (req, reply) => {
+      const raw = req.body.allowedOrigins ?? null;
+      const v = normaliseKeyOriginRules(raw);
+      if (!v.ok) {
+        return reply.code(400).send({
+          error: 'invalid origin allowlist',
+          message: v.message,
+          index: v.index,
+        });
+      }
+      const normalised = v.rules ?? [];
+      const updated = await setKeyAllowedOrigins(
+        app.clawmind.dataDir,
+        req.user!.id,
+        req.params.id,
+        normalised.length > 0 ? normalised : null,
+      );
+      if (!updated) return reply.code(404).send({ error: 'not found' });
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: normalised.length > 0 ? 'api_key.origin_allowlist.set' : 'api_key.origin_allowlist.clear',
+        resource: req.params.id,
+        meta: { count: normalised.length, origins: normalised },
       });
       return { key: redact(updated) };
     },

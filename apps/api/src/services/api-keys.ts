@@ -73,9 +73,133 @@ export interface ApiKeyRecord {
   // lets a customer bind a CI key to their build runners or a backend key
   // to a known egress range, even if the workspace itself permits any IP.
   allowedIps?: string[] | null;
+  // Optional per-key Origin allowlist. When set, the auth layer rejects any
+  // request whose browser-supplied Origin header is not present in the list
+  // (case-insensitive scheme+host[:port], no trailing slash, no path). When
+  // undefined or empty there is no restriction; this is the right default
+  // because most server-to-server API keys do not send an Origin header at
+  // all. Use this on keys that are deliberately embedded in a browser bundle
+  // so a stolen credential cannot be replayed from a third-party page.
+  allowedOrigins?: string[] | null;
 }
 
 export const MAX_KEY_IP_RULES = 64;
+export const MAX_KEY_ORIGIN_RULES = 32;
+export const MAX_ORIGIN_LENGTH = 253 + 16; // hostname + scheme + port headroom
+
+export interface OriginAllowlistValidation {
+  ok: boolean;
+  /** Normalised list when ok is true. Each entry is lower-cased scheme+host[:port]. */
+  rules?: string[];
+  /** Human-readable reason when ok is false. */
+  message?: string;
+  /** Index of the offending entry when ok is false. */
+  index?: number;
+}
+
+/**
+ * Normalise a single origin string into the canonical form used for
+ * comparison. Returns null when the input is not a parseable http/https
+ * origin. The wildcard '*' is intentionally not supported: it would defeat
+ * the purpose of restricting a browser-embedded key.
+ */
+export function normaliseOrigin(raw: string): string | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.length > MAX_ORIGIN_LENGTH) return null;
+  let url: URL;
+  try {
+    url = new URL(trimmed);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  if (!url.hostname) return null;
+  // Reject anything that carries path/query/fragment so callers do not get
+  // a false sense of locking down a particular page.
+  if (url.pathname && url.pathname !== '/' && url.pathname !== '') return null;
+  if (url.search || url.hash || url.username || url.password) return null;
+  const host = url.hostname.toLowerCase();
+  const defaultPort = url.protocol === 'http:' ? '80' : '443';
+  const port = url.port && url.port !== defaultPort ? `:${url.port}` : '';
+  return `${url.protocol}//${host}${port}`;
+}
+
+export function normaliseKeyOriginRules(
+  input: readonly string[] | null | undefined,
+): OriginAllowlistValidation {
+  if (!input) return { ok: true, rules: [] };
+  if (input.length > MAX_KEY_ORIGIN_RULES) {
+    return { ok: false, message: `too many rules (max ${MAX_KEY_ORIGIN_RULES})` };
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < input.length; i++) {
+    const raw = input[i];
+    if (typeof raw !== 'string' || !raw.trim()) {
+      return { ok: false, index: i, message: 'origin must be a non-empty string' };
+    }
+    const norm = normaliseOrigin(raw);
+    if (!norm) {
+      return { ok: false, index: i, message: `invalid origin: ${raw} (expected http(s)://host[:port])` };
+    }
+    if (seen.has(norm)) {
+      return { ok: false, index: i, message: `duplicate origin: ${norm}` };
+    }
+    seen.add(norm);
+    out.push(norm);
+  }
+  return { ok: true, rules: out };
+}
+
+/**
+ * Return true when the request's Origin header is permitted by the per-key
+ * allowlist. Requests with no Origin header are accepted when an allowlist
+ * is configured because a missing Origin means the request did not come
+ * from a browser at all (the only place an Origin header is mandatory).
+ * Server-to-server callers therefore keep working unchanged, while a stolen
+ * key replayed from a malicious page is rejected because the browser will
+ * stamp an unfamiliar Origin on the request.
+ */
+export function originAllowedByKey(
+  origin: string | undefined | null,
+  rules: readonly string[] | null | undefined,
+): boolean {
+  if (!rules || rules.length === 0) return true; // unrestricted
+  if (!origin) return true; // no Origin header => not a browser fetch
+  const norm = normaliseOrigin(origin);
+  if (!norm) return false; // malformed Origin against a configured list
+  return rules.some((r) => r === norm);
+}
+
+/**
+ * Update or clear the per-key Origin allowlist. Returns the updated record
+ * or null if the key is not owned by the user, revoked, or expired. Pass
+ * null or an empty array to remove an existing restriction.
+ */
+export async function setKeyAllowedOrigins(
+  dataDir: string,
+  userId: string,
+  id: string,
+  allowedOrigins: readonly string[] | null,
+  now: number = Date.now(),
+): Promise<ApiKeyRecord | null> {
+  const v = normaliseKeyOriginRules(allowedOrigins);
+  if (!v.ok) throw new Error(v.message ?? 'invalid origin rules');
+  const all = await loadKeys(dataDir);
+  const idx = all.findIndex((k) => k.id === id && k.userId === userId);
+  if (idx < 0) return null;
+  const cur = all[idx]!;
+  if (cur.revokedAt) return null;
+  if (cur.expiresAt && now > cur.expiresAt) return null;
+  const next: ApiKeyRecord = {
+    ...cur,
+    allowedOrigins: v.rules && v.rules.length > 0 ? v.rules : null,
+  };
+  all[idx] = next;
+  await saveKeys(dataDir, all);
+  return next;
+}
 
 export interface IpAllowlistValidation {
   ok: boolean;
@@ -385,6 +509,7 @@ export function redact(rec: ApiKeyRecord) {
         : null,
     rateLimit: rec.rateLimit ?? null,
     allowedIps: rec.allowedIps ?? null,
+    allowedOrigins: rec.allowedOrigins ?? null,
   };
 }
 

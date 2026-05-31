@@ -1,6 +1,6 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
-import { verifySecret, hasScope, ipAllowedByKey } from '../services/api-keys.js';
+import { verifySecret, hasScope, ipAllowedByKey, originAllowedByKey } from '../services/api-keys.js';
 import { recordUsage } from '../services/api-key-usage.js';
 import { consume as consumeKeyBucket } from '../services/api-key-rate-limit.js';
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
@@ -100,6 +100,31 @@ const plugin: FastifyPluginAsync = async (app) => {
             return reply.code(403).send({
               error: 'ip not allowed for this key',
               ip: req.ip,
+            });
+          }
+        }
+        // Per-key Origin allowlist. Only applies when the request actually
+        // carries an Origin header (i.e. it is a browser fetch). This lets
+        // a customer embed an API key in a first-party web page without
+        // worrying that a stolen credential can be replayed from a
+        // different origin.
+        if (result.record.allowedOrigins && result.record.allowedOrigins.length > 0) {
+          const origin = req.headers.origin;
+          const originStr = Array.isArray(origin) ? origin[0] : origin;
+          if (!originAllowedByKey(originStr, result.record.allowedOrigins)) {
+            await app.clawmind.audit.write({
+              actor: result.record.userId,
+              action: 'api_key.origin.denied',
+              resource: result.record.id,
+              meta: {
+                origin: originStr ?? null,
+                route: req.url,
+                rules: result.record.allowedOrigins.length,
+              },
+            }).catch(() => undefined);
+            return reply.code(403).send({
+              error: 'origin not allowed for this key',
+              origin: originStr ?? null,
             });
           }
         }

@@ -636,6 +636,22 @@ curl -X PUT \
 
 Send `{"allowedIps": null}` (or omit the field) to clear the restriction. The active rules surface in the key row footer and in `GET /v1/keys` so an admin can audit blast radius at a glance.
 
+### Lock an API key to a browser origin
+
+For keys that are deliberately embedded in a first-party browser bundle, each key can also carry an Origin allowlist. Requests with an `Origin` header that is not on the list are rejected with `403 origin not allowed for this key` and the denial is written to the audit log as `api_key.origin.denied`. Server-to-server callers (which do not send an `Origin` header) keep working unchanged, so adding a list does not break CI or backend jobs that share the same key.
+
+From the `/keys` page click **Restrict origins** on a row, paste one `scheme://host[:port]` per line (no paths, no wildcards), and save. From a script:
+
+```bash
+curl -X PUT \
+  -H "Cookie: cm_session=..." \
+  -H "Content-Type: application/json" \
+  -d '{"allowedOrigins":["https://app.example.com","https://admin.example.com:8443"]}' \
+  http://127.0.0.1:7410/v1/keys/k_abc123/origin-allowlist
+```
+
+Send `{"allowedOrigins": null}` to clear the restriction. Origins are normalised (case-folded host, default ports stripped) and duplicates are rejected, so the saved rules match exactly what a browser will stamp on a `fetch`.
+
 ### Invite a teammate by email
 
 Open <http://127.0.0.1:7412/settings/invitations>, click **New invitation**, enter the teammate's email and the role they should land in (admin, member, or viewer). The link and raw token are shown exactly once; send the link to them out of band. From the CLI:

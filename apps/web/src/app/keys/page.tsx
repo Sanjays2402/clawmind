@@ -327,6 +327,44 @@ function KeyRow({
   const [ipsSaving, setIpsSaving] = useState(false);
   const [ipsError, setIpsError] = useState<string | null>(null);
 
+  const [showOrigins, setShowOrigins] = useState(false);
+  const [originsText, setOriginsText] = useState((k.allowedOrigins ?? []).join('\n'));
+  const [originsSaving, setOriginsSaving] = useState(false);
+  const [originsError, setOriginsError] = useState<string | null>(null);
+
+  async function saveOrigins() {
+    const parsed = originsText
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    setOriginsSaving(true);
+    setOriginsError(null);
+    try {
+      await api.keySetAllowedOrigins(k.id, parsed.length > 0 ? parsed : null);
+      setShowOrigins(false);
+      window.location.reload();
+    } catch (err) {
+      setOriginsError((err as Error).message);
+    } finally {
+      setOriginsSaving(false);
+    }
+  }
+
+  async function clearOrigins() {
+    setOriginsSaving(true);
+    setOriginsError(null);
+    try {
+      await api.keySetAllowedOrigins(k.id, null);
+      setOriginsText('');
+      setShowOrigins(false);
+      window.location.reload();
+    } catch (err) {
+      setOriginsError((err as Error).message);
+    } finally {
+      setOriginsSaving(false);
+    }
+  }
+
   async function saveIps() {
     const parsed = ipsText
       .split(/[\s,]+/)
@@ -452,6 +490,11 @@ function KeyRow({
               ip allowlist {k.allowedIps.length}
             </span>
           )}
+          {k.allowedOrigins && k.allowedOrigins.length > 0 && (
+            <span title={k.allowedOrigins.join(', ')}>
+              origin allowlist {k.allowedOrigins.length}
+            </span>
+          )}
         </div>
         {k.scopes && k.scopes.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
@@ -484,6 +527,13 @@ function KeyRow({
             className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
           >
             {showIps ? 'Hide IPs' : k.allowedIps && k.allowedIps.length > 0 ? `IPs (${k.allowedIps.length})` : 'Restrict IPs'}
+          </button>
+          <button
+            onClick={() => setShowOrigins((v) => !v)}
+            aria-expanded={showOrigins}
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
+          >
+            {showOrigins ? 'Hide origins' : k.allowedOrigins && k.allowedOrigins.length > 0 ? `Origins (${k.allowedOrigins.length})` : 'Restrict origins'}
           </button>
           <button
             onClick={() => onRotate(k.id)}
@@ -595,6 +645,43 @@ function KeyRow({
           </div>
           {ipsError && (
             <div className="mt-2 text-xs text-cm-danger">{ipsError}</div>
+          )}
+        </div>
+      )}
+      {showOrigins && (
+        <div className="mt-2 rounded-md border border-cm-border p-3">
+          <div className="mb-2 text-xs text-cm-muted">
+            Per-key Origin allowlist. One scheme+host[:port] per line, for keys embedded in a first-party browser bundle. Requests with no Origin header (typical server-to-server callers) keep working unchanged. Browser requests from any other origin are rejected with 403. Leave empty to remove the restriction.
+          </div>
+          <textarea
+            value={originsText}
+            onChange={(e) => setOriginsText(e.target.value)}
+            rows={4}
+            spellCheck={false}
+            placeholder={'https://app.example.com\nhttps://admin.example.com'}
+            className="w-full rounded-md border border-cm-border bg-transparent px-2 py-1.5 font-mono text-xs text-cm-fg"
+          />
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button
+              onClick={saveOrigins}
+              disabled={originsSaving}
+              className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-fg px-3 py-1.5 text-sm text-cm-bg hover:opacity-90 disabled:opacity-50"
+            >
+              {originsSaving ? <Spinner size={14} /> : <IconCheck size={14} />}
+              Save
+            </button>
+            {k.allowedOrigins && k.allowedOrigins.length > 0 && (
+              <button
+                onClick={clearOrigins}
+                disabled={originsSaving}
+                className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-danger disabled:opacity-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {originsError && (
+            <div className="mt-2 text-xs text-cm-danger">{originsError}</div>
           )}
         </div>
       )}
