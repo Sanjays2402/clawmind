@@ -224,6 +224,8 @@ export interface ApiKey {
   expiresAt: number | null;
   lastUsedAt: number | null;
   revokedAt: number | null;
+  rotatedAt?: number | null;
+  previousHashExpiresAt?: number | null;
 }
 
 export type WebhookEvent = 'ask.completed' | 'ingest.completed';
@@ -383,6 +385,11 @@ export const api = {
   keyIssue: (input: { label: string; role?: 'owner' | 'reader'; scopes?: string[]; ttlMs?: number | null }) =>
     j<{ key: ApiKey; secret: string }>('/v1/keys', { method: 'POST', body: JSON.stringify(input) }),
   keyRevoke: (id: string) => j<{ ok: boolean }>(`/v1/keys/${id}`, { method: 'DELETE' }),
+  keyRotate: (id: string) =>
+    j<{ key: ApiKey; secret: string; previousExpiresAt: number | null }>(
+      `/v1/keys/${id}/rotate`,
+      { method: 'POST' },
+    ),
 
   // Usage and quota
   usage: () => j<UsageSummary>('/v1/usage'),

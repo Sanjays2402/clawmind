@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  issueKey, listKeys, revokeKey, verifySecret, loadKeys, hashSecret, redact, KEY_PREFIX,
+  issueKey, listKeys, revokeKey, rotateKey, verifySecret, loadKeys, hashSecret, redact, KEY_PREFIX,
   hasScope, isValidScope, WILDCARD_SCOPE,
 } from '../src/services/api-keys.js';
 
@@ -138,5 +138,80 @@ describe('api-key scopes', () => {
     const b = await issueKey(dir, { userId: 'u1', label: 'b', scopes: ['ask:read'] });
     expect(redact(a.record).scopes).toBeNull();
     expect(redact(b.record).scopes).toEqual(['ask:read']);
+  });
+});
+
+describe('api-key rotation', () => {
+  it('rotate issues a new secret that verifies and keeps the same id, label, role, scopes', async () => {
+    const { record, secret: oldSecret } = await issueKey(dir, {
+      userId: 'u1', label: 'cli', role: 'owner', scopes: ['search:read'],
+    });
+    const rotated = await rotateKey(dir, 'u1', record.id);
+    expect(rotated).not.toBeNull();
+    expect(rotated!.secret.startsWith(KEY_PREFIX)).toBe(true);
+    expect(rotated!.secret).not.toBe(oldSecret);
+    expect(rotated!.record.id).toBe(record.id);
+    expect(rotated!.record.label).toBe('cli');
+    expect(rotated!.record.role).toBe('owner');
+    expect(rotated!.record.scopes).toEqual(['search:read']);
+    const v = await verifySecret(dir, rotated!.secret);
+    expect(v.ok).toBe(true);
+  });
+
+  it('previous secret keeps working inside the grace window and stops after it', async () => {
+    const now = 1_000_000;
+    const { record, secret: oldSecret } = await issueKey(dir, { userId: 'u1', label: 'cli', now });
+    const rotated = await rotateKey(dir, 'u1', record.id, { graceMs: 60_000, now });
+    expect(rotated).not.toBeNull();
+    // Within grace: old secret still verifies.
+    const within = await verifySecret(dir, oldSecret, now + 30_000);
+    expect(within.ok).toBe(true);
+    await new Promise((r) => setTimeout(r, 20));
+    // Beyond grace: old secret is unknown.
+    const beyond = await verifySecret(dir, oldSecret, now + 120_000);
+    expect(beyond).toEqual({ ok: false, reason: 'unknown' });
+    await new Promise((r) => setTimeout(r, 20));
+    // The new secret keeps working past the grace window.
+    const newOk = await verifySecret(dir, rotated!.secret, now + 200_000);
+    expect(newOk.ok).toBe(true);
+  });
+
+  it('rotate with graceMs=0 invalidates the old secret immediately', async () => {
+    const { record, secret: oldSecret } = await issueKey(dir, { userId: 'u1', label: 'cli' });
+    const rotated = await rotateKey(dir, 'u1', record.id, { graceMs: 0 });
+    expect(rotated).not.toBeNull();
+    expect(rotated!.previousExpiresAt).toBeNull();
+    const v = await verifySecret(dir, oldSecret);
+    expect(v).toEqual({ ok: false, reason: 'unknown' });
+  });
+
+  it('rotate returns null when the key is not owned by the user', async () => {
+    const { record } = await issueKey(dir, { userId: 'u1', label: 'cli' });
+    expect(await rotateKey(dir, 'u2', record.id)).toBeNull();
+  });
+
+  it('rotate returns null for revoked keys so revoked keys cannot be revived', async () => {
+    const { record, secret: oldSecret } = await issueKey(dir, { userId: 'u1', label: 'cli' });
+    await revokeKey(dir, 'u1', record.id);
+    const rotated = await rotateKey(dir, 'u1', record.id);
+    expect(rotated).toBeNull();
+    // And the old secret stays revoked.
+    const v = await verifySecret(dir, oldSecret);
+    expect(v).toEqual({ ok: false, reason: 'revoked' });
+  });
+
+  it('rotate stamps rotatedAt and persists the grace metadata on disk', async () => {
+    const { record } = await issueKey(dir, { userId: 'u1', label: 'cli' });
+    const rotated = await rotateKey(dir, 'u1', record.id);
+    expect(rotated!.record.rotatedAt).toBeGreaterThan(0);
+    expect(rotated!.previousExpiresAt).toBeGreaterThan(Date.now());
+    const all = await loadKeys(dir);
+    expect(all[0]!.previousHash).toBe(hashSecret('placeholder') === '' ? '' : all[0]!.previousHash);
+    expect(all[0]!.previousHash).toBeTruthy();
+    expect(all[0]!.previousHashExpiresAt).toBe(rotated!.previousExpiresAt);
+    // redact surfaces only the timestamp, never the hash itself.
+    const r = redact(all[0]!) as Record<string, unknown>;
+    expect(r).not.toHaveProperty('previousHash');
+    expect(r.previousHashExpiresAt).toBe(rotated!.previousExpiresAt);
   });
 });

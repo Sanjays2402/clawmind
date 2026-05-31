@@ -40,6 +40,7 @@ export default function KeysPage() {
   const [copied, setCopied] = useState(false);
 
   const [revoking, setRevoking] = useState<string | null>(null);
+  const [rotating, setRotating] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -103,6 +104,22 @@ export default function KeysPage() {
       setError((err as Error).message);
     } finally {
       setRevoking(null);
+    }
+  }
+
+  async function rotate(id: string) {
+    if (!confirm('Rotate this key? The current secret keeps working for a short grace window so you can swap it in.')) return;
+    setRotating(id);
+    setError(null);
+    setIssued(null);
+    try {
+      const res = await api.keyRotate(id);
+      setIssued({ secret: res.secret, key: res.key });
+      setItems((cur) => cur.map((k) => (k.id === id ? res.key : k)));
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setRotating(null);
     }
   }
 
@@ -236,7 +253,16 @@ export default function KeysPage() {
             />
           ) : (
             <ul className="cm-card divide-y divide-cm-border">
-              {active.map((k) => <KeyRow key={k.id} k={k} onRevoke={revoke} revoking={revoking === k.id} />)}
+              {active.map((k) => (
+                <KeyRow
+                  key={k.id}
+                  k={k}
+                  onRevoke={revoke}
+                  onRotate={rotate}
+                  revoking={revoking === k.id}
+                  rotating={rotating === k.id}
+                />
+              ))}
             </ul>
           )}
         </section>
@@ -245,7 +271,16 @@ export default function KeysPage() {
           <section className="mt-6">
             <h2 className="mb-2 text-sm font-medium text-cm-muted">Revoked</h2>
             <ul className="cm-card divide-y divide-cm-border opacity-70">
-              {revoked.map((k) => <KeyRow key={k.id} k={k} onRevoke={revoke} revoking={false} />)}
+              {revoked.map((k) => (
+                <KeyRow
+                  key={k.id}
+                  k={k}
+                  onRevoke={revoke}
+                  onRotate={rotate}
+                  revoking={false}
+                  rotating={false}
+                />
+              ))}
             </ul>
           </section>
         )}
@@ -254,9 +289,22 @@ export default function KeysPage() {
   );
 }
 
-function KeyRow({ k, onRevoke, revoking }: { k: ApiKey; onRevoke: (id: string) => void; revoking: boolean }) {
+function KeyRow({
+  k,
+  onRevoke,
+  onRotate,
+  revoking,
+  rotating,
+}: {
+  k: ApiKey;
+  onRevoke: (id: string) => void;
+  onRotate: (id: string) => void;
+  revoking: boolean;
+  rotating: boolean;
+}) {
   const expired = k.expiresAt != null && k.expiresAt < Date.now();
   const status = k.revokedAt ? 'revoked' : expired ? 'expired' : 'active';
+  const graceActive = k.previousHashExpiresAt != null && k.previousHashExpiresAt > Date.now();
   return (
     <li className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
@@ -276,11 +324,17 @@ function KeyRow({ k, onRevoke, revoking }: { k: ApiKey; onRevoke: (id: string) =
           >
             {status}
           </span>
+          {graceActive && (
+            <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-500">
+              old secret valid {fmtRelative(k.previousHashExpiresAt!)}
+            </span>
+          )}
         </div>
         <div className="mt-1 font-mono text-xs text-cm-muted">{k.id}</div>
         <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-cm-muted">
           <span>created {fmtRelative(k.createdAt)}</span>
           <span>last used {fmtRelative(k.lastUsedAt)}</span>
+          {k.rotatedAt && <span>rotated {fmtRelative(k.rotatedAt)}</span>}
           {k.expiresAt && <span>expires {fmtRelative(k.expiresAt)}</span>}
           {k.revokedAt && <span>revoked {fmtRelative(k.revokedAt)}</span>}
         </div>
@@ -295,8 +349,16 @@ function KeyRow({ k, onRevoke, revoking }: { k: ApiKey; onRevoke: (id: string) =
       {!k.revokedAt && (
         <div className="flex shrink-0 items-center gap-2">
           <button
+            onClick={() => onRotate(k.id)}
+            disabled={rotating || revoking}
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg disabled:opacity-50"
+          >
+            {rotating ? <Spinner size={14} /> : <IconRefresh size={14} />}
+            Rotate
+          </button>
+          <button
             onClick={() => onRevoke(k.id)}
-            disabled={revoking}
+            disabled={revoking || rotating}
             className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-danger disabled:opacity-50"
           >
             {revoking ? <Spinner size={14} /> : <IconTrash size={14} />}

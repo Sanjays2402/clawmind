@@ -156,7 +156,9 @@ export async function searchConversations(
       let snippet: string | null = null;
       let matchedTurn: number | null = null;
       for (let i = 0; i < c.turns.length; i++) {
-        const s = snippetAround(c.turns[i].content, needle);
+        const turn = c.turns[i];
+        if (!turn) continue;
+        const s = snippetAround(turn.content, needle);
         if (s) { snippet = s; matchedTurn = i; break; }
       }
       if (titleHit || snippet) {

@@ -53,7 +53,18 @@ export interface ApiKeyRecord {
   expiresAt: number | null;
   lastUsedAt: number | null;
   revokedAt: number | null;
+  // Rotation support. When a key is rotated we issue a new secret but keep
+  // the previous hash valid for a short grace window so clients can swap the
+  // credential without an outage. Cleared once the grace expires.
+  rotatedAt?: number | null;
+  previousHash?: string | null;
+  previousHashExpiresAt?: number | null;
 }
+
+// Default grace period after rotation during which the old secret still
+// verifies. Long enough for a CI run or deploy to catch up, short enough
+// that a leaked old secret stops working quickly.
+export const DEFAULT_ROTATION_GRACE_MS = 10 * 60_000;
 
 function file(dataDir: string) { return join(dataDir, 'api-keys.json'); }
 
@@ -165,7 +176,19 @@ export async function verifySecret(
   }
   const digest = hashSecret(presented);
   const all = await loadKeys(dataDir);
-  const match = all.find((k) => constantTimeEqualHex(k.hash, digest));
+  // Match current hash first, then the previous hash if it is still within
+  // its post-rotation grace window. Anything past the grace window is treated
+  // as unknown so callers see a clean 401 instead of a stale-key surprise.
+  let match = all.find((k) => constantTimeEqualHex(k.hash, digest));
+  if (!match) {
+    match = all.find(
+      (k) =>
+        k.previousHash != null &&
+        k.previousHashExpiresAt != null &&
+        k.previousHashExpiresAt > now &&
+        constantTimeEqualHex(k.previousHash, digest),
+    );
+  }
   if (!match) return { ok: false, reason: 'unknown' };
   if (match.revokedAt) return { ok: false, reason: 'revoked' };
   if (match.expiresAt && now > match.expiresAt) return { ok: false, reason: 'expired' };
@@ -173,6 +196,55 @@ export async function verifySecret(
   match.lastUsedAt = now;
   void saveKeys(dataDir, all).catch(() => undefined);
   return { ok: true, record: match };
+}
+
+export interface RotateInput {
+  graceMs?: number;
+  now?: number;
+}
+
+export interface RotatedKey {
+  record: ApiKeyRecord;
+  secret: string;          // plaintext, prefix included; only returned here
+  previousExpiresAt: number | null;
+}
+
+/**
+ * Rotate an existing key in place. Generates a new secret, demotes the
+ * current hash to `previousHash` for a short grace window so callers can
+ * swap the credential without downtime, and returns the new plaintext. The
+ * key id, label, role, scopes, and expiry are preserved so consumers can
+ * keep their bookkeeping pointing at the same record.
+ *
+ * Returns null when the key is not owned by the user, was revoked, or has
+ * expired. Routes translate that into a 404 or 409 as appropriate.
+ */
+export async function rotateKey(
+  dataDir: string,
+  userId: string,
+  id: string,
+  input: RotateInput = {},
+): Promise<RotatedKey | null> {
+  const now = input.now ?? Date.now();
+  const graceMs = input.graceMs ?? DEFAULT_ROTATION_GRACE_MS;
+  const all = await loadKeys(dataDir);
+  const idx = all.findIndex((k) => k.id === id && k.userId === userId);
+  if (idx < 0) return null;
+  const current = all[idx]!;
+  if (current.revokedAt) return null;
+  if (current.expiresAt && now > current.expiresAt) return null;
+  const secret = KEY_PREFIX + randomBytes(32).toString('hex');
+  const previousExpiresAt = graceMs > 0 ? now + graceMs : null;
+  const rotated: ApiKeyRecord = {
+    ...current,
+    hash: hashSecret(secret),
+    rotatedAt: now,
+    previousHash: graceMs > 0 ? current.hash : null,
+    previousHashExpiresAt: previousExpiresAt,
+  };
+  all[idx] = rotated;
+  await saveKeys(dataDir, all);
+  return { record: rotated, secret, previousExpiresAt };
 }
 
 /** Strip the secret out of a record for safe API responses. */
@@ -187,5 +259,12 @@ export function redact(rec: ApiKeyRecord) {
     expiresAt: rec.expiresAt,
     lastUsedAt: rec.lastUsedAt,
     revokedAt: rec.revokedAt,
+    rotatedAt: rec.rotatedAt ?? null,
+    // Surface only whether a grace window is active and when it ends. Never
+    // surface the previous hash itself.
+    previousHashExpiresAt:
+      rec.previousHash && rec.previousHashExpiresAt && rec.previousHashExpiresAt > Date.now()
+        ? rec.previousHashExpiresAt
+        : null,
   };
 }

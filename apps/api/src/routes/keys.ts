@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { issueKey, listKeys, revokeKey, redact, SCOPE_RE, WILDCARD_SCOPE } from '../services/api-keys.js';
+import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE } from '../services/api-keys.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
 
@@ -70,6 +70,28 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
         actor: req.user!.id, action: 'api_key.revoke', resource: req.params.id,
       });
       return { ok: true };
+    },
+  });
+
+  // Rotate a key in place. Issues a fresh secret on the same id, keeping
+  // label/role/scopes/expiry. The previous secret keeps working for a short
+  // grace window so callers can swap credentials without an outage.
+  app.post<{ Params: { id: string } }>('/keys/:id/rotate', {
+    preHandler: [app.requireRole('owner'), app.requireScope(Scopes.KeysManage)],
+    handler: async (req, reply) => {
+      const rotated = await rotateKey(app.clawmind.dataDir, req.user!.id, req.params.id);
+      if (!rotated) return reply.code(404).send({ error: 'not found or not rotatable' });
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: 'api_key.rotate',
+        resource: rotated.record.id,
+        meta: { previousHashExpiresAt: rotated.previousExpiresAt },
+      });
+      return {
+        key: redact(rotated.record),
+        secret: rotated.secret,
+        previousExpiresAt: rotated.previousExpiresAt,
+      };
     },
   });
 };

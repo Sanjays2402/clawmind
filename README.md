@@ -436,13 +436,27 @@ Digests:
 - `POST /v1/digests/run`
 
 Auth and admin:
-- `GET|POST /v1/keys`, `DELETE /v1/keys/:id`
+- `GET|POST /v1/keys`, `DELETE /v1/keys/:id`, `POST /v1/keys/:id/rotate`
 - `POST /v1/maintenance/compact`
 - `POST /v1/maintenance/forget`
 - `GET /v1/me/export` – download every per-user record as JSON
 - `DELETE /v1/me/data` – erase every per-user record, body `{"confirm":"DELETE"}`
 
 Requests are rate-limited globally to 240/min, keyed by API key id, session user, or IP in that order.
+
+### Rotate a leaked or aging API key
+
+When a deploy needs fresh credentials (or you suspect a leak) you can rotate a key in place from `/keys` (Rotate button) or via the API. Rotation issues a new secret on the same key id while the previous secret keeps working for a short grace window so callers can swap credentials without an outage. Try it locally with the web app running at `http://127.0.0.1:7412`:
+
+```bash
+# Rotate key id k_abc123 using an owner-scoped key with keys:admin
+curl -X POST -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  http://127.0.0.1:7412/v1/keys/k_abc123/rotate
+# {"key":{"id":"k_abc123","label":"watcher","role":"owner",...,"rotatedAt":...,"previousHashExpiresAt":...},
+#  "secret":"cm_...","previousExpiresAt":1700000600000}
+```
+
+The response shows the new plaintext secret exactly once, plus when the old secret stops working. The rotation is recorded in the audit log as `api_key.rotate`.
 
 ## Ingest
 
