@@ -117,7 +117,14 @@ export interface DigestSummary {
   runs: number;
 }
 
-export interface SavedSearch { id: string; title: string; query: string }
+export interface SavedSearch {
+  id: string;
+  title: string;
+  query: string;
+  tags?: string[];
+  createdAt?: number;
+  updatedAt?: number;
+}
 
 export interface ShareSummary {
   id: string;
@@ -316,8 +323,10 @@ export const api = {
   removeHistoryItem: (id: string) =>
     j<{ id: string; deleted: boolean }>(`/v1/history/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   savedList: () => j<{ items: SavedSearch[] }>('/v1/saved').then((r) => r.items),
-  saveSearch: (input: { title: string; query: string }) =>
+  saveSearch: (input: { title: string; query: string; tags?: string[] }) =>
     j<{ item: SavedSearch }>('/v1/saved', { method: 'POST', body: JSON.stringify(input) }).then((r) => r.item),
+  updateSaved: (id: string, patch: { title?: string; query?: string; tags?: string[] }) =>
+    j<{ item: SavedSearch }>(`/v1/saved/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }).then((r) => r.item),
   removeSaved: (id: string) => j<void>(`/v1/saved/${id}`, { method: 'DELETE' }),
   share: (id: string) => j<{ id: string; query: string; answer: string; sources?: Source[]; createdAt?: number; views?: number }>(`/v1/share/${id}`),
   createShare: (input: { query: string; answer: string; sources: Source[] }) =>

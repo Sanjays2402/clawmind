@@ -13,7 +13,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Hybrid retrieval: LanceDB dense vectors + BM25 lexical, merged with MMR
 - Namespaces inferred from path (memory / sessions / projects / docs / misc) for scoped queries
 - Streaming and non-streaming `/ask` with cited spans back to source files
-- Saved searches with snapshot history so you can diff results over time
+- Saved searches with snapshot history so you can diff results over time, plus inline rename, taggable groups, and a tag filter on the Saved page
 - Pins, mutes, and aliases to bias or exclude paths from retrieval
 - Tags on files, browsable as facets
 - Search workspace: `/search` runs hybrid retrieval with namespace chips, include and exclude tag filters (auto-completing against your tag library), client-side sort and pagination, recent searches persisted in `localStorage`, and full filter state in the URL so a shared link restores the exact view
@@ -392,11 +392,19 @@ Conversations:
 - `POST /v1/conversations/:id/ask/stream` (SSE: `rewrite`, `sources`, `token`, `error`)
 
 Saved searches and snapshots:
-- `GET|POST /v1/saved`, `DELETE /v1/saved/:id`
+- `GET|POST /v1/saved`, `PATCH|DELETE /v1/saved/:id` (PATCH updates title, query, or tags)
 - `GET /v1/saved/:savedId/snapshots`
 - `POST /v1/saved/:savedId/snapshots`
 - `GET|DELETE /v1/saved/:savedId/snapshots/:id`
 - `POST /v1/saved/:savedId/snapshots/:id` (rerun / promote)
+
+Try it: visit <http://127.0.0.1:7412/saved> to add tags inline, filter by tag, and rename a saved search. Or from the CLI:
+
+```bash
+curl -X PATCH http://127.0.0.1:7411/v1/saved/$ID \
+  -H 'authorization: Bearer $TOKEN' -H 'content-type: application/json' \
+  -d '{"title":"Weekly ingest digest","tags":["work","ops"]}'
+```
 
 History, share, feedback:
 - `GET|DELETE /v1/history`
