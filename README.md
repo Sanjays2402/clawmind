@@ -25,7 +25,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Digests: scheduled recurring queries (e.g. "what changed this week in projects/")
 - Stale source detection (files indexed but not seen on disk recently)
 - Related-document lookup and basic stats / doctor endpoints
-- API keys with per-key rate limiting, GitHub OAuth or single-user mode
+- API keys with per-key rate limiting, GitHub OAuth or single-user mode. Each key carries a per-key usage log (`GET /v1/keys/:id/usage`) with 24h and 7d request totals, success vs error split, top routes, and the last 10 calls so you can confirm a key is in use before rotating or revoking it. The `/keys` page exposes the same report inline behind a Usage toggle per row.
 - Outbound webhooks: register a URL, get signed POSTs on `ask.completed` and `ingest.completed`, with automatic retries and a delivery log
 - Batch ask: paste or upload a CSV of up to 100 questions, get a results table plus a one-click CSV download. Every row is saved to history and counts against the monthly quota.
 - Usage meter: per-user monthly request count, free-tier quota with 429 on overrun, and an in-app `/usage` page with reset countdown and upgrade CTA
@@ -488,6 +488,26 @@ curl -X POST -H "Authorization: Bearer $CLAWMIND_API_KEY" \
 ```
 
 The response shows the new plaintext secret exactly once, plus when the old secret stops working. The rotation is recorded in the audit log as `api_key.rotate`.
+
+### See per-key API usage
+
+Before rotating or revoking, confirm a key is actually in use. Every successful Bearer call appends a small event (route, method, status, timing) to a per-key log, summarised at `GET /v1/keys/:id/usage`. The `/keys` page exposes the same report inline behind a Usage button per row. Try it locally with the web app running at `http://127.0.0.1:7412`:
+
+```bash
+# Drive some traffic through a key, then read its usage report
+CLAWMIND_API_KEY=cm_... # key being audited
+curl -s -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  http://127.0.0.1:7410/v1/search?q=hello > /dev/null
+
+curl -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  http://127.0.0.1:7410/v1/keys/k_abc123/usage?recent=10\&routes=6
+# {"keyId":"k_abc123",
+#  "totals":{"total":42,"last24h":12,"last7d":40,"lastStatusOk":38,"lastStatusErr":2,...},
+#  "recent":[{"ts":...,"route":"/v1/search","method":"GET","status":200,"ms":7}, ...],
+#  "byRoute":[{"route":"/v1/ask","method":"POST","count":18,"lastAt":...}, ...]}
+```
+
+The call is gated by the `keys:admin` scope and returns 404 across users, so one customer cannot read another's key usage even if they guess the id. Revoking a key purges its usage log.
 
 ### Review the audit log
 

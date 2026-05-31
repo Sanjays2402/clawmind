@@ -1,8 +1,14 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE } from '../services/api-keys.js';
+import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys } from '../services/api-keys.js';
+import { getUsageReport, purgeUsage } from '../services/api-key-usage.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
+
+const UsageQuery = z.object({
+  recent: z.coerce.number().int().positive().max(200).optional(),
+  routes: z.coerce.number().int().positive().max(50).optional(),
+});
 
 const ScopeSchema = z.string()
   .refine(
@@ -66,10 +72,33 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
     handler: async (req, reply) => {
       const ok = await revokeKey(app.clawmind.dataDir, req.user!.id, req.params.id);
       if (!ok) return reply.code(404).send({ error: 'not found' });
+      // Best-effort cleanup of the per-key usage log. Revoked keys cannot
+      // generate new events and the log has no value once the credential
+      // is dead.
+      void purgeUsage(app.clawmind.dataDir, req.params.id).catch(() => undefined);
       await app.clawmind.audit.write({
         actor: req.user!.id, action: 'api_key.revoke', resource: req.params.id,
       });
       return { ok: true };
+    },
+  });
+
+  // Per-key usage report. Answers "is this key actually used, and what is
+  // it doing?" so a customer can rotate or revoke with confidence. Scoped
+  // to the key's owner; cross-user lookups return 404 even if the id
+  // happens to exist for someone else.
+  app.get<{ Params: { id: string }; Querystring: z.infer<typeof UsageQuery> }>('/keys/:id/usage', {
+    schema: { querystring: UsageQuery },
+    preHandler: [app.requireAuth, app.requireScope(Scopes.KeysManage)],
+    handler: async (req, reply) => {
+      const all = await loadKeys(app.clawmind.dataDir);
+      const owned = all.find((k) => k.id === req.params.id && k.userId === req.user!.id);
+      if (!owned) return reply.code(404).send({ error: 'not found' });
+      const report = await getUsageReport(app.clawmind.dataDir, req.params.id, {
+        recent: req.query.recent,
+        routes: req.query.routes,
+      });
+      return report;
     },
   });
 

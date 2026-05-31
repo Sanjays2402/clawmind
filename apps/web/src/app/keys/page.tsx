@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { TopNav } from '@/components/TopNav';
-import { api, fmtRelative, type ApiKey } from '@/lib/api';
+import { api, fmtRelative, type ApiKey, type KeyUsageReport } from '@/lib/api';
 import {
   EmptyState,
   ErrorState,
@@ -13,6 +13,7 @@ import {
   IconCopy,
   IconCheck,
   IconWarning,
+  IconChartBar,
 } from '@clawmind/ui';
 
 type TtlChoice = 'never' | '1d' | '7d' | '30d' | '90d' | '1y';
@@ -305,8 +306,31 @@ function KeyRow({
   const expired = k.expiresAt != null && k.expiresAt < Date.now();
   const status = k.revokedAt ? 'revoked' : expired ? 'expired' : 'active';
   const graceActive = k.previousHashExpiresAt != null && k.previousHashExpiresAt > Date.now();
+  const [showUsage, setShowUsage] = useState(false);
+  const [usage, setUsage] = useState<KeyUsageReport | null>(null);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState<string | null>(null);
+
+  const loadUsage = useCallback(async () => {
+    setUsageLoading(true);
+    setUsageError(null);
+    try {
+      setUsage(await api.keyUsage(k.id, { recent: 10, routes: 6 }));
+    } catch (err) {
+      setUsageError((err as Error).message);
+    } finally {
+      setUsageLoading(false);
+    }
+  }, [k.id]);
+
+  function toggleUsage() {
+    const next = !showUsage;
+    setShowUsage(next);
+    if (next && !usage && !usageLoading) void loadUsage();
+  }
   return (
-    <li className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+    <li className="flex flex-col gap-2 p-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <IconKey size={14} className="text-cm-muted" />
@@ -349,6 +373,14 @@ function KeyRow({
       {!k.revokedAt && (
         <div className="flex shrink-0 items-center gap-2">
           <button
+            onClick={toggleUsage}
+            aria-expanded={showUsage}
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
+          >
+            <IconChartBar size={14} />
+            {showUsage ? 'Hide usage' : 'Usage'}
+          </button>
+          <button
             onClick={() => onRotate(k.id)}
             disabled={rotating || revoking}
             className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg disabled:opacity-50"
@@ -366,6 +398,93 @@ function KeyRow({
           </button>
         </div>
       )}
+      </div>
+      {showUsage && (
+        <UsagePanel
+          loading={usageLoading}
+          error={usageError}
+          usage={usage}
+          onRetry={loadUsage}
+        />
+      )}
     </li>
+  );
+}
+
+function UsagePanel({
+  loading,
+  error,
+  usage,
+  onRetry,
+}: {
+  loading: boolean;
+  error: string | null;
+  usage: KeyUsageReport | null;
+  onRetry: () => void;
+}) {
+  if (loading && !usage) {
+    return (
+      <div className="mt-1 flex justify-center rounded-md border border-cm-border bg-cm-bg/50 py-6">
+        <Spinner />
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div className="mt-1 rounded-md border border-cm-border bg-cm-bg/50 p-3">
+        <ErrorState message={error} onRetry={onRetry} retryLabel="Retry" />
+      </div>
+    );
+  }
+  if (!usage) return null;
+  if (usage.totals.total === 0) {
+    return (
+      <div className="mt-1 rounded-md border border-cm-border bg-cm-bg/50 p-3 text-xs text-cm-muted">
+        No recorded requests yet. Make a call with this key and refresh.
+      </div>
+    );
+  }
+  const { totals, recent, byRoute } = usage;
+  return (
+    <div className="mt-1 grid grid-cols-1 gap-3 rounded-md border border-cm-border bg-cm-bg/50 p-3 sm:grid-cols-3">
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-cm-muted">Totals</div>
+        <dl className="mt-1.5 grid grid-cols-2 gap-y-1 text-xs">
+          <dt className="text-cm-muted">All time</dt><dd className="text-right tabular-nums">{totals.total}</dd>
+          <dt className="text-cm-muted">Last 24h</dt><dd className="text-right tabular-nums">{totals.last24h}</dd>
+          <dt className="text-cm-muted">Last 7d</dt><dd className="text-right tabular-nums">{totals.last7d}</dd>
+          <dt className="text-cm-muted">7d 2xx</dt><dd className="text-right tabular-nums text-cm-success">{totals.lastStatusOk}</dd>
+          <dt className="text-cm-muted">7d errors</dt><dd className="text-right tabular-nums text-cm-danger">{totals.lastStatusErr}</dd>
+          <dt className="text-cm-muted">First seen</dt><dd className="text-right text-[11px]">{totals.firstAt ? fmtRelative(totals.firstAt) : 'never'}</dd>
+        </dl>
+      </div>
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-cm-muted">Top routes</div>
+        <ul className="mt-1.5 space-y-1">
+          {byRoute.map((r) => (
+            <li key={`${r.method} ${r.route}`} className="flex items-center justify-between gap-2 text-xs">
+              <span className="truncate font-mono text-cm-muted">
+                <span className="text-cm-fg">{r.method}</span> {r.route}
+              </span>
+              <span className="tabular-nums text-cm-muted">{r.count}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div>
+        <div className="text-[10px] uppercase tracking-wide text-cm-muted">Recent calls</div>
+        <ul className="mt-1.5 space-y-1">
+          {recent.map((ev, i) => (
+            <li key={i} className="flex items-center justify-between gap-2 text-xs">
+              <span className="truncate font-mono text-cm-muted">
+                <span className={ev.status >= 400 ? 'text-cm-danger' : 'text-cm-success'}>{ev.status}</span>{' '}
+                {ev.method} {ev.route}
+              </span>
+              <span className="shrink-0 tabular-nums text-cm-muted">{fmtRelative(ev.ts)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }

@@ -1,6 +1,7 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { verifySecret, hasScope } from '../services/api-keys.js';
+import { recordUsage } from '../services/api-key-usage.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -17,6 +18,30 @@ declare module 'fastify' {
 
 const plugin: FastifyPluginAsync = async (app) => {
   const env = app.clawmind.env;
+
+  // Per-request timing for the api-key usage log. We stash the start on the
+  // request and record once the response is sent so the hot path stays a
+  // single Bearer verify; aggregation happens off the critical path.
+  const startTimes = new WeakMap<FastifyRequest, number>();
+
+  app.addHook('onRequest', async (req) => {
+    startTimes.set(req, Date.now());
+  });
+
+  app.addHook('onResponse', async (req, reply) => {
+    if (!req.user || req.user.via !== 'api-key' || !req.user.apiKeyId) return;
+    const started = startTimes.get(req) ?? Date.now();
+    const route = req.routeOptions?.url ?? (req as unknown as { routerPath?: string }).routerPath ?? req.url;
+    // Skip the usage endpoint itself so polling does not flood the log.
+    if (typeof route === 'string' && route.endsWith('/keys/:id/usage')) return;
+    void recordUsage(app.clawmind.dataDir, req.user.apiKeyId, {
+      ts: started,
+      route: typeof route === 'string' ? route : req.url,
+      method: req.method,
+      status: reply.statusCode,
+      ms: Math.max(0, Date.now() - started),
+    });
+  });
 
   app.addHook('preHandler', async (req) => {
     // 1) Bearer API key wins when present so automation can be scoped

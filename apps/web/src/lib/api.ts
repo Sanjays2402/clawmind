@@ -238,6 +238,29 @@ export interface ApiKey {
   previousHashExpiresAt?: number | null;
 }
 
+export interface KeyUsageEvent {
+  ts: number;
+  route: string;
+  method: string;
+  status: number;
+  ms: number;
+}
+
+export interface KeyUsageReport {
+  keyId: string;
+  totals: {
+    total: number;
+    last24h: number;
+    last7d: number;
+    lastStatusOk: number;
+    lastStatusErr: number;
+    firstAt: number | null;
+    lastAt: number | null;
+  };
+  recent: KeyUsageEvent[];
+  byRoute: { route: string; method: string; count: number; lastAt: number }[];
+}
+
 export type WebhookEvent = 'ask.completed' | 'ingest.completed';
 
 export interface Webhook {
@@ -440,6 +463,13 @@ export const api = {
       `/v1/keys/${id}/rotate`,
       { method: 'POST' },
     ),
+  keyUsage: (id: string, opts: { recent?: number; routes?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (opts.recent) q.set('recent', String(opts.recent));
+    if (opts.routes) q.set('routes', String(opts.routes));
+    const qs = q.toString();
+    return j<KeyUsageReport>(`/v1/keys/${id}/usage${qs ? `?${qs}` : ''}`);
+  },
 
   // Usage and quota
   usage: () => j<UsageSummary>('/v1/usage'),
