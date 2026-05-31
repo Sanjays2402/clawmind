@@ -11,6 +11,8 @@ import {
   loadAll,
   redact,
   redeliver,
+  rotateSecret,
+  DEFAULT_ROTATION_GRACE_MS,
   updateWebhook,
 } from '../services/webhooks.js';
 import { Scopes } from '../scopes.js';
@@ -141,6 +143,43 @@ export const webhookRoutes: FastifyPluginAsyncZod = async (app) => {
       return { delivery: result };
     },
   });
+
+  // Rotate the signing secret with a grace window. The current secret is
+  // demoted to `previousSecret` and continues to validate incoming POSTs
+  // (and rides along as `x-clawmind-signature-prev` on outbound payloads)
+  // until `previousSecretExpiresAt`. Lets a customer roll a key without
+  // dropping events. Owner + MFA + WebhooksManage scope, same gate as
+  // create/delete so the IT admin who set up the integration is the only
+  // one who can rotate it.
+  app.post<{ Params: { id: string }; Body?: { graceMs?: number } }>(
+    '/webhooks/:id/rotate-secret',
+    {
+      schema: {
+        body: z
+          .object({ graceMs: z.number().int().min(60_000).max(7 * 24 * 60 * 60_000).optional() })
+          .optional(),
+      },
+      preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.WebhooksManage)],
+      handler: async (req, reply) => {
+        const grace = req.body?.graceMs ?? DEFAULT_ROTATION_GRACE_MS;
+        const wh = await rotateSecret(app.clawmind.dataDir, req.user!.id, req.params.id, grace);
+        if (!wh) return reply.code(404).send({ error: 'not found' });
+        await app.clawmind.audit.write({
+          actor: req.user!.id,
+          action: 'webhook.rotate_secret',
+          resource: wh.id,
+          meta: { url: wh.url, graceMs: grace, previousSecretExpiresAt: wh.previousSecretExpiresAt },
+        });
+        // Return the freshly minted secret exactly once, alongside the
+        // grace expiry so the UI can render "old secret accepted until X".
+        return {
+          webhook: wh,
+          rotatedAt: Date.now(),
+          previousSecretExpiresAt: wh.previousSecretExpiresAt ?? null,
+        };
+      },
+    },
+  );
 
   app.get('/webhooks/deliveries', {
     schema: { querystring: ListDeliveriesQuery },

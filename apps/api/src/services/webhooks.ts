@@ -44,12 +44,25 @@ export interface WebhookRecord {
   url: string;
   events: WebhookEvent[];
   secret: string;          // shown to the user; used to sign payloads
+  // Zero-downtime secret rotation: when an owner rotates the secret we keep
+  // the prior one around for a grace window. During the grace, every
+  // delivery carries BOTH x-clawmind-signature (new) and
+  // x-clawmind-signature-prev (old), so a receiver mid-deploy can validate
+  // either. The old secret is dropped automatically once the window
+  // expires, so a stolen secret never stays valid forever.
+  previousSecret?: string;
+  previousSecretExpiresAt?: number;
   active: boolean;
   createdAt: number;
   lastDeliveryAt: number | null;
   lastStatus: number | null;   // last HTTP status code we observed
   failureCount: number;        // consecutive failures since last success
 }
+
+// Default overlap window when rotating a signing secret. Long enough that a
+// rolling deploy of the receiver finishes comfortably; short enough that a
+// leaked secret has a bounded blast radius.
+export const DEFAULT_ROTATION_GRACE_MS = 24 * 60 * 60_000;
 
 export interface DeliveryRecord {
   id: string;
@@ -99,7 +112,13 @@ export function sign(secret: string, body: string, ts: number = Date.now()): str
   return `t=${ts},v1=${mac}`;
 }
 
-export function verify(secret: string, body: string, header: string, toleranceMs = 5 * 60_000): boolean {
+export function verify(
+  secret: string,
+  body: string,
+  header: string,
+  toleranceMs = 5 * 60_000,
+  previousSecret?: string,
+): boolean {
   const parts = Object.fromEntries(
     header.split(',').map((kv) => {
       const i = kv.indexOf('=');
@@ -110,13 +129,41 @@ export function verify(secret: string, body: string, header: string, toleranceMs
   const v1 = String(parts.v1 || '');
   if (!Number.isFinite(t) || !v1) return false;
   if (Math.abs(Date.now() - t) > toleranceMs) return false;
-  const expected = createHmac('sha256', secret).update(`${t}.${body}`).digest('hex');
-  if (expected.length !== v1.length) return false;
-  try {
-    return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(v1, 'hex'));
-  } catch {
-    return false;
+  const candidates = [secret, ...(previousSecret ? [previousSecret] : [])];
+  for (const s of candidates) {
+    const expected = createHmac('sha256', s).update(`${t}.${body}`).digest('hex');
+    if (expected.length !== v1.length) continue;
+    try {
+      if (timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(v1, 'hex'))) return true;
+    } catch {
+      // try next candidate
+    }
   }
+  return false;
+}
+
+/**
+ * Generate a new signing secret for `id` and demote the current one to a
+ * grace window. Returns the updated record (including the freshly minted
+ * secret) so the caller can show it to the user exactly once. Subsequent
+ * reads via list/get use redact() and never expose either secret again.
+ */
+export async function rotateSecret(
+  dataDir: string,
+  userId: string,
+  id: string,
+  graceMs: number = DEFAULT_ROTATION_GRACE_MS,
+): Promise<WebhookRecord | null> {
+  const all = await loadAll(dataDir);
+  const idx = all.findIndex((w) => w.id === id && w.userId === userId);
+  if (idx === -1) return null;
+  const cur = all[idx]!;
+  const safeGrace = Math.max(60_000, Math.min(graceMs, 7 * 24 * 60 * 60_000));
+  cur.previousSecret = cur.secret;
+  cur.previousSecretExpiresAt = Date.now() + safeGrace;
+  cur.secret = 'whsec_' + randomBytes(24).toString('hex');
+  await saveAll(dataDir, all);
+  return cur;
 }
 
 export async function loadAll(dataDir: string): Promise<WebhookRecord[]> {
@@ -274,9 +321,17 @@ export async function deliverOnce(
   let lastErr: string | undefined;
   let ok = false;
   let attempt = 0;
+  // Drop an expired previous secret before we sign so we never accidentally
+  // emit a header with a stale credential. Persisted later via the emit()
+  // bookkeeping save.
+  if (webhook.previousSecret && webhook.previousSecretExpiresAt && webhook.previousSecretExpiresAt < Date.now()) {
+    webhook.previousSecret = undefined;
+    webhook.previousSecretExpiresAt = undefined;
+  }
   for (attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const ts = Date.now();
     const sig = sign(webhook.secret, body, ts);
+    const prevSig = webhook.previousSecret ? sign(webhook.previousSecret, body, ts) : null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DELIVERY_TIMEOUT_MS);
     const started = Date.now();
@@ -305,6 +360,7 @@ export async function deliverOnce(
           'x-clawmind-event': event,
           'x-clawmind-delivery': webhook.id,
           'x-clawmind-signature': sig,
+          ...(prevSig ? { 'x-clawmind-signature-prev': prevSig } : {}),
           ...(parentId ? { 'x-clawmind-redelivery-of': parentId } : {}),
         },
         body,
@@ -459,5 +515,7 @@ export async function emit(
 
 export function redact(w: WebhookRecord) {
   // Hide the secret on list reads; it is only returned once at create time.
-  return { ...w, secret: undefined };
+  // Also drop the previousSecret blob (still surface its expiry so the UI
+  // can render a "grace period ends in X" badge).
+  return { ...w, secret: undefined, previousSecret: undefined };
 }

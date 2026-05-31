@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import {
   createWebhook, listForUser, updateWebhook, deleteWebhook,
   emit, deliverOnce, listDeliveries, redeliver, sign, verify, WEBHOOK_EVENTS,
+  rotateSecret, loadAll,
 } from '../src/services/webhooks.js';
 
 let dir: string;
@@ -167,5 +168,87 @@ describe('webhooks service', () => {
     expect(denied).toEqual({ error: 'not_found' });
     const missing = await redeliver(dir, 'u1', 'dlv_nope', fakeFetch);
     expect(missing).toEqual({ error: 'not_found' });
+  });
+
+  it('rotateSecret keeps the old secret valid during the grace window and signs deliveries with both', async () => {
+    const wh = await createWebhook(dir, 'u1', 'https://example.com/h', ['ask.completed']);
+    const oldSecret = wh.secret;
+
+    const rotated = await rotateSecret(dir, 'u1', wh.id, 60 * 60_000);
+    expect(rotated).not.toBeNull();
+    expect(rotated!.secret).not.toEqual(oldSecret);
+    expect(rotated!.previousSecret).toEqual(oldSecret);
+    expect(rotated!.previousSecretExpiresAt).toBeGreaterThan(Date.now());
+
+    // Capture the outbound headers from one delivery.
+    let captured: Record<string, string> = {};
+    let capturedBody = '';
+    const fakeFetch = async (
+      _u: string,
+      init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
+    ) => {
+      captured = init.headers;
+      capturedBody = init.body;
+      return { status: 200 };
+    };
+    const fresh = (await loadAll(dir)).find((w) => w.id === wh.id)!;
+    const rec = await deliverOnce(dir, fresh, 'ask.completed', { ok: true }, fakeFetch);
+    expect(rec.ok).toBe(true);
+    expect(captured['x-clawmind-signature']).toBeTruthy();
+    expect(captured['x-clawmind-signature-prev']).toBeTruthy();
+
+    // Receiver in the middle of a rolling deploy: still validating with the
+    // old secret. The new sig must NOT validate against the old secret, but
+    // the prev sig must. That is the whole point of dual-signing.
+    const newSig = captured['x-clawmind-signature']!;
+    const prevSig = captured['x-clawmind-signature-prev']!;
+    expect(verify(oldSecret, capturedBody, prevSig, Number.MAX_SAFE_INTEGER)).toBe(true);
+    expect(verify(oldSecret, capturedBody, newSig, Number.MAX_SAFE_INTEGER)).toBe(false);
+    expect(verify(fresh.secret, capturedBody, newSig, Number.MAX_SAFE_INTEGER)).toBe(true);
+
+    // verify() also accepts a previousSecret arg so a receiver that wraps it
+    // can keep accepting either header during the cutover.
+    expect(verify(fresh.secret, capturedBody, prevSig, Number.MAX_SAFE_INTEGER, oldSecret)).toBe(true);
+  });
+
+  it('rotateSecret drops the previous secret once the grace window expires', async () => {
+    const wh = await createWebhook(dir, 'u1', 'https://example.com/h', ['ask.completed']);
+    const oldSecret = wh.secret;
+    // 1ms grace, then wait it out: previousSecret must be expired and so
+    // dropped before the next deliverOnce signs the request.
+    await rotateSecret(dir, 'u1', wh.id, 60_000);
+    // Manually shove the expiry into the past to simulate elapsed time
+    // without sleeping in tests.
+    const all = await loadAll(dir);
+    const target = all.find((w) => w.id === wh.id)!;
+    target.previousSecretExpiresAt = Date.now() - 1;
+    // re-save through the public update path is overkill; just write file
+    const fs = await import('node:fs/promises');
+    await fs.writeFile(`${dir}/webhooks.json`, JSON.stringify(all, null, 2));
+
+    let captured: Record<string, string> = {};
+    const fakeFetch = async (
+      _u: string,
+      init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal },
+    ) => { captured = init.headers; return { status: 200 }; };
+    const fresh = (await loadAll(dir)).find((w) => w.id === wh.id)!;
+    await deliverOnce(dir, fresh, 'ask.completed', { ok: true }, fakeFetch);
+    expect(captured['x-clawmind-signature']).toBeTruthy();
+    expect(captured['x-clawmind-signature-prev']).toBeUndefined();
+    // Confirm the expired previousSecret is no longer on the in-memory
+    // record either (so future signs cannot accidentally use it).
+    expect(fresh.previousSecret).toBeUndefined();
+    // The expired old secret is also useless against the new signature.
+    expect(verify(oldSecret, '{}', captured['x-clawmind-signature']!, Number.MAX_SAFE_INTEGER)).toBe(false);
+  });
+
+  it('rotateSecret refuses to act on a webhook the caller does not own', async () => {
+    const wh = await createWebhook(dir, 'u1', 'https://example.com/h', ['ask.completed']);
+    const result = await rotateSecret(dir, 'u2', wh.id);
+    expect(result).toBeNull();
+    // u1's secret must be untouched.
+    const stillMine = (await listForUser(dir, 'u1'))[0]!;
+    expect(stillMine.secret).toEqual(wh.secret);
+    expect(stillMine.previousSecret).toBeUndefined();
   });
 });

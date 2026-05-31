@@ -35,6 +35,11 @@ export default function WebhooksPage() {
   const [redeliverBusy, setRedeliverBusy] = useState<string | null>(null);
   const [redeliverError, setRedeliverError] = useState<string | null>(null);
   const [redeliverResult, setRedeliverResult] = useState<WebhookDelivery | null>(null);
+  // Holds the freshly minted secret + grace expiry after a successful
+  // rotation. The secret value is shown exactly once and then cleared on
+  // dismiss; subsequent list reads only carry the expiry.
+  const [rotated, setRotated] = useState<{ id: string; secret: string; expiresAt: number | null } | null>(null);
+  const [rotateCopied, setRotateCopied] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -109,6 +114,33 @@ export default function WebhooksPage() {
     } finally {
       setBusy(null);
     }
+  }
+
+  // Rotate the signing secret. We confirm first because rotation forces
+  // every consumer of this webhook to redeploy with the new secret before
+  // the grace window closes; doing it by accident would silently break the
+  // integration in 24 hours.
+  async function rotate(id: string) {
+    if (!confirm('Rotate the signing secret? The current secret will keep working for 24 hours so you can roll your receiver, then it stops being accepted.')) return;
+    setBusy(id);
+    setError(null);
+    setRotated(null);
+    try {
+      const res = await api.webhookRotateSecret(id);
+      setRotated({ id, secret: res.webhook.secret ?? '', expiresAt: res.previousSecretExpiresAt });
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function copyRotated() {
+    if (!rotated?.secret) return;
+    await navigator.clipboard.writeText(rotated.secret);
+    setRotateCopied(true);
+    setTimeout(() => setRotateCopied(false), 1500);
   }
 
   // Replay a past delivery. Fires the original event payload at the
@@ -280,6 +312,14 @@ export default function WebhooksPage() {
                       <span>last delivery {fmtRelative(wh.lastDeliveryAt)}</span>
                       {wh.lastStatus !== null && <span>status {wh.lastStatus}</span>}
                       {wh.failureCount > 0 && <span className="text-amber-500">{wh.failureCount} failing</span>}
+                      {wh.previousSecretExpiresAt && wh.previousSecretExpiresAt > Date.now() && (
+                        <span
+                          className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-amber-500"
+                          title={`Old secret accepted until ${new Date(wh.previousSecretExpiresAt).toLocaleString()}`}
+                        >
+                          rotating, old secret ok until {fmtRelative(wh.previousSecretExpiresAt)}
+                        </span>
+                      )}
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
@@ -290,6 +330,16 @@ export default function WebhooksPage() {
                       className="rounded-md border border-cm-border px-2.5 py-1 text-[12px] text-cm-muted hover:text-cm-fg disabled:opacity-50"
                     >
                       Send test
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => rotate(wh.id)}
+                      disabled={busy === wh.id}
+                      title="Generate a new signing secret. The old one keeps working for 24 hours."
+                      className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1 text-[12px] text-cm-muted hover:text-cm-fg disabled:opacity-50"
+                    >
+                      <IconRefresh size={12} />
+                      Rotate secret
                     </button>
                     <button
                       type="button"
@@ -314,6 +364,42 @@ export default function WebhooksPage() {
             </ul>
           )}
         </section>
+
+        {rotated && (
+          <section
+            role="dialog"
+            aria-label="New signing secret"
+            className="mt-6 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4"
+          >
+            <div className="mb-2 flex items-center gap-2 text-[12px] font-medium text-cm-fg">
+              <IconWarning size={14} />
+              New signing secret. Copy it now, it will not be shown again.
+            </div>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 truncate rounded bg-cm-bg px-2 py-1 font-mono text-[12px] text-cm-fg">{rotated.secret}</code>
+              <button
+                type="button"
+                onClick={copyRotated}
+                className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2 py-1 text-[12px] text-cm-muted hover:text-cm-fg"
+              >
+                {rotateCopied ? <IconCheck size={13} /> : <IconCopy size={13} />}
+                {rotateCopied ? 'Copied' : 'Copy'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRotated(null)}
+                className="rounded-md border border-cm-border px-2 py-1 text-[12px] text-cm-muted hover:text-cm-fg"
+              >
+                Dismiss
+              </button>
+            </div>
+            {rotated.expiresAt && (
+              <p className="mt-2 text-[12px] text-cm-muted">
+                Deliveries during the grace window carry both <code className="font-mono">x-clawmind-signature</code> (new) and <code className="font-mono">x-clawmind-signature-prev</code> (old). The old secret stops being accepted at {new Date(rotated.expiresAt).toLocaleString()}.
+              </p>
+            )}
+          </section>
+        )}
 
         {testResult && (
           <section className="mt-6 rounded-lg border border-cm-border bg-cm-panel p-4">

@@ -305,6 +305,8 @@ Wire your own service into ClawMind without polling. Register a receiver at <htt
 
 **SSRF guard.** Receiver URLs are validated at registration AND re-resolved on every delivery attempt. Loopback, RFC1918 (10/8, 172.16/12, 192.168/16), CGNAT (100.64/10), link-local (169.254/16, fe80::/10), unique-local IPv6 (fc00::/7), multicast, reserved ranges, and cloud metadata hosts (169.254.169.254, metadata.google.internal) are all rejected. Re-checking on every attempt defeats DNS rebinding: an attacker cannot register `attacker.example` and later flip the A record to an internal IP. Schemes are restricted to http/https, ports to `CLAWMIND_WEBHOOK_ALLOWED_PORTS` (default 80, 443, 8080, 8443), and userinfo in URLs is refused. Set `CLAWMIND_WEBHOOK_ALLOW_PRIVATE=true` for local development only. Every rejection is written to the audit log as `webhook.blocked` so a security reviewer can see denial attempts.
 
+**Zero-downtime secret rotation.** Hit **Rotate secret** on a webhook to mint a fresh signing key without losing a single event. The old secret stays valid for a 24-hour grace window (configurable per call up to 7 days via `graceMs`), and every delivery during the window carries BOTH `x-clawmind-signature` (new) and `x-clawmind-signature-prev` (old) so a receiver in the middle of a rolling deploy can validate either one. When the window closes the old secret is dropped automatically, so a leaked key has a bounded blast radius. The new value is shown exactly once in the UI and in the JSON response, never written back on subsequent list reads, and the rotation is recorded as `webhook.rotate_secret` in the hash-chained audit log. Owner-gated, MFA step-up required, scoped `webhooks:admin`.
+
 Headless flow:
 
 ```bash
@@ -321,6 +323,12 @@ curl -s http://127.0.0.1:7410/v1/webhooks/deliveries | jq '.items[0]'
 
 # Manually replay a past delivery (handy when your receiver was down).
 curl -s -X POST http://127.0.0.1:7410/v1/webhooks/deliveries/<dlv_id>/redeliver | jq '.delivery'
+
+# Rotate the signing secret with a 24-hour grace window. The returned
+# `webhook.secret` is shown exactly once; deliveries during the grace
+# carry both x-clawmind-signature (new) and x-clawmind-signature-prev (old).
+curl -s -X POST http://127.0.0.1:7410/v1/webhooks/<wh_id>/rotate-secret \
+  -H 'content-type: application/json' -d '{}' | jq
 
 # Check your monthly usage and remaining free-tier quota.
 curl -s http://127.0.0.1:7410/v1/usage | jq
