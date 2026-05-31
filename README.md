@@ -24,6 +24,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - API keys with per-key rate limiting, GitHub OAuth or single-user mode
 - Outbound webhooks: register a URL, get signed POSTs on `ask.completed` and `ingest.completed`, with automatic retries and a delivery log
 - Shareable read-only answer links
+- Installable PWA: web app manifest, offline shell, and in-app install prompt so the web UI lives on your home screen with quick shortcuts to Ask, Search, and Saved
 - File watcher for incremental reindex
 - Local MLX embeddings with automatic fallback to an OpenAI-compatible endpoint
 
@@ -116,6 +117,12 @@ Or browse <http://127.0.0.1:7412/history> to search every past question, expand 
 
 ```bash
 curl 'http://127.0.0.1:7410/v1/history?q=kernel&namespaces=memory&limit=20'
+```
+
+Or open <http://127.0.0.1:7412> on a phone or in a Chromium browser and use the in-app prompt to install ClawMind as a Progressive Web App. The manifest, icons, and a network-aware offline shell are served from the web app, so a built (`pnpm --filter @clawmind/web build`) deploy gets you home-screen launch, standalone window, and a graceful `/offline` page when the API is unreachable:
+
+```bash
+curl -s http://127.0.0.1:7412/manifest.webmanifest | jq '{name, start_url, display}'
 ```
 
 Or hit the streaming endpoint directly:

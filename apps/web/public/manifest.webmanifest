@@ -1,0 +1,22 @@
+{
+  "name": "ClawMind",
+  "short_name": "ClawMind",
+  "description": "A quiet, local place to ask questions of your own workspace.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#ffffff",
+  "theme_color": "#7c5cff",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "/icon-192.svg", "sizes": "192x192", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-512.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-maskable.svg", "sizes": "512x512", "type": "image/svg+xml", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Ask", "url": "/chat", "description": "Start a new question" },
+    { "name": "Search", "url": "/search", "description": "Search your workspace" },
+    { "name": "Saved", "url": "/saved", "description": "Open saved answers" }
+  ]
+}

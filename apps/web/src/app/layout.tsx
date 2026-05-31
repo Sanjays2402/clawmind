@@ -1,7 +1,8 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { Fraunces, Inter, JetBrains_Mono } from 'next/font/google';
 import '../styles/globals.css';
 import { CommandPalette } from '@/components/CommandPalette';
+import { PwaInstall } from '@/components/PwaInstall';
 
 const fraunces = Fraunces({
   subsets: ['latin'],
@@ -25,6 +26,28 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: 'ClawMind',
   description: 'A quiet, local place to ask questions of your own workspace.',
+  manifest: '/manifest.webmanifest',
+  applicationName: 'ClawMind',
+  appleWebApp: {
+    capable: true,
+    title: 'ClawMind',
+    statusBarStyle: 'default',
+  },
+  icons: {
+    icon: [
+      { url: '/favicon.svg', type: 'image/svg+xml' },
+      { url: '/icon-192.svg', sizes: '192x192', type: 'image/svg+xml' },
+      { url: '/icon-512.svg', sizes: '512x512', type: 'image/svg+xml' },
+    ],
+    apple: '/icon-192.svg',
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: '#7c5cff',
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -37,6 +60,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         {children}
         <CommandPalette />
+        <PwaInstall />
       </body>
     </html>
   );
