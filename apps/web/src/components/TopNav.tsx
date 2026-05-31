@@ -2,7 +2,7 @@
 import Link from 'next/link';
 import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
-import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp, IconWebhook, IconArchive, IconSettings } from '@clawmind/ui';
+import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp, IconWebhook, IconArchive, IconSettings, IconLink } from '@clawmind/ui';
 
 const primary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/chat', label: 'Ask', Icon: IconSpark },
@@ -26,6 +26,7 @@ const secondary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> =
   { href: '/ingest', label: 'Ingest', Icon: IconDatabase },
   { href: '/keys', label: 'Keys', Icon: IconKey },
   { href: '/webhooks', label: 'Webhooks', Icon: IconWebhook },
+  { href: '/shares', label: 'Shares', Icon: IconLink },
   { href: '/batch', label: 'Batch', Icon: IconArchive },
   { href: '/usage', label: 'Usage', Icon: IconChartBar },
   { href: '/welcome', label: 'Welcome', Icon: IconSpark },

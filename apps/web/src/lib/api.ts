@@ -119,6 +119,14 @@ export interface DigestSummary {
 
 export interface SavedSearch { id: string; title: string; query: string }
 
+export interface ShareSummary {
+  id: string;
+  createdAt: number;
+  query: string;
+  views: number;
+  url: string;
+}
+
 export interface PinEntry {
   path: string;
   note?: string;
@@ -286,7 +294,13 @@ export const api = {
   saveSearch: (input: { title: string; query: string }) =>
     j<{ item: SavedSearch }>('/v1/saved', { method: 'POST', body: JSON.stringify(input) }).then((r) => r.item),
   removeSaved: (id: string) => j<void>(`/v1/saved/${id}`, { method: 'DELETE' }),
-  share: (id: string) => j<{ id: string; query: string; answer: string; sources?: Source[]; createdAt?: number }>(`/v1/share/${id}`),
+  share: (id: string) => j<{ id: string; query: string; answer: string; sources?: Source[]; createdAt?: number; views?: number }>(`/v1/share/${id}`),
+  createShare: (input: { query: string; answer: string; sources: Source[] }) =>
+    j<{ id: string; url: string }>('/v1/share', { method: 'POST', body: JSON.stringify(input) }),
+  listShares: () =>
+    j<{ items: ShareSummary[] }>('/v1/shares').then((r) => r.items),
+  deleteShare: (id: string) =>
+    j<{ id: string; deleted: boolean }>(`/v1/share/${id}`, { method: 'DELETE' }),
 
   // Stats
   stats: () => j<StatsReport>('/v1/stats'),

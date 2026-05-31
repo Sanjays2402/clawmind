@@ -58,6 +58,7 @@ export const Scopes = {
   DoctorRead: 'doctor:read',
 
   FeedbackWrite: 'feedback:write',
+  ShareRead: 'share:read',
   ShareWrite: 'share:write',
 
   LifecycleManage: 'lifecycle:admin',
