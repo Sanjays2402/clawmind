@@ -75,6 +75,9 @@ export const Scopes = {
 
   NotificationsRead: 'notifications:read',
   NotificationsWrite: 'notifications:write',
+
+  ProfileRead: 'profile:read',
+  ProfileWrite: 'profile:write',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

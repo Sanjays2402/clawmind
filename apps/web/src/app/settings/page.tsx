@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
-import { api, API_BASE, type UsageSummary, ApiError } from '@/lib/api';
+import { api, API_BASE, type UsageSummary, type ProfileRecord, ApiError } from '@/lib/api';
 import {
   ThemeToggle,
   EmptyState,
@@ -17,6 +17,8 @@ import {
   IconArrowRight,
   IconWarning,
   IconRefresh,
+  IconCheck,
+  IconPencil,
 } from '@clawmind/ui';
 
 interface HealthSummary {
@@ -37,6 +39,7 @@ function fmtResetDate(resetsAt: number): string {
 export default function SettingsPage() {
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [health, setHealth] = useState<HealthSummary | null>(null);
+  const [profile, setProfile] = useState<ProfileRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,12 +47,14 @@ export default function SettingsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [u, h] = await Promise.all([
+      const [u, h, p] = await Promise.all([
         api.usage(),
         api.health() as Promise<HealthSummary>,
+        api.profileGet().catch(() => null),
       ]);
       setUsage(u);
       setHealth(h);
+      setProfile(p);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'failed to load');
     } finally {
@@ -89,7 +94,12 @@ export default function SettingsPage() {
           <ErrorState title="Could not load settings" message={error} onRetry={load} />
         ) : (
           <div className="grid gap-6">
-            <ProfileCard userId={usage?.userId ?? 'local'} plan={usage?.plan ?? 'free'} />
+            <ProfileCard
+              userId={usage?.userId ?? 'local'}
+              plan={usage?.plan ?? 'free'}
+              profile={profile}
+              onSaved={(next) => setProfile(next)}
+            />
             <UsageCard usage={usage} />
             <AppearanceCard />
             <SystemCard health={health} />
@@ -124,19 +134,189 @@ function Section({
   );
 }
 
-function ProfileCard({ userId, plan }: { userId: string; plan: string }) {
+function ProfileCard({
+  userId,
+  plan,
+  profile,
+  onSaved,
+}: {
+  userId: string;
+  plan: string;
+  profile: ProfileRecord | null;
+  onSaved: (p: ProfileRecord) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [displayName, setDisplayName] = useState('');
+  const [timezone, setTimezone] = useState('');
+  const [defaultModel, setDefaultModel] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  const begin = () => {
+    setDisplayName(profile?.displayName ?? userId);
+    setTimezone(profile?.timezone ?? 'UTC');
+    setDefaultModel(profile?.defaultModel ?? '');
+    setErr(null);
+    setEditing(true);
+  };
+
+  const useLocalTz = () => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz) setTimezone(tz);
+    } catch {
+      // ignore
+    }
+  };
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setErr(null);
+    try {
+      const next = await api.profilePatch({
+        displayName,
+        timezone,
+        defaultModel: defaultModel.trim() === '' ? null : defaultModel,
+      });
+      onSaved(next);
+      setSavedAt(Date.now());
+      setEditing(false);
+    } catch (e2) {
+      const msg =
+        e2 instanceof ApiError
+          ? `${e2.status}: ${e2.message}`
+          : e2 instanceof Error
+          ? e2.message
+          : 'save failed';
+      setErr(msg);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <Section title="Profile" description="The account every saved item, conversation, and API key is attached to.">
-      <dl className="grid gap-2 text-sm">
-        <Row label="User ID">
-          <code className="cm-mono text-[12px] text-[var(--fg)]">{userId}</code>
-        </Row>
-        <Row label="Plan">
-          <span className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-0.5 text-[12px] capitalize text-[var(--fg)]">
-            {plan}
-          </span>
-        </Row>
-      </dl>
+    <Section
+      title="Profile"
+      description="The account every saved item, conversation, and API key is attached to."
+    >
+      {!editing ? (
+        <>
+          <dl className="grid gap-2 text-sm">
+            <Row label="User ID">
+              <code className="cm-mono text-[12px] text-[var(--fg)]">{userId}</code>
+            </Row>
+            <Row label="Display name">
+              <span className="text-[var(--fg)]">{profile?.displayName ?? userId}</span>
+            </Row>
+            <Row label="Timezone">
+              <span className="text-[var(--fg)]">{profile?.timezone ?? 'UTC'}</span>
+            </Row>
+            <Row label="Default model">
+              <span className="text-[var(--fg)]">
+                {profile?.defaultModel ?? (
+                  <span className="text-[var(--fg-muted)]">server default</span>
+                )}
+              </span>
+            </Row>
+            <Row label="Plan">
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-0.5 text-[12px] capitalize text-[var(--fg)]">
+                {plan}
+              </span>
+            </Row>
+          </dl>
+          <div className="mt-4 flex items-center justify-between gap-3">
+            {savedAt ? (
+              <span className="inline-flex items-center gap-1.5 text-xs text-[var(--fg-muted)]">
+                <IconCheck size={12} /> Saved
+              </span>
+            ) : (
+              <span />
+            )}
+            <button
+              type="button"
+              onClick={begin}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg)] hover:bg-[var(--bg)]"
+            >
+              <IconPencil size={14} /> Edit profile
+            </button>
+          </div>
+        </>
+      ) : (
+        <form onSubmit={submit} className="grid gap-3 text-sm">
+          <label className="grid gap-1">
+            <span className="text-xs text-[var(--fg-muted)]">Display name</span>
+            <input
+              type="text"
+              required
+              maxLength={80}
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--fg)] outline-none focus:border-[var(--fg-muted)]"
+              autoFocus
+            />
+          </label>
+          <label className="grid gap-1">
+            <span className="text-xs text-[var(--fg-muted)]">
+              Timezone (IANA, e.g. America/Los_Angeles)
+            </span>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                required
+                maxLength={64}
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value)}
+                className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--fg)] outline-none focus:border-[var(--fg-muted)]"
+              />
+              <button
+                type="button"
+                onClick={useLocalTz}
+                className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--fg-muted)] hover:bg-[var(--bg)]"
+              >
+                Use local
+              </button>
+            </div>
+          </label>
+          <label className="grid gap-1">
+            <span className="text-xs text-[var(--fg-muted)]">
+              Default model (leave empty for server default)
+            </span>
+            <input
+              type="text"
+              maxLength={80}
+              value={defaultModel}
+              onChange={(e) => setDefaultModel(e.target.value)}
+              placeholder="gpt-4o-mini"
+              className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--fg)] outline-none focus:border-[var(--fg-muted)]"
+            />
+          </label>
+          {err ? (
+            <div className="flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-2 text-xs text-[var(--fg)]">
+              <IconWarning size={14} /> <span>{err}</span>
+            </div>
+          ) : null}
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              disabled={saving}
+              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg-muted)] hover:bg-[var(--bg)] disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--fg)] px-3 py-1.5 text-sm text-[var(--bg)] disabled:opacity-50"
+            >
+              {saving ? <Spinner /> : <IconCheck size={14} />}
+              {saving ? 'Saving' : 'Save profile'}
+            </button>
+          </div>
+        </form>
+      )}
     </Section>
   );
 }

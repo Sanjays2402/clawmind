@@ -192,6 +192,21 @@ export interface OnboardingRecord {
   updatedAt: number;
 }
 
+export interface ProfileRecord {
+  userId: string;
+  displayName: string;
+  timezone: string;
+  defaultModel: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ProfilePatch {
+  displayName?: string;
+  timezone?: string;
+  defaultModel?: string | null;
+}
+
 export interface OnboardingProgress {
   completed: OnboardingStep[];
   next: OnboardingStep | null;
@@ -371,6 +386,9 @@ export const api = {
 
   // Usage and quota
   usage: () => j<UsageSummary>('/v1/usage'),
+  profileGet: () => j<{ profile: ProfileRecord }>('/v1/me').then((r) => r.profile),
+  profilePatch: (patch: ProfilePatch) =>
+    j<{ profile: ProfileRecord }>('/v1/me', { method: 'PATCH', body: JSON.stringify(patch) }).then((r) => r.profile),
 
   // Onboarding (per-user first-run state). The /welcome page reads the
   // current record on mount and writes step completions as the user
