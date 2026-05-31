@@ -262,7 +262,15 @@ export const api = {
     j<{ ok: boolean; embed: boolean; llm: boolean; docs: number; chunks: number }>('/health'),
 
   // Search and ask
-  search: (body: { q: string; k?: number; namespaces?: string[]; highlight?: boolean; snippetWidth?: number }) =>
+  search: (body: {
+    q: string;
+    k?: number;
+    namespaces?: string[];
+    includeTags?: string[];
+    excludeTags?: string[];
+    highlight?: boolean;
+    snippetWidth?: number;
+  }) =>
     j<{ hits: Source[] }>('/v1/search', { method: 'POST', body: JSON.stringify(body) }),
   ask: (body: { q: string; k?: number; namespaces?: string[] }) =>
     j<{ id: string; text: string; sources: Source[] }>('/v1/ask', { method: 'POST', body: JSON.stringify(body) }),

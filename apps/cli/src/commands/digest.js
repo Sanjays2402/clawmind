@@ -1,0 +1,72 @@
+import { Command } from 'commander';
+import kleur from 'kleur';
+import { loadEnv } from '@clawmind/config';
+async function apiFetch(method, path, body) {
+    const env = loadEnv();
+    const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
+    const res = await fetch(`${base}${path}`, {
+        method,
+        headers: body ? { 'content-type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined,
+    });
+    if (!res.ok)
+        throw new Error(`${method} ${path} -> ${res.status}: ${await res.text()}`);
+    return res.json();
+}
+function fmtTime(ts) {
+    if (!ts)
+        return kleur.gray('never');
+    return new Date(ts).toISOString().replace('T', ' ').slice(0, 19);
+}
+export function digestCommand() {
+    const cmd = new Command('digest').description('Re-run saved searches and show what changed');
+    cmd.command('list')
+        .description('List saved searches with last digest run summary')
+        .action(async () => {
+        const out = (await apiFetch('GET', '/v1/digests'));
+        if (out.items.length === 0) {
+            process.stdout.write(kleur.gray('no saved searches\n'));
+            return;
+        }
+        for (const it of out.items) {
+            process.stdout.write(`${kleur.bold(it.title)}  ${kleur.gray(it.savedSearchId)}\n` +
+                `  ${kleur.gray('query:')} ${it.query}\n` +
+                `  ${kleur.gray('last:')}  ${fmtTime(it.lastRunTs)}  ` +
+                `${kleur.green(`+${it.lastNewCount}`)} ${kleur.red(`-${it.lastRemovedCount}`)}  ` +
+                `${kleur.gray(`(${it.runs} runs)`)}\n`);
+        }
+    });
+    cmd.command('run [id]')
+        .description('Run one saved search by id, or all if no id given')
+        .action(async (id) => {
+        if (id) {
+            const out = (await apiFetch('POST', `/v1/digests/${id}/run`));
+            process.stdout.write(kleur.green(`new (${out.entry.newSources.length}):\n`));
+            for (const s of out.entry.newSources)
+                process.stdout.write(`  + ${s.path}\n`);
+            process.stdout.write(kleur.red(`removed (${out.entry.removedSources.length}):\n`));
+            for (const r of out.entry.removedSources)
+                process.stdout.write(`  - ${r}\n`);
+        }
+        else {
+            const out = (await apiFetch('POST', '/v1/digests/run'));
+            process.stdout.write(kleur.gray(`ran ${out.ran} saved searches\n`));
+            for (const r of out.results) {
+                process.stdout.write(`  ${r.savedSearchId}  ${kleur.green(`+${r.newCount}`)} ${kleur.red(`-${r.removedCount}`)}\n`);
+            }
+        }
+    });
+    cmd.command('show <id>')
+        .description('Show full run history for one saved search')
+        .action(async (id) => {
+        const out = (await apiFetch('GET', `/v1/digests/${id}`));
+        process.stdout.write(kleur.gray(`query: ${out.state.query}\n`));
+        for (const h of out.state.history) {
+            process.stdout.write(`${fmtTime(h.ts)}  ` +
+                `${kleur.green(`+${h.newSources.length}`)} ${kleur.red(`-${h.removedSources.length}`)}  ` +
+                `(${h.totalSources} total)\n`);
+        }
+    });
+    return cmd;
+}
+//# sourceMappingURL=digest.js.map

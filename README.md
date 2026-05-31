@@ -16,6 +16,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Saved searches with snapshot history so you can diff results over time
 - Pins, mutes, and aliases to bias or exclude paths from retrieval
 - Tags on files, browsable as facets
+- Search workspace: `/search` runs hybrid retrieval with namespace chips, include and exclude tag filters (auto-completing against your tag library), client-side sort and pagination, recent searches persisted in `localStorage`, and full filter state in the URL so a shared link restores the exact view
 - Conversations: multi-turn threads with archive, fork, rename, Markdown export, and full-text search across titles and message content with highlighted snippets, paginated results, and a `/`-to-focus search box
 - History export: download every past ask as `.json`, `.csv`, or `.md`, with the same search and namespace filters the History page is showing
 - Feedback (thumbs / notes) on answers, used to mark good or bad chunks
