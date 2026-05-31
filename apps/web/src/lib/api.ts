@@ -254,6 +254,16 @@ export interface IpAllowlistInput {
   rules: Array<{ cidr: string; label?: string }>;
 }
 
+export interface ActiveSession {
+  id: string;
+  userAgent: string;
+  ip: string;
+  createdAt: number;
+  lastSeenAt: number;
+  revokedAt?: number;
+  current: boolean;
+}
+
 export interface OnboardingProgress {
   completed: OnboardingStep[];
   next: OnboardingStep | null;
@@ -558,6 +568,19 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(input),
     }).then((r) => r.record),
+
+  // Active sessions for the current user. The UI surfaces "where am I
+  // signed in" plus per-session and revoke-all buttons; revocation is
+  // enforced by the API auth preHandler on the next request from that sid.
+  sessionsList: () =>
+    j<{ sessions: ActiveSession[] }>('/v1/sessions').then((r) => r.sessions),
+  sessionsRevoke: (id: string) =>
+    j<{ revoked: number }>(`/v1/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  sessionsRevokeAll: (keepCurrent: boolean) =>
+    j<{ revoked: number }>('/v1/sessions/revoke-all', {
+      method: 'POST',
+      body: JSON.stringify({ keepCurrent }),
+    }),
 
   // Onboarding (per-user first-run state). The /welcome page reads the
   // current record on mount and writes step completions as the user

@@ -87,6 +87,9 @@ export const Scopes = {
 
   IpAllowlistRead: 'ip-allowlist:read',
   IpAllowlistWrite: 'ip-allowlist:write',
+
+  SessionsRead: 'sessions:read',
+  SessionsManage: 'sessions:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

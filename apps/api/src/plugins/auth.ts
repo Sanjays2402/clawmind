@@ -2,6 +2,7 @@ import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { verifySecret, hasScope } from '../services/api-keys.js';
 import { recordUsage } from '../services/api-key-usage.js';
+import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid } from '../services/sessions.js';
 
 declare module 'fastify' {
   interface FastifyRequest {
@@ -43,7 +44,7 @@ const plugin: FastifyPluginAsync = async (app) => {
     });
   });
 
-  app.addHook('preHandler', async (req) => {
+  app.addHook('preHandler', async (req, reply) => {
     // 1) Bearer API key wins when present so automation can be scoped
     //    independently of the human session cookie.
     const auth = req.headers.authorization;
@@ -67,6 +68,23 @@ const plugin: FastifyPluginAsync = async (app) => {
       return;
     }
     if (req.session.userId) {
+      // Reject session cookies whose sid has been revoked by the user from
+      // the active-sessions UI. Without this check, a stolen laptop would
+      // still be authenticated until the cookie naturally expired.
+      const sid = (req.session as unknown as { sessionId?: string }).sessionId;
+      if (sid) {
+        try {
+          if (await sessionIsRevoked(app.clawmind.dataDir, sid)) {
+            await req.session.destroy();
+            return reply.code(401).send({ error: 'session revoked' });
+          }
+          // Best-effort last-seen update; never block the request on it.
+          void touchSession(app.clawmind.dataDir, sid).catch(() => undefined);
+        } catch {
+          // Registry read failure must not lock the user out; fail open here
+          // and let the audit / health channels surface the disk problem.
+        }
+      }
       req.user = {
         id: req.session.userId,
         github: req.session.github ?? null,
@@ -138,10 +156,23 @@ const plugin: FastifyPluginAsync = async (app) => {
     req.session.userId = `gh:${ghUser.id}`;
     req.session.github = ghUser.login;
     await app.clawmind.audit.write({ actor: req.session.userId, action: 'login', resource: 'github' });
+    const sid = (req.session as unknown as { sessionId?: string }).sessionId;
+    if (sid) {
+      await recordLogin(app.clawmind.dataDir, {
+        sid,
+        userId: req.session.userId,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+      });
+    }
     reply.redirect('/');
   });
 
   app.post('/auth/logout', async (req, reply) => {
+    const sid = (req.session as unknown as { sessionId?: string }).sessionId;
+    if (sid) {
+      await removeBySid(app.clawmind.dataDir, sid).catch(() => undefined);
+    }
     await req.session.destroy();
     reply.send({ ok: true });
   });

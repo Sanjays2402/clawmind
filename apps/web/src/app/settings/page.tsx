@@ -415,6 +415,7 @@ function ShortcutsCard() {
     { href: '/keys', label: 'API keys', description: 'Issue, scope, and rotate keys.', Icon: IconKey },
     { href: '/webhooks', label: 'Webhooks', description: 'Outbound events on ask and ingest.', Icon: IconWebhook },
     { href: '/settings/security', label: 'IP allowlist', description: 'Restrict your account to trusted networks.', Icon: IconShield },
+    { href: '/settings/sessions', label: 'Active sessions', description: 'See where you are signed in and force-logout any browser.', Icon: IconKey },
     { href: '/settings/notifications', label: 'Notification preferences', description: 'Pick which inbox alerts you want to receive.', Icon: IconSettings },
     { href: '/usage', label: 'Usage details', description: 'Per-kind breakdown and reset timer.', Icon: IconChartBar },
   ];
