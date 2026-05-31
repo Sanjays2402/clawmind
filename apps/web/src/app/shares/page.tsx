@@ -138,6 +138,18 @@ export default function SharesPage() {
                           <span>{fmtRelative(item.createdAt)}</span>
                           <span aria-hidden>·</span>
                           <span>{item.views} view{item.views === 1 ? '' : 's'}</span>
+                          <span aria-hidden>·</span>
+                          {item.expired ? (
+                            <span className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-400">
+                              Expired
+                            </span>
+                          ) : item.expiresAt ? (
+                            <span title={new Date(item.expiresAt).toLocaleString()}>
+                              expires {fmtRelative(item.expiresAt)}
+                            </span>
+                          ) : (
+                            <span>no expiry</span>
+                          )}
                         </div>
                       </div>
                       <div className="flex shrink-0 items-center gap-1.5">

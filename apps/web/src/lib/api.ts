@@ -148,6 +148,8 @@ export interface ShareSummary {
   query: string;
   views: number;
   url: string;
+  expiresAt: number | null;
+  expired: boolean;
 }
 
 export interface PinEntry {
@@ -618,8 +620,8 @@ export const api = {
       body: JSON.stringify({ savedIds }),
     }).then((r) => r.savedIds),
   share: (id: string) => j<{ id: string; query: string; answer: string; sources?: Source[]; createdAt?: number; views?: number }>(`/v1/share/${id}`),
-  createShare: (input: { query: string; answer: string; sources: Source[] }) =>
-    j<{ id: string; url: string }>('/v1/share', { method: 'POST', body: JSON.stringify(input) }),
+  createShare: (input: { query: string; answer: string; sources: Source[]; ttlDays?: number | null }) =>
+    j<{ id: string; url: string; expiresAt: number | null }>('/v1/share', { method: 'POST', body: JSON.stringify(input) }),
   listShares: () =>
     j<{ items: ShareSummary[] }>('/v1/shares').then((r) => r.items),
   deleteShare: (id: string) =>

@@ -13,8 +13,31 @@ interface Props {
 type State =
   | { kind: 'idle' }
   | { kind: 'creating' }
-  | { kind: 'ready'; id: string; url: string; copied: boolean }
+  | { kind: 'ready'; id: string; url: string; copied: boolean; expiresAt: number | null }
   | { kind: 'error'; message: string };
+
+// Bounded set of TTLs we surface in the UI. Server hard-caps at 365d, so
+// these all fall well inside the allowed range. "Never" is intentionally
+// absent: enterprise admins do not want a one-click immortal link.
+const TTL_CHOICES: { label: string; days: number }[] = [
+  { label: '1 day', days: 1 },
+  { label: '7 days', days: 7 },
+  { label: '30 days', days: 30 },
+  { label: '90 days', days: 90 },
+];
+const DEFAULT_TTL_DAYS = 30;
+
+function formatExpiry(ts: number | null): string {
+  if (!ts) return 'No expiry';
+  try {
+    return `Expires ${new Date(ts).toLocaleString(undefined, {
+      month: 'short', day: 'numeric', year: 'numeric',
+      hour: 'numeric', minute: '2-digit',
+    })}`;
+  } catch {
+    return 'Expires soon';
+  }
+}
 
 /**
  * Share button that turns a finished answer into a public /s/<id> link.
@@ -25,26 +48,31 @@ type State =
  */
 export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
   const [state, setState] = useState<State>({ kind: 'idle' });
+  const [ttlDays, setTtlDays] = useState<number>(DEFAULT_TTL_DAYS);
   const dialogRef = useRef<HTMLDivElement | null>(null);
-  const open = state.kind === 'creating' || state.kind === 'ready' || state.kind === 'error';
+  // The dialog opens in an 'idle' state so the user can pick a TTL before
+  // the API call. Create transitions the state through creating -> ready.
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const showDialog = dialogOpen || state.kind === 'creating' || state.kind === 'ready' || state.kind === 'error';
 
   const cancellable = state.kind !== 'creating';
 
   const close = useCallback(() => {
     if (!cancellable) return;
     setState({ kind: 'idle' });
+    setDialogOpen(false);
   }, [cancellable]);
 
   // Close on Escape, focus the dialog when it opens.
   useEffect(() => {
-    if (!open) return;
+    if (!showDialog) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') close();
     }
     window.addEventListener('keydown', onKey);
     dialogRef.current?.focus();
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, close]);
+  }, [showDialog, close]);
 
   async function startShare() {
     if (disabled || !answer || !query) return;
@@ -63,6 +91,7 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
           excerpt: s.excerpt,
           score: s.score,
         })) as Source[],
+        ttlDays,
       });
       const url =
         typeof window === 'undefined'
@@ -77,7 +106,7 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
       } catch {
         /* clipboard may be blocked; user can still copy manually */
       }
-      setState({ kind: 'ready', id: res.id, url, copied });
+      setState({ kind: 'ready', id: res.id, url, copied, expiresAt: res.expiresAt });
     } catch (err) {
       setState({
         kind: 'error',
@@ -105,7 +134,7 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
     <>
       <button
         type="button"
-        onClick={startShare}
+        onClick={() => { if (!disabled && answer) { setState({ kind: 'idle' }); setDialogOpen(true); } }}
         disabled={disabled || !answer}
         aria-label="Share this answer as a public link"
         className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1.5 text-xs text-cm-fg-soft hover:bg-cm-accent-soft hover:text-cm-fg disabled:cursor-not-allowed disabled:opacity-50"
@@ -114,7 +143,7 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
         Share
       </button>
 
-      {open && (
+      {showDialog && (
         <div
           role="dialog"
           aria-modal="true"
@@ -139,12 +168,56 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
               sources. You can revoke it any time from the Shares page.
             </p>
 
+            {state.kind === 'idle' || state.kind === 'creating' ? (
+              <div className="mt-4">
+                <label
+                  htmlFor="share-ttl"
+                  className="block text-[11px] uppercase tracking-wider text-cm-faint"
+                >
+                  Link expires after
+                </label>
+                <select
+                  id="share-ttl"
+                  value={ttlDays}
+                  onChange={(e) => setTtlDays(Number(e.target.value))}
+                  disabled={state.kind === 'creating'}
+                  className="mt-1 w-full rounded-md border border-cm-border bg-cm-bg-soft px-2.5 py-1.5 text-sm disabled:opacity-60"
+                >
+                  {TTL_CHOICES.map((c) => (
+                    <option key={c.days} value={c.days}>{c.label}</option>
+                  ))}
+                </select>
+                <p className="mt-1 text-[11px] text-cm-faint">
+                  After this window the link returns 410 Gone so leaked URLs stop resolving.
+                </p>
+              </div>
+            ) : null}
+
             {state.kind === 'creating' && (
               <div
                 className="mt-5 flex items-center gap-2 text-sm text-cm-muted"
                 role="status"
               >
                 <Spinner /> Creating share link
+              </div>
+            )}
+
+            {state.kind === 'idle' && (
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={close}
+                  className="rounded-md border border-cm-border px-2.5 py-1.5 text-xs hover:bg-cm-accent-soft"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={startShare}
+                  className="rounded-md border border-cm-border bg-cm-accent px-2.5 py-1.5 text-xs text-white hover:opacity-90"
+                >
+                  Create link
+                </button>
               </div>
             )}
 
@@ -177,7 +250,8 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
                 <label className="block text-[11px] uppercase tracking-wider text-cm-faint">
                   Public link
                 </label>
-                <div className="mt-1 flex items-stretch gap-2">
+                <p className="mt-1 text-[11px] text-cm-muted">{formatExpiry(state.expiresAt)}</p>
+                <div className="mt-2 flex items-stretch gap-2">
                   <input
                     readOnly
                     value={state.url}

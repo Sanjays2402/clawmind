@@ -30,7 +30,7 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Outbound webhooks: register a URL, get signed POSTs on `ask.completed` and `ingest.completed`, with automatic retries and a delivery log
 - Batch ask: paste or upload a CSV of up to 100 questions, get a results table plus a one-click CSV download. Every row is saved to history and counts against the monthly quota.
 - Usage meter: per-user monthly request count, free-tier quota with 429 on overrun, and an in-app `/usage` page with reset countdown and upgrade CTA
-- Shareable read-only answer links, created in one click from the Share button under any finished chat answer, with per-share OpenGraph cards (dynamic 1200x630 image, Twitter `summary_large_image`, title and snippet) so a pasted `/s/<id>` URL renders as a rich preview in Slack, iMessage, and X. The public `/s/<id>` page also renders the cited sources (path, line range, excerpt), the share timestamp, a copy-link button, and a Try ClawMind CTA so first-time viewers can convert into users. The `/shares` page lists every link you created, with view counts, copy-link, and one-click revoke so a leaked URL is easy to kill
+- Shareable read-only answer links, created in one click from the Share button under any finished chat answer, with per-share OpenGraph cards (dynamic 1200x630 image, Twitter `summary_large_image`, title and snippet) so a pasted `/s/<id>` URL renders as a rich preview in Slack, iMessage, and X. Every link carries an expiry (default 30 days, max 365, chosen at create time) so a leaked URL stops resolving on its own with `410 Gone`; expiry, creation, and revoke are all written to the audit log. The public `/s/<id>` page also renders the cited sources (path, line range, excerpt), the share timestamp, a copy-link button, and a Try ClawMind CTA so first-time viewers can convert into users. The `/shares` page lists every link you created, with view counts, expiry countdown, an Expired badge once the TTL has elapsed, copy-link, and one-click revoke so a leaked URL is easy to kill
 - Installable PWA: web app manifest, offline shell, and in-app install prompt so the web UI lives on your home screen with quick shortcuts to Ask, Search, and Saved
 - Sandbox preview on every destructive endpoint: append `?dry_run=true` to a DELETE and the server returns the exact counts the real call would report without touching storage. Wired across the GDPR account hard-delete, bulk history prune, bulk and single notification deletes, share revoke, webhook delete, API key revoke, and session revoke, on top of the existing members / invitations / domain-policies / retention / maintenance previews. The audit log records previews under `<action>.dry_run` so an auditor can always tell a rehearsal apart from a real mutation, and the GDPR card on `/settings` exposes a one-click Preview deletion button that itemises history items, conversations, saved items, feedback votes, and keys before you type DELETE.
 - Account settings: `/settings` shows your user id and plan, a live usage meter, system health, shortcuts to keys and webhooks, a one-click JSON export of every per-user record, and a type-to-confirm GDPR delete that audit-logs the wipe
@@ -563,6 +563,23 @@ open http://127.0.0.1:7412/shares
 # Or via the API with a session cookie or Bearer key
 curl -fsSL -H 'Authorization: Bearer cm_live_...' http://127.0.0.1:7410/v1/shares
 curl -fsSL -X DELETE -H 'Authorization: Bearer cm_live_...' http://127.0.0.1:7410/v1/share/<id>
+```
+
+Mint a short-lived link (1 day) and watch it auto-expire to `410 Gone`:
+
+```bash
+# Create with ttlDays. Omit for the 30d default; pass null for "no expiry"
+# (still hard-capped at 365 days server-side).
+curl -fsSL -X POST -H 'Authorization: Bearer cm_live_...' \
+  -H 'content-type: application/json' \
+  -d '{"query":"hello","answer":"world","sources":[],"ttlDays":1}' \
+  http://127.0.0.1:7410/v1/share
+# => {"id":"...","url":"/s/...","expiresAt":1735689600000}
+
+# Once expiresAt passes, the public viewer returns 410:
+curl -i http://127.0.0.1:7410/v1/share/<id>
+# HTTP/1.1 410 Gone
+# {"error":"share expired","expiredAt":...}
 ```
 
 - `GET|POST|DELETE /v1/feedback`
