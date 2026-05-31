@@ -416,7 +416,6 @@ function ShortcutsCard() {
     { href: '/webhooks', label: 'Webhooks', description: 'Outbound events on ask and ingest.', Icon: IconWebhook },
     { href: '/settings/security', label: 'IP allowlist', description: 'Restrict your account to trusted networks.', Icon: IconShield },
     { href: '/settings/notifications', label: 'Notification preferences', description: 'Pick which inbox alerts you want to receive.', Icon: IconSettings },
-    { href: '/settings/ip-allowlist', label: 'IP allowlist', description: 'Restrict API and dashboard access to specific networks.', Icon: IconShield },
     { href: '/usage', label: 'Usage details', description: 'Per-kind breakdown and reset timer.', Icon: IconChartBar },
   ];
   return (
