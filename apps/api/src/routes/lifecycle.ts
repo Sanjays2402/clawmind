@@ -1,6 +1,7 @@
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { exportUserData, deleteUserData } from '../services/lifecycle.js';
+import { bundleToZip } from '../services/zip-export.js';
 import { Scopes } from '../scopes.js';
 
 // GDPR-style data lifecycle endpoints. Both are scoped to the authenticated
@@ -38,6 +39,40 @@ export const lifecycleRoutes: FastifyPluginAsyncZod = async (app) => {
         `attachment; filename="clawmind-export-${userId}-${bundle.exportedAt}.json"`,
       );
       return bundle;
+    },
+  });
+
+  // ZIP variant of the per-user GDPR export. Returns the structured JSON
+  // bundle plus flattened CSVs in a single archive so legal-hold and BI
+  // tooling can ingest the data without bespoke parsers. Procurement teams
+  // routinely require a CSV-in-ZIP path next to the JSON one.
+  app.get('/me/export.zip', {
+    preHandler: [app.requireAuth, app.requireScope(Scopes.LifecycleManage)],
+    handler: async (req, reply) => {
+      const userId = req.user!.id;
+      const bundle = await exportUserData(app.clawmind.dataDir, userId);
+      const zip = bundleToZip(bundle);
+      await app.clawmind.audit.write({
+        actor: userId,
+        action: 'lifecycle.export.zip',
+        resource: '/v1/me/export.zip',
+        meta: {
+          bytes: zip.length,
+          history: bundle.history.length,
+          conversations: bundle.conversations.length,
+          saved: bundle.saved.length,
+          feedback: bundle.feedback.length,
+          apiKeys: bundle.apiKeys.length,
+        },
+      });
+      reply.header('content-type', 'application/zip');
+      reply.header(
+        'content-disposition',
+        `attachment; filename="clawmind-export-${userId}-${bundle.exportedAt}.zip"`,
+      );
+      reply.header('content-length', String(zip.length));
+      reply.header('x-clawmind-export-schema', 'clawmind.user-export.zip.v1');
+      return reply.send(zip);
     },
   });
 

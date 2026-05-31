@@ -488,14 +488,27 @@ function DataCard({ onChanged }: { onChanged: () => void }) {
       description="Export everything tied to this account, or erase it. Both actions are written to the server audit log."
     >
       <div className="grid gap-3 sm:grid-cols-2">
-        <a
-          href={`${API_BASE}/v1/me/export`}
-          className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--bg)]"
-          download
-        >
-          <IconDownload size={14} />
-          Export my data (JSON)
-        </a>
+        <div className="flex flex-col gap-2">
+          <a
+            href={`${API_BASE}/v1/me/export`}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--bg)]"
+            download
+          >
+            <IconDownload size={14} />
+            Export my data (JSON)
+          </a>
+          <a
+            href={`${API_BASE}/v1/me/export.zip`}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--bg)]"
+            download
+          >
+            <IconDownload size={14} />
+            Export my data (ZIP, JSON + CSV)
+          </a>
+          <p className="text-[11px] text-[var(--fg-muted)]">
+            ZIP archive ships the structured JSON alongside per-table CSVs and a manifest, suitable for BI imports and legal hold.
+          </p>
+        </div>
         <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--fg)]">
             <IconTrash size={14} className="text-red-500" />

@@ -812,6 +812,7 @@ export const api = {
   // surfaces the export as a file download and the delete behind an
   // explicit type-to-confirm prompt.
   meExportUrl: () => `${BASE}/v1/me/export`,
+  meExportZipUrl: () => `${BASE}/v1/me/export.zip`,
   meDeleteData: () =>
     j<{ userId: string; deletedAt: number; removed: Record<string, number> }>(
       '/v1/me/data',

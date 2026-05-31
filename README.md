@@ -195,6 +195,8 @@ Or open <http://127.0.0.1:7412/settings> for the account control center: live us
 
 ```bash
 curl -OJ http://127.0.0.1:7410/v1/me/export
+# Same bundle as a ZIP with per-table CSVs and a manifest, sized for BI imports and legal hold:
+curl -OJ http://127.0.0.1:7410/v1/me/export.zip
 curl -X DELETE http://127.0.0.1:7410/v1/me/data \
   -H 'content-type: application/json' \
   -d '{"confirm":"DELETE"}'
@@ -557,6 +559,7 @@ Auth and admin:
 - `POST /v1/maintenance/compact`
 - `POST /v1/maintenance/forget`
 - `GET /v1/me/export` – download every per-user record as JSON
+- `GET /v1/me/export.zip` – same bundle as a ZIP containing the structured JSON plus CSV views of history, conversations, saved searches, feedback, and API keys, with a manifest and README for downstream tooling
 - `DELETE /v1/me/data` – erase every per-user record, body `{"confirm":"DELETE"}`
 
 Requests are rate-limited globally to 240/min, keyed by API key id, session user, or IP in that order. Individual API keys can carry a stricter custom limit set via `PUT /v1/keys/:id/rate-limit` (or the inline editor on the `/keys` page); when present it is enforced on every authenticated route and returns 429 with `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After`, and `RateLimit-Policy` headers so SDKs back off correctly. Every denial is written to the audit log.
