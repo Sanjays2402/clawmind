@@ -11,6 +11,7 @@ import {
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
 import { recordLogin, touch as touchSession, isRevoked as sessionIsRevoked, removeBySid, getBySid as getSessionBySid, revokeBySid as revokeSessionBySid } from '../services/sessions.js';
 import { recordSignIn } from '../services/sign-in-log.js';
+import { detectAndRecord as detectSignInAnomaly, resolveCountry as resolveSignInCountry } from '../services/sign-in-anomalies.js';
 import { getRecord as getGeofenceRecord, evaluate as evaluateGeofence } from '../services/sign-in-geofence.js';
 import { getPolicyCached as getSessionPolicyCached, evaluateSession as evaluateSessionPolicy } from '../services/session-policy.js';
 import { getStatus as getMfaStatus } from '../services/mfa.js';
@@ -564,6 +565,31 @@ const plugin: FastifyPluginAsync = async (app) => {
       actor: req.session.userId, method: 'github', outcome: 'success',
       ip: req.ip, userAgent: req.headers['user-agent'],
     }).catch(() => undefined);
+    // Impossible-travel check. Always advances the per-actor anchor;
+    // when it returns a 'recorded' outcome we also drop an audit row
+    // so SIEM ingesters that only follow the audit chain still see it.
+    try {
+      const country = resolveSignInCountry(req.headers as Record<string, string | string[] | undefined>);
+      const outcome = await detectSignInAnomaly(app.clawmind.dataDir, {
+        actor: req.session.userId, ip: req.ip, country, at: Date.now(), method: 'github',
+      });
+      if (outcome.kind === 'recorded') {
+        await app.clawmind.audit.write({
+          actor: req.session.userId,
+          action: 'sign-in.anomaly.detected',
+          resource: outcome.record.id,
+          meta: {
+            requestId: req.id,
+            fromCountry: outcome.record.previous.country,
+            toCountry: outcome.record.current.country,
+            distanceKm: outcome.record.distanceKm,
+            elapsedMinutes: outcome.record.elapsedMinutes,
+            speedKmh: outcome.record.speedKmh,
+            thresholdKmh: outcome.record.thresholdKmh,
+          },
+        }).catch(() => undefined);
+      }
+    } catch { /* detection is best-effort; never block sign-in */ }
     const sid = (req.session as unknown as { sessionId?: string }).sessionId;
     if (sid) {
       const policy = await getSessionPolicyCached(app.clawmind.dataDir).catch(() => null);
@@ -735,6 +761,28 @@ const plugin: FastifyPluginAsync = async (app) => {
           actor: result.userId, method: 'oidc', outcome: 'success',
           ip: req.ip, userAgent: req.headers['user-agent'],
         }).catch(() => undefined);
+        try {
+          const country = resolveSignInCountry(req.headers as Record<string, string | string[] | undefined>);
+          const outcome = await detectSignInAnomaly(app.clawmind.dataDir, {
+            actor: result.userId, ip: req.ip, country, at: Date.now(), method: 'oidc',
+          });
+          if (outcome.kind === 'recorded') {
+            await app.clawmind.audit.write({
+              actor: result.userId,
+              action: 'sign-in.anomaly.detected',
+              resource: outcome.record.id,
+              meta: {
+                requestId: req.id,
+                fromCountry: outcome.record.previous.country,
+                toCountry: outcome.record.current.country,
+                distanceKm: outcome.record.distanceKm,
+                elapsedMinutes: outcome.record.elapsedMinutes,
+                speedKmh: outcome.record.speedKmh,
+                thresholdKmh: outcome.record.thresholdKmh,
+              },
+            }).catch(() => undefined);
+          }
+        } catch { /* detection is best-effort; never block sign-in */ }
         const sid = (req.session as unknown as { sessionId?: string }).sessionId;
         if (sid) {
           const policy = await getSessionPolicyCached(app.clawmind.dataDir).catch(() => null);

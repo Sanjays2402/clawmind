@@ -68,6 +68,7 @@ import { incidentsRoutes } from './incidents.js';
 import { roleElevationRoutes } from './role-elevation.js';
 import { signInLogRoutes } from './sign-in-log.js';
 import { signInGeofenceRoutes } from './sign-in-geofence.js';
+import { signInAnomaliesRoutes } from './sign-in-anomalies.js';
 import { encryptionRoutes } from './encryption.js';
 import { sharePolicyRoutes } from './share-policy.js';
 import { modelAllowlistRoutes } from './model-allowlist.js';
@@ -144,6 +145,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(roleElevationRoutes, { prefix: '/v1' });
   await app.register(signInLogRoutes, { prefix: '/v1' });
   await app.register(signInGeofenceRoutes, { prefix: '/v1' });
+  await app.register(signInAnomaliesRoutes, { prefix: '/v1' });
   await app.register(encryptionRoutes, { prefix: '/v1' });
   await app.register(sharePolicyRoutes, { prefix: '/v1' });
   await app.register(modelAllowlistRoutes, { prefix: '/v1' });

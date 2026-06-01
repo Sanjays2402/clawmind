@@ -10,6 +10,26 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Sign-in anomaly detection (impossible travel): every successful sign-in (GitHub OAuth and OIDC) is compared against the actor's previous successful sign-in. When the two countries imply travel faster than `IMPOSSIBLE_SPEED_KMH` (default 900 km/h, faster than any commercial flight including layovers) an anomaly row is written to `sign-in-anomalies.json`, an audit row `sign-in.anomaly.detected` is appended to the hash-chained log, and the record surfaces in the console at `/settings/sign-in-anomalies`. Detection is best-effort and never blocks a login: a missing country header or an unknown centroid falls through silently, which avoids locking users out behind a misconfigured reverse proxy. Country resolution reuses the same trusted upstream headers as the geofence (`cf-ipcountry`, `cloudfront-viewer-country`, `x-vercel-ip-country`, `x-country`, `x-geo-country`); distance is computed against an embedded country-centroid table so no external GeoIP database is required. `GET /v1/sign-in-anomalies` returns the calling user's anomalies (scope `sign-in-anomalies:read`); `GET /v1/sign-in-anomalies/all` is admin+ (`sign-in-anomalies:admin`) and exposes the full workspace queue for SOC triage; `POST /v1/sign-in-anomalies/:id/ack` flips a row to acknowledged and writes a `sign-in.anomaly.acknowledged` audit row. Cross-tenant isolation is enforced in the service layer: a non-admin can only see and acknowledge their own anomalies even though every row lives in the same on-disk file. The ring is capped at `MAX_RECORDS` (2000) so a noisy account cannot grow the file unbounded.
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # Your own anomalies (any authenticated user with sign-in-anomalies:read)
+  curl -sS -H "Authorization: Bearer $CLAWMIND_KEY" \
+    http://localhost:8787/v1/sign-in-anomalies
+
+  # Workspace-wide queue, admin or higher
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    'http://localhost:8787/v1/sign-in-anomalies/all?acknowledged=false&limit=50'
+
+  # Acknowledge a specific anomaly (audits the actor)
+  curl -sS -X POST -H "Authorization: Bearer $CLAWMIND_KEY" \
+    http://localhost:8787/v1/sign-in-anomalies/$ID/ack
+  ```
+
+  Console: <http://localhost:3000/settings/sign-in-anomalies>.
+
 - Vendor support access lockbox: enterprise procurement reviewers require proof that vendor support engineers cannot read a customer workspace unless the customer has explicitly and recently opened a time-bound door. The lockbox is closed by default; while closed, any request bearing `X-Vendor-Support-Token` is rejected with `403 vendor-access-denied` before auth runs, and every API response (every endpoint, including unauthenticated `/healthz`) carries `X-Vendor-Access-Lockbox: closed` so a customer's SIEM can alert on the literal header value. `GET /v1/workspace/vendor-access` (admin+) returns the policy, current grant, and capped history; `PUT /v1/workspace/vendor-access/policy` (owner + MFA) sets `enabled`, `maxDurationSec` (hard ceiling 24h), `requireJustification`, and `requireTicket`; `POST /v1/workspace/vendor-access/grants` (owner + MFA) mints a single time-bounded grant returning the raw token exactly once (only an sha256 hash is persisted, identical contract to API keys) and writes a `vendor-access.grant.create` row with actor, reason, ticket, and expiry to the hash-chained audit log; `DELETE /v1/workspace/vendor-access/grants/current` revokes it. While a grant is active the response header flips to `X-Vendor-Access-Lockbox: open; expires-at=<iso>` and successful uses bump `lastUsedAt` and `useCount` on the grant so an owner can audit usage in real time. Disabling the policy immediately revokes any active grant, the lockbox state is cached for one second to keep the hot-path off disk, and token comparison is constant-time. The console at `/settings/vendor-access` exposes the policy toggle, mint/revoke flow, a live countdown, and the past 25 grants with reason and ticket inline. Read is gated by `vendor-access:read` (admin), writes by `vendor-access:admin` (owner + MFA).
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):

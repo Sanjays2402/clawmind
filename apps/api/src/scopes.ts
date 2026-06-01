@@ -353,6 +353,12 @@ export const Scopes = {
   SignInGeofenceRead: 'sign-in-geofence:read',
   SignInGeofenceManage: 'sign-in-geofence:admin',
 
+  // Sign-in anomaly detection (impossible travel). Self-read lets a user
+  // see and acknowledge their own anomalies; admin-read exposes the
+  // workspace-wide queue including other actors' events for SOC triage.
+  SignInAnomaliesRead: 'sign-in-anomalies:read',
+  SignInAnomaliesReadAll: 'sign-in-anomalies:admin',
+
   // Workspace LLM model allowlist. Read is admin+ so a compliance
   // operator can quote the approved model set in a DPA without being
   // able to widen it. Manage is owner-only with MFA step-up at the

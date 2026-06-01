@@ -762,6 +762,34 @@ export interface SignInListResult {
   total: number;
 }
 
+export interface SignInAnomalyEndpoint {
+  ip: string;
+  country: string;
+  at: number;
+  method: string;
+}
+
+export interface SignInAnomalyRecord {
+  id: string;
+  actor: string;
+  current: SignInAnomalyEndpoint;
+  previous: SignInAnomalyEndpoint;
+  distanceKm: number;
+  elapsedMinutes: number;
+  speedKmh: number;
+  thresholdKmh: number;
+  acknowledgedAt: number | null;
+  acknowledgedBy: string | null;
+  createdAt: number;
+}
+
+export interface SignInAnomalyListResult {
+  records: SignInAnomalyRecord[];
+  nextCursor: string | null;
+  total: number;
+  openCount: number;
+}
+
 export interface OnboardingProgress {
   completed: OnboardingStep[];
   next: OnboardingStep | null;
@@ -1213,6 +1241,29 @@ export const api = {
     const qs = q.toString();
     return j<SignInListResult>(`/v1/sign-in-log/all${qs ? `?${qs}` : ''}`);
   },
+
+  // Sign-in anomaly feed (impossible-travel detector). Self view is the
+  // calling user's anomalies; /all is admin+ and includes other actors
+  // for SOC triage. ack flips the row to acknowledged and audits it.
+  signInAnomaliesList: (params: { acknowledged?: boolean; limit?: number; cursor?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.acknowledged !== undefined) q.set('acknowledged', String(params.acknowledged));
+    if (params.limit) q.set('limit', String(params.limit));
+    if (params.cursor) q.set('cursor', params.cursor);
+    const qs = q.toString();
+    return j<SignInAnomalyListResult>(`/v1/sign-in-anomalies${qs ? `?${qs}` : ''}`);
+  },
+  signInAnomaliesListAll: (params: { acknowledged?: boolean; actor?: string; limit?: number; cursor?: string } = {}) => {
+    const q = new URLSearchParams();
+    if (params.acknowledged !== undefined) q.set('acknowledged', String(params.acknowledged));
+    if (params.actor) q.set('actor', params.actor);
+    if (params.limit) q.set('limit', String(params.limit));
+    if (params.cursor) q.set('cursor', params.cursor);
+    const qs = q.toString();
+    return j<SignInAnomalyListResult>(`/v1/sign-in-anomalies/all${qs ? `?${qs}` : ''}`);
+  },
+  signInAnomalyAck: (id: string) =>
+    j<{ record: SignInAnomalyRecord }>(`/v1/sign-in-anomalies/${encodeURIComponent(id)}/ack`, { method: 'POST' }),
 
   // Workspace members and RBAC. The 4-role hierarchy is enforced server
   // side; the UI surfaces who has access, who invited them, and lets an
