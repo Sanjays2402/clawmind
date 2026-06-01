@@ -92,6 +92,15 @@ export function loadEnv() {
     // workspace allow-list excludes this process's region. Unknown or
     // empty values fall back to `us` to match the documented default.
     CLAWMIND_REGION: str({ default: 'us' }),
+
+    // Audit-log SIEM drains. The background worker pushes audit events
+    // to every enabled drain on this cadence. Set to 0 to disable the
+    // background tick entirely (drains can still be flushed on demand
+    // through POST /v1/audit/drains/:id/flush). Default is 30s, which
+    // is well inside the "continuous" expectation regulators read into
+    // SOC2 CC7.2 / ISO 27001 A.12.4.1 without flooding a receiver that
+    // batches.
+    CLAWMIND_AUDIT_DRAIN_INTERVAL_MS: num({ default: 30_000 }),
   });
 }
 

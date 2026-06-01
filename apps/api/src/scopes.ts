@@ -374,7 +374,19 @@ export const Scopes = {
   // Acceptable Use Policy (AUP).
   AcceptableUseRead: 'acceptable-use:read',
   AcceptableUseReadAll: 'acceptable-use:admin',
-  AcceptableUseManage: 'acceptable-use:manage',
+  AcceptableUseManage: 'acceptable-use:write',
+
+  // Audit-log SIEM drains. Continuous push of the audit chain to one
+  // or more workspace-configured HTTPS sinks (Splunk HEC, Datadog, or
+  // a generic HMAC-signed webhook). Read is admin+ so a compliance
+  // operator can confirm a drain is in force and inspect delivery
+  // counters / dead-letters without being able to repoint the feed.
+  // Manage is owner-only (with MFA step-up at the route) because
+  // creating, updating, or deleting a drain changes where the audit
+  // record of the workspace flows and that is itself a regulator-
+  // visible event.
+  AuditDrainsRead: 'audit-drains:read',
+  AuditDrainsManage: 'audit-drains:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

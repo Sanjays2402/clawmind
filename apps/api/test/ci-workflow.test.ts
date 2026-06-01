@@ -13,17 +13,17 @@ function loadWorkflow(): string {
 describe('ci workflow shape', () => {
   const wf = loadWorkflow();
 
-  it('declares the four hardening jobs', () => {
-    for (const name of ['guard:', 'verify:', 'audit:', 'docker:']) {
+  it('declares the hardening jobs', () => {
+    for (const name of ['guard:', 'verify:', 'audit:', 'secrets:', 'docker:']) {
       expect(wf).toContain(name);
     }
   });
 
   it('every executable job gates on the billing guard output', () => {
     const gateLine = "needs.guard.outputs.enabled == 'true'";
-    // 3 gated jobs: verify, audit, docker. Count occurrences.
+    // 4 gated jobs: verify, audit, secrets, docker. Count occurrences.
     const count = wf.split(gateLine).length - 1;
-    expect(count).toBe(3);
+    expect(count).toBe(4);
   });
 
   it('verify job runs install, typecheck, test, and build', () => {

@@ -2032,6 +2032,68 @@ export const api = {
   // panels.
   adminOverview: () => j<AdminOverview>('/v1/admin/overview'),
 
+  // Audit-log SIEM drains. Workspace owners point the audit feed at
+  // Splunk HEC, Datadog logs, or a generic HMAC-signed endpoint;
+  // delivery happens out-of-band from the request that wrote the audit
+  // event so the response path stays fast.
+  auditDrainsList: () =>
+    j<{
+      total: number;
+      drains: Array<{
+        id: string;
+        kind: 'generic' | 'splunk-hec' | 'datadog';
+        url: string;
+        enabled: boolean;
+        createdAt: number;
+        createdBy: string;
+        updatedAt: number;
+        updatedBy: string;
+        lastCursor: { ts: number; id: string } | null;
+        lastDeliveryAt: number | null;
+        lastError: string | null;
+        consecutiveFailures: number;
+        delivered: number;
+        dropped: number;
+        secretFingerprint: string;
+      }>;
+    }>('/v1/audit/drains'),
+  auditDrainsCreate: (body: {
+    kind: 'generic' | 'splunk-hec' | 'datadog';
+    url: string;
+    enabled?: boolean;
+  }) =>
+    j<{
+      drain: { id: string; kind: string; url: string; enabled: boolean };
+      secret: string;
+    }>('/v1/audit/drains', { method: 'POST', body: JSON.stringify(body) }),
+  auditDrainsUpdate: (id: string, body: { url?: string; enabled?: boolean }) =>
+    j<{ drain: unknown }>(`/v1/audit/drains/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+  auditDrainsRotate: (id: string) =>
+    j<{ secret: string }>(`/v1/audit/drains/${id}/rotate`, { method: 'POST' }),
+  auditDrainsDelete: (id: string) =>
+    j<{ ok: true }>(`/v1/audit/drains/${id}`, { method: 'DELETE' }),
+  auditDrainsFlush: (id: string) =>
+    j<{ ok: true; result: { attempted: number; delivered: number; failed: number; skipped: number } }>(
+      `/v1/audit/drains/${id}/flush`,
+      { method: 'POST' },
+    ),
+  auditDrainsDead: (id: string) =>
+    j<{
+      total: number;
+      dead: Array<{
+        id: string;
+        drainId: string;
+        ts: number;
+        count: number;
+        status: number | null;
+        error: string;
+        cursor: { ts: number; id: string };
+      }>;
+    }>(`/v1/audit/drains/${id}/dead`),
+
   // Domain auto-join policies. Admin+ can read; owner/admin can replace
   // with MFA step-up. The auth preHandler consults this list on every
   // login and uses the matching role as the default for brand-new users.

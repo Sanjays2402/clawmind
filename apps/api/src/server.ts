@@ -34,6 +34,7 @@ import policyGatePlugin from './plugins/policy-gate.js';
 import { idempotencyPlugin } from './plugins/idempotency.js';
 import { loginBannerPlugin } from './plugins/login-banner.js';
 import { acceptableUsePlugin } from './plugins/acceptable-use.js';
+import { runOnce as runAuditDrains } from './services/audit-drains.js';
 
 export async function buildApp(): Promise<any> {
   const env = loadEnv();
@@ -221,6 +222,24 @@ export async function buildApp(): Promise<any> {
   await app.register(idempotencyPlugin);
   await app.register(ragPlugin);
   await registerRoutes(app as unknown as Parameters<typeof registerRoutes>[0]);
+
+  // Background SIEM drain tick. We push audit events out to every
+  // enabled drain on a fixed cadence; the worker itself is single-shot
+  // and idempotent (per-drain cursor on disk) so a missed tick or a
+  // restart loses nothing. Disabled when interval <= 0 so tests can
+  // exercise buildApp() without a timer leaking into the suite. The
+  // interval is unref'd so a Ctrl-C still exits promptly.
+  const drainIntervalMs = env.CLAWMIND_AUDIT_DRAIN_INTERVAL_MS;
+  if (drainIntervalMs > 0) {
+    const timer = setInterval(() => {
+      runAuditDrains({
+        dataDir: app.clawmind.dataDir,
+        iterate: (since: number) => app.clawmind.audit.iterate({ since }),
+      }).catch((err) => (app.log as any).error({ err }, 'audit drain tick failed'));
+    }, drainIntervalMs);
+    timer.unref();
+    app.addHook('onClose', async () => clearInterval(timer));
+  }
 
   return app;
 }

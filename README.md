@@ -10,6 +10,32 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Audit log SIEM drains (SOC2 CC7.2 / ISO 27001 A.12.4.1): workspace owners point the hash-chained audit log at one or more HTTPS sinks from `/audit/drains` and a background worker pushes new events every `CLAWMIND_AUDIT_DRAIN_INTERVAL_MS` (default 30s) without blocking the request that wrote them. Three sink kinds ship out of the box: a generic HMAC-signed POST, `splunk-hec` (sets `Authorization: Splunk <secret>`), and `datadog` (sets `DD-API-KEY`). Every batch is newline-delimited JSON prefixed with a `__clawmind_drain__` envelope (drain id, monotonic sequence, batch timestamp, cursor before/after) and signed with HMAC-SHA256 over the raw body in `X-ClawMind-Signature: sha256=<hex>` so the receiver can authenticate the sender and reject replays. A per-drain cursor (last delivered `ts` + `id`) is persisted to disk, so a restart resumes exactly where it left off and never replays the whole chain. Failed deliveries back off exponentially (capped at one hour) and after six consecutive failures the batch is moved to a bounded dead-letter list, the cursor advances, and the next batch is attempted; the dead-letter list is visible at `GET /v1/audit/drains/:id/dead` so an operator sees a stuck receiver instead of silently dropping audit traffic. All mutations (create, update, rotate-secret, delete, flush) require owner role plus MFA step-up and themselves write an audit row, which then streams back through the drain, giving a regulator a closed loop on "who pointed the audit feed where". Secrets are shown exactly once at create time and on explicit rotation; subsequent reads only surface a 12-hex `secretFingerprint`. The URL guard rejects unsupported schemes, embedded credentials, and loopback/link-local hosts unless `CLAWMIND_ALLOW_LOOPBACK_DRAINS=1`. A regression test posts a real batch through the worker against a fake fetch, recomputes the signature with the secret, and proves the receiver can verify it; a second test runs six failures and asserts the batch is dead-lettered and the cursor advances past it.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # Owner creates a drain (MFA step-up required). Secret is returned ONCE.
+  curl -sS -X POST -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"kind":"splunk-hec","url":"https://splunk.example.com/services/collector"}' \
+    http://localhost:7410/v1/audit/drains
+  # -> { "drain": { "id": "drn_...", ... }, "secret": "<64-hex>" }
+
+  # Admin lists drains; secret is replaced by a fingerprint.
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:7410/v1/audit/drains | jq '.drains[] | {id, kind, enabled, delivered, dropped, secretFingerprint}'
+
+  # Force a one-shot push for a single drain.
+  curl -sS -X POST -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    http://localhost:7410/v1/audit/drains/drn_xxx/flush | jq
+
+  # Receiver-side verification (Node 20+):
+  #   const sig = req.headers['x-clawmind-signature'].replace(/^sha256=/, '');
+  #   const expected = crypto.createHmac('sha256', SECRET).update(rawBody).digest('hex');
+  #   if (!crypto.timingSafeEqual(Buffer.from(sig,'hex'), Buffer.from(expected,'hex'))) reject();
+  ```
+
 - Pre-auth system use notification banner (NIST 800-53 AC-8): workspace owners publish a short banner from `/settings/login-banner` with a title, markdown body, severity, and a `requireAck` toggle. The login page reads it unauthenticated from `GET /v1/login-banner` and renders it before credentials are entered, satisfying FedRAMP, FISMA, and FFIEC requirements that the notice precede authentication. When `requireAck` is on, an auth plugin gates every mutating session request: after sign-in the user must call `POST /v1/login-banner/ack` with the current SHA-256 `bodyHash` once per browser session before any write is accepted. Mutations from a session without a matching ack return `HTTP 412 login-banner-ack-required` with `X-Login-Banner-Ack-Required: 1` and `X-Login-Banner-Hash: <hash>` so the dashboard can redirect to the ack screen, and a `login-banner.denied` row is appended to the hash-chained audit log with actor, route, and request id. Acks are bound to the session id hash and body hash, so changing the banner body invalidates every prior ack and forces a re-acknowledgment on the next request; switching browsers also requires a fresh ack. Reads, the banner and ack endpoints themselves, auth/MFA/sessions flows, and API key callers (a service-account contract, not a per-user consent surface) are exempt. Admins can audit every recorded ack from `GET /v1/login-banner/acks` and the same screen, which lists userId, session id prefix, IP, and timestamp. Disk read errors fail open so a corrupt banner file cannot brick the API. Cross-session isolation is covered by a regression test that proves an ack recorded by session A does not satisfy the gate for session B even when both belong to the same user.
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):

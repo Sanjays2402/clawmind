@@ -243,6 +243,13 @@ export default function AuditPage() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <a
+              href="/audit/drains"
+              className="inline-flex items-center gap-1.5 self-start rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
+              title="Configure continuous push of the audit chain to a SIEM (Splunk, Datadog, generic webhook)."
+            >
+              <IconKey size={14} /> SIEM drains
+            </a>
             <button
               onClick={() => downloadExport('jsonl')}
               disabled={forbidden}
