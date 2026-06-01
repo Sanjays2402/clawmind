@@ -130,6 +130,16 @@ export const Scopes = {
   // this scope to escape role checks elsewhere.
   AdminRead: 'admin:read',
 
+  // Procurement Security Posture aggregator. Read-only, derived; produces
+  // a single vendor-questionnaire-shaped scorecard from existing controls
+  // (SSO, MFA policy, IP allowlist, audit chain + drain, residency,
+  // share-policy, api-key-policy, session-policy, trust profile, freeze).
+  // Distinct from AdminRead because a procurement reviewer / compliance
+  // auditor often gets a posture key without operator counters. Read is
+  // owner+admin (the report still leaks the configured shape of the
+  // tenant's controls and would be a recon win for an attacker).
+  PostureRead: 'posture:read',
+
   // Members / RBAC. Read is granted to admins+ so a delegated operator
   // can see who has access; Manage is owner+admin only and is the gate
   // for invite/role-change/remove (with MFA step-up).

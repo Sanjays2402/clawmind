@@ -45,6 +45,7 @@ import { apiKeyInactivityRoutes } from './api-key-inactivity.js';
 import { apiKeyExpiryRoutes } from './api-key-expiry.js';
 import { retentionRoutes } from './retention.js';
 import { adminRoutes } from './admin.js';
+import { postureRoutes } from './posture.js';
 import { memberRoutes } from './members.js';
 import { invitationRoutes } from './invitations.js';
 import { domainPoliciesRoutes } from './domain-policies.js';
@@ -137,6 +138,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(apiKeyExpiryRoutes, { prefix: '/v1' });
   await app.register(retentionRoutes, { prefix: '/v1' });
   await app.register(adminRoutes, { prefix: '/v1' });
+  await app.register(postureRoutes, { prefix: '/v1' });
   await app.register(memberRoutes, { prefix: '/v1' });
   await app.register(invitationRoutes, { prefix: '/v1' });
   await app.register(domainPoliciesRoutes, { prefix: '/v1' });

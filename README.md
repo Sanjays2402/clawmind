@@ -10,6 +10,27 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Procurement Security Posture (`/v1/posture`): enterprise procurement reviewers refuse to walk through ten settings panels to confirm a vendor's controls are actually on. ClawMind ships a single owner-gated, `posture:read`-scoped endpoint that returns a vendor-questionnaire-shaped scorecard derived from the live state of every workspace control (SSO, workspace MFA enforcement, workspace IP allowlist, audit chain integrity + SIEM drain, API-key issuance policy, session lifetime policy, share policy hardening, data residency, public Trust Center, workspace freeze). Every row maps to a SOC2 / ISO 27001 control family (CC6.1, CC6.6, CC7.1, CC7.2, CC9.2, etc.), is labelled `pass` / `warn` / `fail`, and carries a remediation pointer (the exact endpoint + payload that flips it to pass). A weighted score (0..100) and `ready` boolean (no fails, <= 2 warns) collapse the report into a single number a buyer can paste into their risk register. The web surface at `/posture` adds a one-click `Export JSON` so procurement automation can ingest the same payload without holding an API key. Distinct from `/v1/admin/overview` (operator counters) and `/v1/trust` (editable marketing): every posture row is computed from the live service state and cannot be over-stated. The fetch is self-audited (`posture.read` row with the score and pass/warn/fail breakdown) so a regulator can prove who pulled the report and when. Four route tests pin auth requirement, reader-role refusal, scoped-key refusal, and a fresh-install report shape (totals add up, SSO fails on a no-OIDC install, audit row is written).
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # 1. Pull the live posture report (owner + posture:read).
+  curl -sS http://localhost:7410/v1/posture \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" | jq
+
+  # 2. Just the score + ready flag for a procurement dashboard widget.
+  curl -sS http://localhost:7410/v1/posture \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" | jq '{score, ready, counts}'
+
+  # 3. List every failing control with its remediation hint.
+  curl -sS http://localhost:7410/v1/posture \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    | jq '.controls[] | select(.status=="fail") | {id, title, family, remediation}'
+  ```
+
+  Or open `http://localhost:7412/posture` to see the scorecard with a one-click JSON export for vendor questionnaires.
+
 - Personal Data Breach Notification Register (GDPR Art. 33 / 34): every EU enterprise procurement DPA in 2024+ either asks "have you ever had a notifiable personal data breach" or asks for a link to your register; ClawMind ships a per-workspace, regulator-grade register backing a public timeline at `/breach-register` and a CSV export at `/v1/breach-register.csv`. Each entry captures the reference id, severity, status, when the breach was discovered, occurred, contained, and closed, the categories of personal data and data subjects involved, approximate record and subject counts, likely consequences, mitigations, and a published DPO contact. Notification status to the supervisory authority and to data subjects is tracked separately as required by Articles 33 and 34 respectively, with the authority's name, the notification timestamp, and (mandatory whenever the controller notified later than 72 hours after discovery, or marked the notification `delayed`) a written delay justification the regulator will ask for. Cross-field validation rejects `contained`/`closed` timestamps earlier than discovery, `closed` status without a `closedAt`, duplicate references, missing notification timestamps when status is `notified`, and missing justification when the 72 h window was missed. The public projection derives a `withinArt33Window` flag from `authorityNotifiedAt - discoveredAt <= 72h` and ships counters for total / open / overdue entries that the buyer's procurement tooling reads first. All mutations are owner-only, MFA-gated, scoped to `breach-register:admin`, support `?dry_run=true`, and write a `breach-register.create|update|delete` audit row with the reference, severity, status, and both notification states so a SIEM drain or webhook subscriber sees every change in real time. The operator GET at `/v1/breach-register/admin` surfaces operator-only fields (`internalNotes`, `updatedBy`) under `breach-register:read`. Fifteen tests pin validation of every required field and enum, the 72 h delay-justification rule, both notification-status invariants, `containedAt < discoveredAt` refusal, persistence across reads, duplicate-reference rejection on create and update, `createdAt` preservation through updates, the public projection stripping `internalNotes`/`updatedBy` and deriving the Art. 33 window flag, reverse-chronological ordering with correct overdue counters, and CSV escaping of values containing commas.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):

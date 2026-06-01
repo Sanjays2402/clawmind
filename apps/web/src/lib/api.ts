@@ -2173,6 +2173,13 @@ export const api = {
   // panels.
   adminOverview: () => j<AdminOverview>('/v1/admin/overview'),
 
+  // Procurement Security Posture. Owner + posture:read. Returns a
+  // vendor-questionnaire-shaped scorecard derived from the live state
+  // of every workspace control. Distinct from /v1/admin/overview
+  // (operator counters); this one is the JSON a buyer pastes into
+  // their vendor risk register.
+  posture: () => j<PostureReport>('/v1/posture'),
+
   // Audit-log SIEM drains. Workspace owners point the audit feed at
   // Splunk HEC, Datadog logs, or a generic HMAC-signed endpoint;
   // delivery happens out-of-band from the request that wrote the audit
@@ -3366,6 +3373,22 @@ export interface DomainPolicy {
   requireSso: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface PostureControl {
+  id: string;
+  title: string;
+  status: 'pass' | 'warn' | 'fail';
+  family: string;
+  detail: string;
+  remediation: string | null;
+}
+export interface PostureReport {
+  generatedAt: number;
+  score: number;
+  counts: { pass: number; warn: number; fail: number; total: number };
+  ready: boolean;
+  controls: PostureControl[];
 }
 
 export interface AdminOverview {
