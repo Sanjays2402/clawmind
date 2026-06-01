@@ -2588,10 +2588,36 @@ export const api = {
   dsrGet: (id: string) =>
     j<{ request: DsrRecord }>(`/v1/dsr/${encodeURIComponent(id)}`).then((r) => r.request),
   dsrUpdate: (id: string, body: { status?: DsrStatus; note?: string | null }) =>
-    j<{ request: DsrRecord }>(`/v1/dsr/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(body),
-    }).then((r) => r.request),
+    j<{ request: DsrRecord; certificateId?: string }>(
+      `/v1/dsr/${encodeURIComponent(id)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+
+  // GDPR Article 17 erasure certificates. Public surfaces (get/byDsr/verify)
+  // are unauthenticated so a data subject or their auditor can pull the
+  // receipt with only the id they were handed at fulfilment time.
+  erasureCertificateGet: (id: string) =>
+    j<{ certificate: ErasureCertificatePublic; signatureValid: boolean }>(
+      `/v1/erasure-certificates/${encodeURIComponent(id)}`,
+    ),
+  erasureCertificateByDsr: (dsrId: string) =>
+    j<{ certificate: ErasureCertificatePublic; signatureValid: boolean }>(
+      `/v1/erasure-certificates/by-dsr/${encodeURIComponent(dsrId)}`,
+    ),
+  erasureCertificateVerify: (id: string, subjectEmail: string) =>
+    j<{
+      certificateId: string;
+      dsrId: string;
+      signatureValid: boolean;
+      subjectMatches: boolean;
+      verified: boolean;
+      revokedAt: number | null;
+    }>(`/v1/erasure-certificates/${encodeURIComponent(id)}/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ subjectEmail }),
+    }),
+  erasureCertificateList: () =>
+    j<{ certificates: ErasureCertificatePublic[] }>('/v1/erasure-certificates'),
 
   // Trust Center. Public GET /v1/trust is the URL procurement / vendor
   // review tools crawl, so it must stay unauthenticated. PUT is owner+MFA.
@@ -2969,6 +2995,36 @@ export interface DsrRecord {
   createdAt: number;
   updatedAt: number;
   submitterIpHash: string | null;
+}
+
+export interface ErasureCertificatePublic {
+  id: string;
+  dsrId: string;
+  workspaceId: string;
+  subjectEmailFingerprint: string;
+  scope: string;
+  fulfilledAt: number;
+  issuedAt: number;
+  contentFingerprint: string;
+  signature: string;
+  algo: 'hmac-sha256';
+  revokedAt: number | null;
+  revokedReason: string | null;
+}
+
+export interface ErasureCertificatePublic {
+  id: string;
+  dsrId: string;
+  workspaceId: string;
+  subjectEmailFingerprint: string;
+  scope: string;
+  fulfilledAt: number;
+  issuedAt: number;
+  contentFingerprint: string;
+  signature: string;
+  algo: 'hmac-sha256';
+  revokedAt: number | null;
+  revokedReason: string | null;
 }
 
 export interface SubProcessor {

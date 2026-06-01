@@ -465,6 +465,7 @@ function ShortcutsCard() {
     { href: '/settings/honeytokens', label: 'Honeytokens', description: 'Mint canary API keys, plant them as bait, and get a forensic incident the first time an attacker uses one. Owner only.', Icon: IconShield },
     { href: '/settings/trust', label: 'Trust Center', description: 'Edit the public security and compliance page that procurement reviewers cite by URL. Owner only, MFA gated.', Icon: IconShield },
     { href: '/settings/warrant-canary', label: 'Warrant canary', description: 'Recurring public attestation that no undisclosed legal process has been received. Public projection at /v1/warrant-canary that buyers pin in their vendor file. Owner only, MFA gated.', Icon: IconShield },
+    { href: '/settings/erasure-certificates', label: 'Erasure certificates', description: 'GDPR Article 17 destruction receipts. One signed certificate per fulfilled erasure request, verifiable offline by the subject and their auditor.', Icon: IconShield },
     { href: '/settings/data-residency', label: 'Data residency', description: 'Restrict mutating writes to a chosen set of regions. Reads are unaffected. Returned on every response as x-clawmind-region.', Icon: IconShield },
   ];
   return (

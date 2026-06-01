@@ -435,6 +435,13 @@ export const Scopes = {
   // is a much louder signal than the canary itself.
   WarrantCanaryRead: 'warrant-canary:read',
   WarrantCanaryManage: 'warrant-canary:admin',
+
+  // GDPR Article 17 erasure receipts. The certificate file is a public
+  // attestation the subject (and their regulator) can verify offline,
+  // so the read scope only gates the admin LIST view. Issuance is a
+  // side effect of fulfilling a DSR erasure row and is gated by
+  // DsrManage at that boundary; there is no public mint surface.
+  ErasureCertificatesRead: 'erasure-certificates:read',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];
