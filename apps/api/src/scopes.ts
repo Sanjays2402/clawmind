@@ -444,6 +444,17 @@ export const Scopes = {
   WarrantCanaryRead: 'warrant-canary:read',
   WarrantCanaryManage: 'warrant-canary:admin',
 
+  // Software Bill of Materials (CycloneDX 1.5). Read is admin+ so a
+  // compliance operator can see the operator view (updatedBy) without
+  // being able to alter the public attestation. Manage is owner-only
+  // with MFA step-up at the route because edits land on a public,
+  // internet-facing artefact that procurement teams and SCA tooling
+  // ingest by URL; a silent commit / repository swap is a supply-chain
+  // integrity event. The component graph itself is derived from disk
+  // and is not editable from the network.
+  SbomRead: 'sbom:read',
+  SbomManage: 'sbom:admin',
+
   // GDPR Article 17 erasure receipts. The certificate file is a public
   // attestation the subject (and their regulator) can verify offline,
   // so the read scope only gates the admin LIST view. Issuance is a

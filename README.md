@@ -10,6 +10,8 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Software Bill of Materials (CycloneDX 1.5): every enterprise buyer's vulnerability-management team (Anchore, Snyk, Dependency-Track) needs a stable, machine-readable inventory of what runs in the deployment to reconcile against CISA's KEV catalog (US Executive Order 14028, EU CRA). ClawMind exposes one at `GET /v1/sbom.json` with no authentication so a procurement reviewer can pin the URL in their own record. The component graph is generated at request time from the on-disk `package.json` files across the monorepo (root + `apps/*` + `packages/*`), so a malicious admin cannot quietly drop a vulnerable library from the published SBOM. A small owner-managed attestation overlay (vendor identity, source repository, build commit, notes) layers on top and is stored separately; `POST /v1/admin/sbom/attestation/sign` pins a SHA-256 over the canonical document (timestamp and signature-derived properties stripped, so the signature is reproducible from the published SBOM) and records `signedBy` + component count. Editing the overlay automatically clears any prior signature so a buyer never sees a stale signed-by alongside fresh content. The public `/sbom` web page mirrors the trust-center surface with component counts, the signed attestation, and a one-click download. Backed by the new `sbom:read` (admin+) / `sbom:admin` (owner-only, MFA-stepped) scopes, every mutation lands in the hash-chained audit log with the commit and repository captured so a reviewer can reconstruct the public surface at any point.
+
 - Identity introspection (`/v1/whoami`): SDK and integrator debug endpoint that returns the server's view of the current request as `{ authenticated, via, user, apiKey:{ id, scopes }, elevation, request:{ id, ip, forwardedFor, userAgent, method, url, serverTime } }`. Safe to call anonymously: unauthenticated callers get a 200 with `authenticated:false` instead of a 401 so SDKs can tell apart "no creds" from "bad creds" without special-case error handling. Bearer tokens and cookies are never echoed back in the response. The companion `/settings/whoami` page renders the same envelope as a token / session debugger so a customer integrator can confirm role, scopes, source IP, and the request id the audit log will key on before they open a support ticket. Kubernetes-convention probe aliases `/healthz`, `/livez`, and `/readyz` are exposed alongside the existing `/live`, `/ready`, and `/health` so standard ingress controllers and security scanners work without operator overrides.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
@@ -719,6 +721,32 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Idempotency-Key on every mutating endpoint: callers can pass an opaque `Idempotency-Key` header on any `POST`, `PUT`, `PATCH`, or `DELETE` and ClawMind guarantees the request runs at most once. A retry with the same key and the same body replays the original response byte-for-byte (with `Idempotency-Replay: true` set so client code can tell) instead of double-creating a conversation, double-charging a quota slot, or double-revoking a key. A retry with the same key but a different body returns `409 idempotency_key_reused` so a coding bug surfaces immediately instead of silently mutating state. Keys are scoped per actor (cookie session user id or API key id) so two tenants reusing the same key string never collide, anonymous callers are rejected with `401 idempotency_requires_auth` so the on-disk registry cannot be filled by drive-by traffic, only `2xx` responses are cached so a transient `500` is retried for real, and entries expire after 24 hours. Implemented as a Fastify plugin that runs after auth, persisted to `idempotency.json` with the same atomic-rewrite pattern as the rest of the on-disk state.
 - File watcher for incremental reindex
 - Local MLX embeddings with automatic fallback to an OpenAI-compatible endpoint
+
+## Try it: Software Bill of Materials (CycloneDX 1.5)
+
+Procurement reviewers and SCA pipelines (Anchore, Snyk, Dependency-Track) pin a single URL and reconcile it against CISA KEV.
+
+```bash
+# 1. Public: pull the CycloneDX 1.5 document. No auth required.
+curl -sS http://localhost:7410/v1/sbom.json | jq '{format: .bomFormat, spec: .specVersion, components: (.components | length)}'
+
+# 2. Public: lightweight summary the web page renders.
+curl -sS http://localhost:7410/v1/sbom/summary | jq
+
+# 3. Owner-only: publish the vendor + source repo + build commit overlay.
+#    Requires an MFA-stepped session and the sbom:admin scope.
+curl -sS -X PUT http://localhost:7410/v1/admin/sbom/attestation \
+  -H "Authorization: Bearer $OWNER_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"vendor":"ClawMind, Inc.","repository":"https://github.com/Sanjays2402/clawmind","commit":"'"$(git rev-parse HEAD)"'","notes":"Production build for 2026 Q2."}'
+
+# 4. Owner-only: pin a SHA-256 over the current SBOM. The hash is
+#    reproducible from the published document (timestamp stripped).
+curl -sS -X POST http://localhost:7410/v1/admin/sbom/attestation/sign \
+  -H "Authorization: Bearer $OWNER_KEY"
+```
+
+The web view is at `http://localhost:7412/sbom`.
 
 ## Try it: Data Processing Agreement acceptance
 
