@@ -435,6 +435,7 @@ function ShortcutsCard() {
     { href: '/settings/retention', label: 'Data retention', description: 'Auto-erase history and conversations on a schedule.', Icon: IconClockCountdown },
     { href: '/settings/legal-hold', label: 'Legal hold', description: 'Suppress deletion across the workspace during litigation or investigation.', Icon: IconShield },
     { href: '/settings/workspace-freeze', label: 'Workspace freeze', description: 'Pause every mutating endpoint while keeping reads and exports available.', Icon: IconShield },
+    { href: '/settings/vendor-access', label: 'Vendor support access', description: 'Default-closed lockbox controlling whether vendor support can read this workspace. Time-bound, audited grants.', Icon: IconShield },
     { href: '/settings/workspace-deletion', label: 'Workspace deletion', description: 'Schedule a tenant-wide wipe with a cancelable grace window. Owner only.', Icon: IconTrash },
     { href: '/settings/mfa-policy', label: 'MFA enforcement', description: 'Require every member to enrol multi-factor auth before any write is accepted.', Icon: IconShield },
     { href: '/settings/session-policy', label: 'Session lifetime', description: 'Cap how long a signed-in browser session lives and how long it can sit idle.', Icon: IconClockCountdown },

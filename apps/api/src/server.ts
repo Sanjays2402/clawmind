@@ -21,6 +21,7 @@ import { ipAllowlistPlugin } from './plugins/ip-allowlist.js';
 import { workspaceIpAllowlistPlugin } from './plugins/workspace-ip-allowlist.js';
 import { workspaceFreezePlugin } from './plugins/workspace-freeze.js';
 import { workspaceDeletionPlugin } from './plugins/workspace-deletion.js';
+import { vendorAccessPlugin } from './plugins/vendor-access.js';
 import { dataResidencyPlugin } from './plugins/data-residency.js';
 import { mfaPolicyPlugin } from './plugins/mfa-policy.js';
 import { auditPlugin } from './plugins/audit.js';
@@ -209,6 +210,7 @@ export async function buildApp(): Promise<any> {
   await app.register(workspaceIpAllowlistPlugin);
   await app.register(workspaceFreezePlugin);
   await app.register(workspaceDeletionPlugin);
+  await app.register(vendorAccessPlugin);
   await app.register(dataResidencyPlugin);
   await app.register(mfaPolicyPlugin);
   await app.register(policyGatePlugin);

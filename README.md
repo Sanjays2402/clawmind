@@ -10,6 +10,36 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Vendor support access lockbox: enterprise procurement reviewers require proof that vendor support engineers cannot read a customer workspace unless the customer has explicitly and recently opened a time-bound door. The lockbox is closed by default; while closed, any request bearing `X-Vendor-Support-Token` is rejected with `403 vendor-access-denied` before auth runs, and every API response (every endpoint, including unauthenticated `/healthz`) carries `X-Vendor-Access-Lockbox: closed` so a customer's SIEM can alert on the literal header value. `GET /v1/workspace/vendor-access` (admin+) returns the policy, current grant, and capped history; `PUT /v1/workspace/vendor-access/policy` (owner + MFA) sets `enabled`, `maxDurationSec` (hard ceiling 24h), `requireJustification`, and `requireTicket`; `POST /v1/workspace/vendor-access/grants` (owner + MFA) mints a single time-bounded grant returning the raw token exactly once (only an sha256 hash is persisted, identical contract to API keys) and writes a `vendor-access.grant.create` row with actor, reason, ticket, and expiry to the hash-chained audit log; `DELETE /v1/workspace/vendor-access/grants/current` revokes it. While a grant is active the response header flips to `X-Vendor-Access-Lockbox: open; expires-at=<iso>` and successful uses bump `lastUsedAt` and `useCount` on the grant so an owner can audit usage in real time. Disabling the policy immediately revokes any active grant, the lockbox state is cached for one second to keep the hot-path off disk, and token comparison is constant-time. The console at `/settings/vendor-access` exposes the policy toggle, mint/revoke flow, a live countdown, and the past 25 grants with reason and ticket inline. Read is gated by `vendor-access:read` (admin), writes by `vendor-access:admin` (owner + MFA).
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # Verify the lockbox is closed on any endpoint, even /healthz
+  curl -sSI http://localhost:8787/healthz | grep -i 'x-vendor-access-lockbox'
+
+  # Read current state (admin or higher)
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:8787/v1/workspace/vendor-access
+
+  # Open the lockbox with a 1-hour ceiling, require a written reason (owner + MFA)
+  curl -sS -X PUT -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"enabled":true,"maxDurationSec":3600,"requireJustification":true,"requireTicket":false}' \
+    http://localhost:8787/v1/workspace/vendor-access/policy
+
+  # Mint a 15-minute grant tied to incident INC-42
+  curl -sS -X POST -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"durationSec":900,"reason":"INC-42 root cause analysis","ticket":"INC-42"}' \
+    http://localhost:8787/v1/workspace/vendor-access/grants
+  # response: {"grant": {...}, "token": "cmv_..."}   # save this, it is shown once
+
+  # Revoke immediately when support is done
+  curl -sS -X DELETE -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    http://localhost:8787/v1/workspace/vendor-access/grants/current
+  ```
+
 - Model allowlist: enterprise procurement teams need a contractual guarantee that only approved LLM models ever serve answers in their workspace, even when the router has a fallback chain that could silently switch providers under load. `GET /v1/model-allowlist` (admin+) returns the current policy (`disabled`, `allow`, or `block`) with the configured model ids; `PUT /v1/model-allowlist/mode`, `POST /v1/model-allowlist`, and `DELETE /v1/model-allowlist/:id` are owner-only with MFA step-up. Enforcement runs on `/v1/ask` AFTER the LLM returns its model tag (so a fallback to a non-approved model is caught before the answer is written to history or fanned out to webhooks) and on `/v1/ask/stream` BEFORE the SSE stream opens (so a denied model never produces partial tokens). A non-approved model is rejected with `422 model-not-allowed` and every block writes a `model-allowlist.blocked` row to the hash-chained audit log with the model id, route, and policy mode. `allow` mode with an empty list is fail-closed by design: the console flags it explicitly so an owner cannot accidentally enable a policy that rejects every request. Read is gated by `model-allowlist:read` (admin), writes by `model-allowlist:admin` (owner + MFA). The settings console at `/settings/model-allowlist` exposes the mode toggle, an add/remove form, and the current rule list.
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):

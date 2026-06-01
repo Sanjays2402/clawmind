@@ -454,6 +454,28 @@ export interface WorkspaceFreeze {
   updatedAt: number;
 }
 
+export interface VendorAccessPolicy {
+  enabled: boolean;
+  maxDurationSec: number;
+  requireJustification: boolean;
+  requireTicket: boolean;
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export interface VendorAccessGrant {
+  id: string;
+  grantedBy: string;
+  reason: string | null;
+  ticket: string | null;
+  createdAt: number;
+  expiresAt: number;
+  revokedAt: number | null;
+  revokedBy: string | null;
+  lastUsedAt: number | null;
+  useCount: number;
+}
+
 export type WorkspaceDeletionState = 'none' | 'pending' | 'cancelled' | 'completed';
 
 export interface WorkspaceDeletion {
@@ -1356,6 +1378,33 @@ export const api = {
     }).then((r) => r.freeze),
   workspaceFreezeRelease: () =>
     j<{ freeze: WorkspaceFreeze }>('/v1/workspace/freeze', { method: 'DELETE' }).then((r) => r.freeze),
+
+  // Vendor Support Access Lockbox. Default-closed control that lets a
+  // workspace owner mint a time-bound, audited token a vendor support
+  // engineer can present via X-Vendor-Support-Token. Every API response
+  // carries X-Vendor-Access-Lockbox so monitoring can verify the door
+  // is shut.
+  vendorAccessGet: () =>
+    j<{
+      policy: VendorAccessPolicy;
+      current: VendorAccessGrant | null;
+      history: VendorAccessGrant[];
+    }>('/v1/workspace/vendor-access'),
+  vendorAccessUpdatePolicy: (input: Partial<VendorAccessPolicy>) =>
+    j<{ policy: VendorAccessPolicy }>('/v1/workspace/vendor-access/policy', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.policy),
+  vendorAccessGrant: (input: { durationSec: number; reason?: string | null; ticket?: string | null }) =>
+    j<{ grant: VendorAccessGrant; token: string }>(
+      '/v1/workspace/vendor-access/grants',
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
+  vendorAccessRevoke: () =>
+    j<{ grant: VendorAccessGrant | null }>(
+      '/v1/workspace/vendor-access/grants/current',
+      { method: 'DELETE' },
+    ).then((r) => r.grant),
 
   // Workspace scheduled deletion (GDPR right to erasure, tenant level).
   // Schedules a hard wipe N days out (default 7, clamped to [1h, 90d]).

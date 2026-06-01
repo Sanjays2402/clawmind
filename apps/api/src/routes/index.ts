@@ -71,6 +71,7 @@ import { signInGeofenceRoutes } from './sign-in-geofence.js';
 import { encryptionRoutes } from './encryption.js';
 import { sharePolicyRoutes } from './share-policy.js';
 import { modelAllowlistRoutes } from './model-allowlist.js';
+import { vendorAccessRoutes } from './vendor-access.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -146,6 +147,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(encryptionRoutes, { prefix: '/v1' });
   await app.register(sharePolicyRoutes, { prefix: '/v1' });
   await app.register(modelAllowlistRoutes, { prefix: '/v1' });
+  await app.register(vendorAccessRoutes, { prefix: '/v1' });
   // RFC 9116 lives at the well-known root, not under /v1.
   await app.register(securityTxtRoutes);
 }

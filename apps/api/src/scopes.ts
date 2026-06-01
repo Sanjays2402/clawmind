@@ -173,6 +173,9 @@ export const Scopes = {
   WorkspaceFreezeRead: 'workspace-freeze:read',
   WorkspaceFreezeManage: 'workspace-freeze:admin',
 
+  VendorAccessRead: 'vendor-access:read',
+  VendorAccessManage: 'vendor-access:admin',
+
   // Workspace policy documents (TOS / DPA / AUP) and per-user acceptance
   // records. Read is granted to every authenticated caller so the UI can
   // render the accept screen and any client can detect the 451 gate.
