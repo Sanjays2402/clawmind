@@ -2571,6 +2571,39 @@ UI:
   with `erasure-certificates:read`), with offline signature recheck per
   row so a tampered file is visible at a glance.
 
+## Try it: scheduled API key activation
+
+Pre-mint an API key for a fixed change-management window. The key is
+stored immediately but refuses to authenticate until the chosen
+timestamp arrives, then goes live with no manual rotation step.
+
+Local URL: `http://localhost:3000/settings/key-activation`.
+
+Mint a key scheduled to activate one hour from now:
+
+```bash
+NOW=$(node -e 'console.log(Date.now())')
+FUTURE=$((NOW + 3600000))
+curl -sX POST http://localhost:8080/v1/keys \
+  -H "authorization: Bearer $CLAWMIND_API_KEY" \
+  -H 'content-type: application/json' \
+  -d "{\"label\":\"vendor-cutover\",\"notBefore\":$FUTURE}"
+```
+
+Until `notBefore` arrives, requests with the new secret receive:
+
+```
+HTTP/1.1 401 Unauthorized
+X-API-Key-Not-Before: 2026-05-31T23:45:00.000Z
+Retry-After: 3540
+
+{"error":"api key not yet active","reason":"not_yet_active","notBefore":"...","waitSeconds":3540}
+```
+
+Reschedule or clear later with `PUT /v1/keys/:id/activates-at`
+(`{"notBefore": <epoch-ms>}` or `{"notBefore": null}`). Every change is
+audited and the dashboard shows pending vs active per key.
+
 ## License
 
 MIT. See `LICENSE`.
