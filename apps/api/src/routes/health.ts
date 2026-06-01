@@ -50,4 +50,22 @@ export const healthRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/metrics.json', async () => snapshot());
 
   app.get('/version', async () => ({ version: '0.1.0', name: 'clawmind-api' }));
+
+  // Kubernetes-convention aliases. Many ingress controllers, service
+  // meshes, and security scanners default to /healthz, /readyz, /livez
+  // and will mark the workload unhealthy if those return 404. The CNCF
+  // norm is to alias them to the underlying probe handler instead of
+  // requiring operators to override defaults at deploy time.
+  app.get('/healthz', async (_req, reply) => { reply.code(200); return { ok: true }; });
+  app.get('/livez', async (_req, reply) => { reply.code(200); return { ok: true }; });
+  app.get('/readyz', async (_req, reply) => {
+    const ready = {
+      lance: typeof app.clawmind.lance.count === 'function',
+      bm25: app.clawmind.bm25 !== undefined,
+      manifest: app.clawmind.manifest !== undefined,
+    };
+    const ok = Object.values(ready).every(Boolean);
+    reply.code(ok ? 200 : 503);
+    return { ok, ...ready };
+  });
 };

@@ -10,6 +10,22 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Identity introspection (`/v1/whoami`): SDK and integrator debug endpoint that returns the server's view of the current request as `{ authenticated, via, user, apiKey:{ id, scopes }, elevation, request:{ id, ip, forwardedFor, userAgent, method, url, serverTime } }`. Safe to call anonymously: unauthenticated callers get a 200 with `authenticated:false` instead of a 401 so SDKs can tell apart "no creds" from "bad creds" without special-case error handling. Bearer tokens and cookies are never echoed back in the response. The companion `/settings/whoami` page renders the same envelope as a token / session debugger so a customer integrator can confirm role, scopes, source IP, and the request id the audit log will key on before they open a support ticket. Kubernetes-convention probe aliases `/healthz`, `/livez`, and `/readyz` are exposed alongside the existing `/live`, `/ready`, and `/health` so standard ingress controllers and security scanners work without operator overrides.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # Anonymous probe. Returns 200 with authenticated:false.
+  curl -sS http://localhost:7410/v1/whoami | jq
+
+  # Confirm what an API key can actually do.
+  curl -sS -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+    http://localhost:7410/v1/whoami | jq '.apiKey'
+
+  # Web debugger.
+  open http://localhost:7412/settings/whoami
+  ```
+
 - Record of Processing Activities (GDPR Article 30): every workspace publishes a register of processing activities at the unauthenticated `GET /v1/ropa` so a buyer's Data Protection Officer can cite a stable URL from their own Article 30 register during their review of the Data Processing Agreement instead of waiting on a manual PDF exchange. Each entry records the activity name, purpose, legal basis (one of the six Article 6(1) bases), data categories, data subjects, storage region, retention, recipients, and any non-EEA transfer mechanism such as SCCs. The public projection deliberately strips operator-only fields (internal notes, `updatedBy`) so an unauthenticated reader can never see private detail; a regression test pins that `publicView` removes notes. Admins read the operator view at `GET /v1/ropa/admin`; owners with MFA step-up add, update, retire, or restore entries via `POST/PATCH/DELETE /v1/ropa/:id`, and tune the public intro, controller contact, and DPO name via `PUT /v1/ropa/settings`. Every mutation writes a structured audit row with before/after diff and fans out a `ropa.changed` in-app notification to every workspace member, satisfying the "advance notice of material changes to processing" clause most enterprise master agreements require; broadcasts are best-effort so a notification failure cannot roll back the register write. Duplicate active names are rejected case-insensitively but a name becomes available again once retired so a renamed activity can be re-disclosed cleanly. The `/settings/ropa` page surfaces the active and retired registers, lets owners disclose, retire, and restore activities, and supports the `dry_run=1` query param on every mutation so an operator can preview a change before committing it.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):

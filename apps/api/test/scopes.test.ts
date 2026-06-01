@@ -24,8 +24,11 @@ const ROUTE_FILES = readdirSync(routesDir)
   .filter((f) => f.endsWith('.ts') && f !== 'index.ts');
 
 // Health and the public share-read endpoint do not require auth, so they
-// also do not declare scopes. Everything else must.
-const UNGATED_ROUTE_FILES = new Set(['health.ts']);
+// also do not declare scopes. Everything else must. /whoami is the
+// identity introspection endpoint and must be callable anonymously so
+// SDKs can distinguish "no creds" from "bad creds" without 401-parsing
+// special cases; it never returns workspace data.
+const UNGATED_ROUTE_FILES = new Set(['health.ts', 'whoami.ts']);
 
 describe('scope registry', () => {
   it('every Scopes.* value matches the wildcard or resource:action grammar', () => {

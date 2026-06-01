@@ -2686,7 +2686,40 @@ export const api = {
       body: JSON.stringify(input),
     }).then((r) => r.acceptance),
   acceptableUseCoverage: () => j<AcceptableUseCoverage>('/v1/acceptable-use/coverage'),
+
+  // Caller introspection. Safe to call anonymously: the server returns
+  // authenticated:false instead of 401 so the page can render a clean
+  // "you are not signed in" state without special-case error handling.
+  whoami: () => j<WhoamiEnvelope>('/v1/whoami'),
 };
+
+export interface WhoamiEnvelope {
+  schema: 'clawmind.whoami.v1';
+  authenticated: boolean;
+  via: 'session' | 'api-key' | 'anonymous';
+  user: {
+    id: string | null;
+    role: string | null;
+    email: string | null;
+    github: string | null;
+  };
+  apiKey: { id: string | null; scopes: string[] | null } | null;
+  elevation: {
+    id: string;
+    fromRole: string;
+    toRole: string;
+    expiresAt: number;
+  } | null;
+  request: {
+    id: string;
+    ip: string;
+    forwardedFor: string | null;
+    userAgent: string | null;
+    method: string;
+    url: string;
+    serverTime: number;
+  };
+}
 
 export type LoginBannerSeverity = 'info' | 'warning' | 'critical';
 
