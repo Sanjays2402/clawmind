@@ -316,6 +316,15 @@ export const Scopes = {
   IncidentsRead: 'incidents:read',
   IncidentsManage: 'incidents:admin',
 
+  // Personal Data Breach Notification Register (GDPR Art. 33/34). Read is
+  // admin+ so a compliance operator can pull the operator view
+  // (internalNotes, updatedBy) without being able to file or amend a
+  // regulatory disclosure. Manage is owner-only with MFA step-up at the
+  // route because every entry is a notifiable-breach record the regulator
+  // will cite; a silent edit is itself a compliance event.
+  BreachRegisterRead: 'breach-register:read',
+  BreachRegisterManage: 'breach-register:admin',
+
   // Workspace PII redaction policy. Read is admin+ so a compliance
   // operator can see which detector classes are active without being
   // able to weaken them. Manage is owner-only with MFA step-up because

@@ -10,6 +10,48 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Personal Data Breach Notification Register (GDPR Art. 33 / 34): every EU enterprise procurement DPA in 2024+ either asks "have you ever had a notifiable personal data breach" or asks for a link to your register; ClawMind ships a per-workspace, regulator-grade register backing a public timeline at `/breach-register` and a CSV export at `/v1/breach-register.csv`. Each entry captures the reference id, severity, status, when the breach was discovered, occurred, contained, and closed, the categories of personal data and data subjects involved, approximate record and subject counts, likely consequences, mitigations, and a published DPO contact. Notification status to the supervisory authority and to data subjects is tracked separately as required by Articles 33 and 34 respectively, with the authority's name, the notification timestamp, and (mandatory whenever the controller notified later than 72 hours after discovery, or marked the notification `delayed`) a written delay justification the regulator will ask for. Cross-field validation rejects `contained`/`closed` timestamps earlier than discovery, `closed` status without a `closedAt`, duplicate references, missing notification timestamps when status is `notified`, and missing justification when the 72 h window was missed. The public projection derives a `withinArt33Window` flag from `authorityNotifiedAt - discoveredAt <= 72h` and ships counters for total / open / overdue entries that the buyer's procurement tooling reads first. All mutations are owner-only, MFA-gated, scoped to `breach-register:admin`, support `?dry_run=true`, and write a `breach-register.create|update|delete` audit row with the reference, severity, status, and both notification states so a SIEM drain or webhook subscriber sees every change in real time. The operator GET at `/v1/breach-register/admin` surfaces operator-only fields (`internalNotes`, `updatedBy`) under `breach-register:read`. Fifteen tests pin validation of every required field and enum, the 72 h delay-justification rule, both notification-status invariants, `containedAt < discoveredAt` refusal, persistence across reads, duplicate-reference rejection on create and update, `createdAt` preservation through updates, the public projection stripping `internalNotes`/`updatedBy` and deriving the Art. 33 window flag, reverse-chronological ordering with correct overdue counters, and CSV escaping of values containing commas.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # 1. Read the public register (no auth, the URL a buyer's DPO will hit).
+  curl -s http://localhost:7410/v1/breach-register | jq
+
+  # 2. Download the regulator-ready CSV export.
+  curl -s -o breach-register.csv \
+    http://localhost:7410/v1/breach-register.csv
+
+  # 3. File a notifiable breach (owner + MFA + breach-register:admin).
+  curl -s -X POST http://localhost:7410/v1/breach-register \
+    -H 'authorization: Bearer $OWNER_KEY' \
+    -H 'x-mfa-token: 123456' \
+    -H 'content-type: application/json' \
+    -d '{
+      "reference":"BR-2026-001",
+      "title":"Misconfigured object storage exposed support attachments",
+      "summary":"A public-read ACL on the support-attachments bucket exposed redacted ticket files.",
+      "severity":"high",
+      "status":"contained",
+      "discoveredAt":1769817600000,
+      "dataCategories":"support ticket attachments, contact details",
+      "dataSubjects":"customer admins, end-users referenced in tickets",
+      "approxRecords":1234,
+      "approxSubjects":412,
+      "likelyConsequences":"limited reputational risk; no credentials exposed",
+      "mitigations":"revoked ACL, rotated bucket, forced re-auth of affected support agents",
+      "authorityNotification":"notified",
+      "authorityName":"IE DPC (lead supervisory authority)",
+      "authorityNotifiedAt":1770076800000,
+      "subjectNotification":"notified",
+      "subjectNotifiedAt":1769904000000,
+      "contact":"dpo@example.com"
+    }' | jq
+
+  # 4. Browse the public page in a browser:
+  #    http://localhost:7412/breach-register
+  ```
+
 - Per-API-key scheduled activation (`notBefore`): enterprise change-management workflows mint credentials ahead of a planned cutover (vendor go-live, scheduled maintenance, contract start date) and need them to refuse to transact until the chosen moment. ClawMind adds an optional `notBefore` timestamp to every API key, accepted at issuance (`POST /v1/keys` with `{ notBefore }`, owner + MFA + `keys:manage`) or set later via `PUT /v1/keys/:id/activates-at` (same guards). Values are validated to be finite, no more than 365 days ahead, and strictly less than the key's `expiresAt` (a window where the key would expire before it activated is rejected with `409 activation conflict` so a typo cannot mint a permanently dead credential). The auth layer evaluates `notBefore` before usage credit, scope mapping, or per-key rate limits: a pre-activation key is rejected with `401 api key not yet active`, a structured `{ reason: 'not_yet_active', notBefore, waitSeconds }` body, and `X-API-Key-Not-Before` plus `Retry-After` response headers so SDKs can surface a clean error or schedule a retry without polling. Every denial writes an `api_key.not_yet_active.denied` row to the hash-chained audit log with the actor, the route, the request id, and the configured activation timestamp, and the issue + schedule + clear actions all emit audit rows of their own. The `/keys` console surfaces an `activates <date>` badge on any pending key so admins can see at a glance which credentials are scheduled and when. Ten tests pin normalisation (null, past-coerced-to-null, NaN, year-cap), issuance persistence, the `notBefore >= expiresAt` refusal, owner-scoping of the update endpoint, and end-to-end auth-plugin behaviour (denied before activation with the documented headers, authenticates once the moment passes).
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):

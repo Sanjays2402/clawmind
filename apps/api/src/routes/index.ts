@@ -70,6 +70,7 @@ import { workspaceIpAllowlistRoutes } from './workspace-ip-allowlist.js';
 import { workspaceOriginAllowlistRoutes } from './workspace-origin-allowlist.js';
 import { trustRoutes, securityTxtRoutes } from './trust.js';
 import { incidentsRoutes } from './incidents.js';
+import { breachRegisterRoutes } from './breach-register.js';
 import { roleElevationRoutes } from './role-elevation.js';
 import { signInLogRoutes } from './sign-in-log.js';
 import { signInGeofenceRoutes } from './sign-in-geofence.js';
@@ -164,6 +165,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(workspaceOriginAllowlistRoutes, { prefix: '/v1' });
   await app.register(trustRoutes, { prefix: '/v1' });
   await app.register(incidentsRoutes, { prefix: '/v1' });
+  await app.register(breachRegisterRoutes, { prefix: '/v1' });
   await app.register(roleElevationRoutes, { prefix: '/v1' });
   await app.register(signInLogRoutes, { prefix: '/v1' });
   await app.register(signInGeofenceRoutes, { prefix: '/v1' });

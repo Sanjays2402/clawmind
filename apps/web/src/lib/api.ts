@@ -3586,3 +3586,50 @@ export function fmtRelative(ts: number | null): string {
   const d = Math.round(h / 24);
   return `${d}d ago`;
 }
+
+// Personal Data Breach Notification Register (GDPR Art. 33 / 34)
+export type BreachSeverity = 'low' | 'medium' | 'high' | 'critical';
+export type BreachStatus = 'open' | 'contained' | 'closed';
+export type BreachAuthorityNotificationStatus =
+  | 'not_required'
+  | 'pending'
+  | 'notified'
+  | 'delayed';
+export type BreachSubjectNotificationStatus =
+  | 'not_required'
+  | 'pending'
+  | 'notified'
+  | 'public_communication';
+export interface BreachPublic {
+  id: string;
+  reference: string;
+  title: string;
+  summary: string;
+  severity: BreachSeverity;
+  status: BreachStatus;
+  discoveredAt: number;
+  occurredAt: number | null;
+  containedAt: number | null;
+  closedAt: number | null;
+  dataCategories: string;
+  dataSubjects: string;
+  approxRecords: number | null;
+  approxSubjects: number | null;
+  likelyConsequences: string;
+  mitigations: string;
+  authorityNotification: BreachAuthorityNotificationStatus;
+  authorityName: string | null;
+  authorityNotifiedAt: number | null;
+  delayJustification: string | null;
+  subjectNotification: BreachSubjectNotificationStatus;
+  subjectNotifiedAt: number | null;
+  contact: string | null;
+  withinArt33Window: boolean | null;
+}
+export interface BreachRegisterPublic {
+  entries: BreachPublic[];
+  updatedAt: number;
+  totalCount: number;
+  openCount: number;
+  overdueCount: number;
+}
