@@ -14,6 +14,7 @@ import { recordSignIn } from '../services/sign-in-log.js';
 import { detectAndRecord as detectSignInAnomaly, resolveCountry as resolveSignInCountry } from '../services/sign-in-anomalies.js';
 import { getRecord as getGeofenceRecord, evaluate as evaluateGeofence } from '../services/sign-in-geofence.js';
 import { getPolicyCached as getSessionPolicyCached, evaluateSession as evaluateSessionPolicy } from '../services/session-policy.js';
+import { getPolicyCached as getApiKeyPolicyCached, evaluateRotation as evaluateApiKeyRotation } from '../services/api-key-policy.js';
 import { getStatus as getMfaStatus } from '../services/mfa.js';
 import { verifyCookie as verifyTrustedDeviceCookie, TRUSTED_DEVICE_COOKIE } from '../services/mfa-trusted-devices.js';
 import {
@@ -154,6 +155,49 @@ const plugin: FastifyPluginAsync = async (app) => {
         bruteforceRecordSuccess(req.ip);
       }
       if (result.ok) {
+        // Workspace forced-rotation enforcement. When the owner has set
+        // forcedRotationDays > 0, any key whose age (since creation or
+        // last rotation) exceeds that cap is rejected here, before the
+        // request can touch tenant data. The auditor's question ("can
+        // an over-age key still transact?") then has a single-line
+        // answer. The X-API-Key-* headers tell SDKs what to do without
+        // re-reading the policy endpoint.
+        try {
+          const apiKeyPolicy = await getApiKeyPolicyCached(app.clawmind.dataDir);
+          const rot = evaluateApiKeyRotation(
+            apiKeyPolicy,
+            { createdAt: result.record.createdAt, rotatedAt: result.record.rotatedAt ?? null },
+            Date.now(),
+          );
+          if (!rot.ok) {
+            void app.clawmind.audit.write({
+              actor: result.record.userId,
+              action: 'api_key.rotation.denied',
+              resource: result.record.id,
+              meta: {
+                ip: req.ip,
+                route: req.url,
+                ageDays: rot.ageDays,
+                maxAgeDays: rot.maxAgeDays,
+                requestId: req.id,
+              },
+            }).catch(() => undefined);
+            reply.header('x-api-key-rotation-required', '1');
+            reply.header('x-api-key-age-days', String(rot.ageDays));
+            reply.header('x-api-key-max-age-days', String(rot.maxAgeDays));
+            return reply.code(401).send({
+              error: 'api key rotation required',
+              reason: 'rotation-required',
+              ageDays: rot.ageDays,
+              maxAgeDays: rot.maxAgeDays,
+              hint: 'POST /v1/keys/:id/rotate to mint a fresh secret',
+            });
+          }
+        } catch {
+          // Fail-open on transient policy-store errors so a corrupt
+          // policy file does not lock every automation out. The doctor
+          // route surfaces the broken file separately.
+        }
         // Per-key IP allowlist. Reject before issuing usage credit so a
         // probing client cannot map the key's scope set from outside its
         // permitted range. The workspace-level allowlist (if any) is

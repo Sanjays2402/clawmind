@@ -809,6 +809,12 @@ export interface ApiKey {
   revokedAt: number | null;
   rotatedAt?: number | null;
   previousHashExpiresAt?: number | null;
+  needsRotation?: boolean;
+  inactivity?: {
+    status: 'off' | 'fresh' | 'warn' | 'expired';
+    ageDays: number;
+    willRevokeAt: number | null;
+  };
   rateLimit?: { max: number; windowMs: number } | null;
   allowedIps?: string[] | null;
   allowedOrigins?: string[] | null;
@@ -1080,6 +1086,12 @@ export const api = {
 
   // API keys
   keysList: () => j<{ items: ApiKey[] }>('/v1/keys').then((r) => r.items),
+  keysListWithPolicy: () =>
+    j<{
+      items: ApiKey[];
+      policy: { forcedRotationDays: number };
+      inactivity: { idleDays: number; warnDays: number; lastSweepAt: number | null };
+    }>('/v1/keys'),
   keyIssue: (input: { label: string; role?: 'owner' | 'reader'; scopes?: string[]; ttlMs?: number | null }) =>
     j<{ key: ApiKey; secret: string }>('/v1/keys', { method: 'POST', body: JSON.stringify(input) }),
   keyRevoke: (id: string) => j<{ ok: boolean }>(`/v1/keys/${id}`, { method: 'DELETE' }),

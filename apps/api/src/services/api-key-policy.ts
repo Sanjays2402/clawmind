@@ -318,3 +318,27 @@ export function needsRotation(
   const ageMs = now - anchor;
   return ageMs >= policy.forcedRotationDays * 24 * 60 * 60_000;
 }
+
+// Enforcement helper used at the auth boundary: when the workspace owner
+// has set forcedRotationDays > 0, any API key whose age exceeds the cap
+// is rejected at verify time so an auditor's request ("prove that an
+// over-age credential cannot transact") has a single-line answer. Pure;
+// the auth plugin layers the audit write and 401 response on top.
+export interface RotationDecision {
+  ok: boolean;
+  ageDays: number;
+  maxAgeDays: number;
+}
+
+export function evaluateRotation(
+  policy: ApiKeyPolicy,
+  key: { createdAt: number; rotatedAt?: number | null },
+  now: number,
+): RotationDecision {
+  const maxAgeDays = policy.forcedRotationDays;
+  const anchor = key.rotatedAt && key.rotatedAt > 0 ? key.rotatedAt : key.createdAt;
+  const ageMs = Math.max(0, now - anchor);
+  const ageDays = Math.floor(ageMs / (24 * 60 * 60_000));
+  if (maxAgeDays <= 0) return { ok: true, ageDays, maxAgeDays };
+  return { ok: ageDays < maxAgeDays, ageDays, maxAgeDays };
+}

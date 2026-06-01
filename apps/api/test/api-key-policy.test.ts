@@ -7,6 +7,7 @@ import {
   setPolicy,
   evaluateIssue,
   needsRotation,
+  evaluateRotation as evaluateRotationFn,
   invalidateCache,
   ApiKeyPolicyValidationError,
   MAX_TTL_MIN,
@@ -173,5 +174,45 @@ describe('needsRotation', () => {
         now,
       ),
     ).toBe(true);
+  });
+});
+
+describe('evaluateRotation', () => {
+  const base = {
+    workspaceId: 'default',
+    maxTtlMinutes: 0,
+    requireExpiry: false,
+    maxActiveKeysPerUser: 0,
+    maxScopesPerKey: 0,
+    allowWildcardScope: true,
+    forcedRotationDays: 30,
+    updatedAt: 0,
+    updatedBy: null,
+  };
+  const now = 1_700_000_000_000;
+  const day = 24 * 60 * 60_000;
+
+  it('passes through when forcedRotationDays is unset', () => {
+    const r = evaluateRotationFn(
+      { ...base, forcedRotationDays: 0 },
+      { createdAt: now - 365 * day },
+      now,
+    );
+    expect(r.ok).toBe(true);
+    expect(r.maxAgeDays).toBe(0);
+  });
+
+  it('denies an over-age key at the verify boundary', () => {
+    const r = evaluateRotationFn(base, { createdAt: now - 45 * day }, now);
+    expect(r.ok).toBe(false);
+    expect(r.ageDays).toBe(45);
+    expect(r.maxAgeDays).toBe(30);
+  });
+
+  it('allows a fresh rotation to restore a stale key', () => {
+    const stale = { createdAt: now - 90 * day, rotatedAt: now - 2 * day };
+    const r = evaluateRotationFn(base, stale, now);
+    expect(r.ok).toBe(true);
+    expect(r.ageDays).toBe(2);
   });
 });

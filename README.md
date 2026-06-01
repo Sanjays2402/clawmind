@@ -10,6 +10,28 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- API key forced-rotation enforcement at the auth boundary: workspace owners have long been able to set `forcedRotationDays` in the API key policy, but until now the cap was only surfaced as a hint on the `/v1/keys` list view. Over-age keys still authenticated, so a procurement auditor's question ("prove that a credential past the rotation cap cannot transact") had no honest answer. The cap is now enforced inside the auth plugin: after `verifySecret` matches, the workspace policy is consulted and any key whose age (since creation or the last successful rotate) is at or past `forcedRotationDays` is rejected with `401 rotation-required`. The response carries `X-API-Key-Rotation-Required: 1`, `X-API-Key-Age-Days`, and `X-API-Key-Max-Age-Days` so SDKs and CI scripts can detect the case without re-reading the policy endpoint, and a `api_key.rotation.denied` row is appended to the hash-chained audit log with actor, route, IP, age, and the cap. Existing per-key behaviours (IP allowlist, origin allowlist, scope check, custom rate limit) are unaffected because the rotation gate runs before any of them. Setting `forcedRotationDays = 0` (the default for fresh deployments) disables the check, preserving backwards compatibility. The console at `/settings/keys` surfaces a workspace-wide banner stating the current rotation cap and the count of overdue keys, and stamps a red `rotation required` badge on each individual row so an owner can act before the auditor calls. A transient policy-store read error fails open so a corrupt file cannot lock every automation out; the doctor route surfaces the broken file separately.
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # Owner sets a 90-day rotation cap (requires MFA step-up)
+  curl -sS -X PUT -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"forcedRotationDays":90}' \
+    http://localhost:8787/v1/api-key-policy
+
+  # Any over-age key now fails with 401 rotation-required and the X-API-Key-* headers
+  curl -sSi -H "Authorization: Bearer $STALE_KEY" \
+    http://localhost:8787/v1/keys | head -20
+
+  # Owner reads the annotated list to see which keys need rotation
+  curl -sS -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    http://localhost:8787/v1/keys | jq '.items[] | select(.needsRotation)'
+  ```
+
+  Console: <http://localhost:3000/keys>.
+
 - Sign-in anomaly detection (impossible travel): every successful sign-in (GitHub OAuth and OIDC) is compared against the actor's previous successful sign-in. When the two countries imply travel faster than `IMPOSSIBLE_SPEED_KMH` (default 900 km/h, faster than any commercial flight including layovers) an anomaly row is written to `sign-in-anomalies.json`, an audit row `sign-in.anomaly.detected` is appended to the hash-chained log, and the record surfaces in the console at `/settings/sign-in-anomalies`. Detection is best-effort and never blocks a login: a missing country header or an unknown centroid falls through silently, which avoids locking users out behind a misconfigured reverse proxy. Country resolution reuses the same trusted upstream headers as the geofence (`cf-ipcountry`, `cloudfront-viewer-country`, `x-vercel-ip-country`, `x-country`, `x-geo-country`); distance is computed against an embedded country-centroid table so no external GeoIP database is required. `GET /v1/sign-in-anomalies` returns the calling user's anomalies (scope `sign-in-anomalies:read`); `GET /v1/sign-in-anomalies/all` is admin+ (`sign-in-anomalies:admin`) and exposes the full workspace queue for SOC triage; `POST /v1/sign-in-anomalies/:id/ack` flips a row to acknowledged and writes a `sign-in.anomaly.acknowledged` audit row. Cross-tenant isolation is enforced in the service layer: a non-admin can only see and acknowledge their own anomalies even though every row lives in the same on-disk file. The ring is capped at `MAX_RECORDS` (2000) so a noisy account cannot grow the file unbounded.
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):

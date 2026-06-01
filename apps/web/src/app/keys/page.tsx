@@ -29,6 +29,7 @@ const TTL_MS: Record<Exclude<TtlChoice, 'never'>, number> = {
 
 export default function KeysPage() {
   const [items, setItems] = useState<ApiKey[]>([]);
+  const [policy, setPolicy] = useState<{ forcedRotationDays: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -48,7 +49,9 @@ export default function KeysPage() {
     setLoading(true);
     setError(null);
     try {
-      setItems(await api.keysList());
+      const res = await api.keysListWithPolicy();
+      setItems(res.items);
+      setPolicy(res.policy);
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -146,6 +149,33 @@ export default function KeysPage() {
             <IconRefresh size={14} /> Refresh
           </button>
         </div>
+
+        {policy && policy.forcedRotationDays > 0 && (() => {
+          const overdue = items.filter((k) => k.needsRotation && !k.revokedAt).length;
+          return (
+            <div
+              className={[
+                'mt-4 flex items-start gap-2 rounded-md border px-3 py-2 text-xs',
+                overdue > 0
+                  ? 'border-cm-danger/40 bg-cm-danger/10 text-cm-danger'
+                  : 'border-cm-border bg-cm-bg-soft text-cm-muted',
+              ].join(' ')}
+              role={overdue > 0 ? 'alert' : undefined}
+            >
+              <IconWarning size={14} className="mt-0.5 shrink-0" />
+              <div>
+                <div className="font-medium">
+                  Rotation policy: every {policy.forcedRotationDays} days
+                </div>
+                <div className="mt-0.5">
+                  {overdue > 0
+                    ? `${overdue} key${overdue === 1 ? '' : 's'} past the rotation cap. The API rejects them with 401 rotation_required until rotated.`
+                    : 'All active keys are within the rotation cap.'}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         <form onSubmit={create} className="mt-5 cm-card p-4">
           <div className="flex items-center gap-2 text-sm font-medium">
@@ -470,6 +500,14 @@ function KeyRow({
           {graceActive && (
             <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-amber-500">
               old secret valid {fmtRelative(k.previousHashExpiresAt!)}
+            </span>
+          )}
+          {k.needsRotation && !k.revokedAt && (
+            <span
+              className="inline-flex items-center gap-1 rounded-md bg-cm-danger/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-cm-danger"
+              title="This key is older than the workspace rotation policy and is being denied at the auth boundary. Rotate to mint a fresh secret."
+            >
+              <IconWarning size={10} /> rotation required
             </span>
           )}
         </div>
