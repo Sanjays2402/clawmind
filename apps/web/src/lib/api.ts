@@ -546,6 +546,25 @@ export interface SharePolicyLimits {
   maxTtlDays: number;
 }
 
+export type ClassificationLabel = 'public' | 'internal' | 'confidential' | 'restricted';
+
+export interface ClassificationPolicy {
+  workspaceId: string;
+  allowPublicShareUpTo: ClassificationLabel;
+  defaultLabel: ClassificationLabel;
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export interface ClassificationPolicyLimits {
+  labels: readonly ClassificationLabel[];
+}
+
+export interface ClassificationLabelEntry {
+  path: string;
+  label: ClassificationLabel;
+}
+
 export interface ApiKeyPolicy {
   workspaceId: string;
   maxTtlMinutes: number;
@@ -1519,6 +1538,28 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(input),
     }).then((r) => r.policy),
+
+  classificationPolicyGet: () =>
+    j<{ policy: ClassificationPolicy; limits: ClassificationPolicyLimits }>(
+      '/v1/classification/policy',
+    ),
+  classificationPolicySet: (input: {
+    allowPublicShareUpTo?: ClassificationLabel;
+    defaultLabel?: ClassificationLabel;
+  }) =>
+    j<{ policy: ClassificationPolicy }>('/v1/classification/policy', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.policy),
+  classificationLabelsList: () =>
+    j<{ items: ClassificationLabelEntry[] }>('/v1/classification/labels').then(
+      (r) => r.items,
+    ),
+  classificationLabelSet: (path: string, label: ClassificationLabel | null) =>
+    j<{ path: string; label: ClassificationLabel | null }>(
+      `/v1/classification/labels/${encodeURIComponent(path)}`,
+      { method: 'PUT', body: JSON.stringify({ label }) },
+    ),
 
   apiKeyPolicyGet: () =>
     j<{ policy: ApiKeyPolicy; limits: ApiKeyPolicyLimits }>('/v1/api-key-policy'),

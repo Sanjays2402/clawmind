@@ -387,6 +387,15 @@ export const Scopes = {
   // visible event.
   AuditDrainsRead: 'audit-drains:read',
   AuditDrainsManage: 'audit-drains:admin',
+
+  // Data classification (sensitivity labels). Read is admin+ so a
+  // compliance operator can review every label and the workspace
+  // sharing cap without being able to widen it. Manage is owner-only
+  // with MFA step-up at the route because relabelling a path or
+  // raising the cap can let the next /v1/share mint a link that the
+  // previous policy would have blocked.
+  ClassificationRead: 'classification:read',
+  ClassificationManage: 'classification:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

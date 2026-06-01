@@ -10,6 +10,28 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Data classification with share-time enforcement (SOC2 CC6.7 / ISO 27001 A.8.2): every cited source path can carry exactly one sensitivity label from a fixed four-level scale (`public`, `internal`, `confidential`, `restricted`) and the workspace owner sets `allowPublicShareUpTo` to cap which labels are permitted in a public `/s/<id>` link. Unlabelled paths fall back to the workspace `defaultLabel` (initially `internal`) so existing content is not silently downgraded the moment the policy is enabled, and an owner can flip the default to `confidential` to quarantine new documents from share-by-default until they are reviewed. The gate lives in `POST /v1/share` after the share-policy check: the route walks every source path in the body, looks up its effective label, and refuses the mint with `403 classification policy denied` the first time a label exceeds the cap. The 403 body and the audit row both name the offending path and label, so a security operator can answer "which document blocked the share" without grepping the source list. Owners manage policy and labels from `/settings/classification`: a single page covers the cap, the default, and a per-path label list with inline relabel and clear. Policy and label mutations require owner role plus MFA step-up and write before/after diffs to the hash-chained audit log; reads are admin+. A regression test pins the four-level rank order, proves an unlabelled path is blocked when the default exceeds the cap, proves an explicit `public` label permits the share, and proves the first violation in a multi-source citation is the one reported back.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # Owner sets the cap to "public": only paths explicitly labelled public can be shared.
+  curl -sS -X PUT -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"allowPublicShareUpTo":"public","defaultLabel":"internal"}' \
+    http://localhost:7410/v1/classification/policy
+
+  # Owner labels one document public so members can share it.
+  curl -sS -X PUT -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"label":"public"}' \
+    http://localhost:7410/v1/classification/labels/docs%2Fhandbook.md
+
+  # Admin lists every labelled path.
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:7410/v1/classification/labels | jq
+  ```
+
 - Audit log SIEM drains (SOC2 CC7.2 / ISO 27001 A.12.4.1): workspace owners point the hash-chained audit log at one or more HTTPS sinks from `/audit/drains` and a background worker pushes new events every `CLAWMIND_AUDIT_DRAIN_INTERVAL_MS` (default 30s) without blocking the request that wrote them. Three sink kinds ship out of the box: a generic HMAC-signed POST, `splunk-hec` (sets `Authorization: Splunk <secret>`), and `datadog` (sets `DD-API-KEY`). Every batch is newline-delimited JSON prefixed with a `__clawmind_drain__` envelope (drain id, monotonic sequence, batch timestamp, cursor before/after) and signed with HMAC-SHA256 over the raw body in `X-ClawMind-Signature: sha256=<hex>` so the receiver can authenticate the sender and reject replays. A per-drain cursor (last delivered `ts` + `id`) is persisted to disk, so a restart resumes exactly where it left off and never replays the whole chain. Failed deliveries back off exponentially (capped at one hour) and after six consecutive failures the batch is moved to a bounded dead-letter list, the cursor advances, and the next batch is attempted; the dead-letter list is visible at `GET /v1/audit/drains/:id/dead` so an operator sees a stuck receiver instead of silently dropping audit traffic. All mutations (create, update, rotate-secret, delete, flush) require owner role plus MFA step-up and themselves write an audit row, which then streams back through the drain, giving a regulator a closed loop on "who pointed the audit feed where". Secrets are shown exactly once at create time and on explicit rotation; subsequent reads only surface a 12-hex `secretFingerprint`. The URL guard rejects unsupported schemes, embedded credentials, and loopback/link-local hosts unless `CLAWMIND_ALLOW_LOOPBACK_DRAINS=1`. A regression test posts a real batch through the worker against a fake fetch, recomputes the signature with the secret, and proves the receiver can verify it; a second test runs six failures and asserts the batch is dead-lettered and the cursor advances past it.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):

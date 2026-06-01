@@ -17,6 +17,10 @@ import {
   getPolicyCached as getSharePolicy,
   evaluate as evalSharePolicy,
 } from '../services/share-policy.js';
+import {
+  getPolicyCached as getClassificationPolicy,
+  evaluateShare as evalClassification,
+} from '../services/classification.js';
 
 // Public shares: any signed-in user can mint a /s/<id> link that anyone on
 // the internet can read without auth. We also let owners list and revoke
@@ -81,6 +85,47 @@ export const shareRoutes: FastifyPluginAsyncZod = async (app) => {
           message: decision.message,
         });
       }
+      // Data classification gate. Even if the share-policy permits the
+      // mint, every cited source's sensitivity label is compared
+      // against the workspace cap. Any single source labelled above
+      // the cap blocks the share and is audit-logged with the offender.
+      const classPolicy = await getClassificationPolicy(app.clawmind.dataDir);
+      const sourcePaths: string[] = [];
+      for (const s of req.body.sources) {
+        const p = (s as { path?: unknown })?.path;
+        if (typeof p === 'string' && p.length > 0) sourcePaths.push(p);
+      }
+      const classDecision = await evalClassification(
+        app.clawmind.dataDir,
+        classPolicy,
+        sourcePaths,
+      );
+      if (!classDecision.ok) {
+        await app.clawmind.audit.write({
+          actor: req.user!.id,
+          action: 'share.create.denied',
+          resource: '/v1/share',
+          meta: {
+            ip: req.ip,
+            requestId: req.id,
+            reason: classDecision.reason,
+            blockedPath: classDecision.blockedPath,
+            blockedLabel: classDecision.blockedLabel,
+            policy: {
+              allowPublicShareUpTo: classPolicy.allowPublicShareUpTo,
+              defaultLabel: classPolicy.defaultLabel,
+            },
+          },
+        });
+        return reply.code(403).send({
+          error: 'classification policy denied',
+          reason: classDecision.reason,
+          message: classDecision.message,
+          blockedPath: classDecision.blockedPath,
+          blockedLabel: classDecision.blockedLabel,
+        });
+      }
+
       const ttlDays = decision.ttlDays;
       const ttlMs =
         ttlDays === null
