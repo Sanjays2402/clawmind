@@ -366,6 +366,15 @@ export const Scopes = {
   // call whose fallback model is no longer approved.
   ModelAllowlistRead: 'model-allowlist:read',
   ModelAllowlistManage: 'model-allowlist:admin',
+
+  // Pre-auth system-use notification banner (NIST SP 800-53 AC-8).
+  // Read is auth+admin so an admin can review the ack ledger; the banner
+  // itself is exposed unauthenticated by its own route so the login page
+  // can render it. Manage is owner-only with MFA step-up because enabling
+  // requireAck immediately blocks every session user from writing until
+  // they acknowledge on this session.
+  LoginBannerRead: 'login-banner:read',
+  LoginBannerManage: 'login-banner:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

@@ -2319,7 +2319,55 @@ export const api = {
     }),
   incidentsDelete: (id: string) =>
     j<{ deleted: boolean }>(`/v1/incidents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+
+  loginBannerGet: () =>
+    j<{ banner: LoginBanner }>('/v1/login-banner').then((r) => r.banner),
+  loginBannerPublish: (input: {
+    enabled: boolean;
+    title: string;
+    body: string;
+    severity: LoginBannerSeverity;
+    requireAck: boolean;
+  }) =>
+    j<{ banner: LoginBanner }>('/v1/login-banner', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.banner),
+  loginBannerDisable: () =>
+    j<{ banner: LoginBanner }>('/v1/login-banner', { method: 'DELETE' }).then((r) => r.banner),
+  loginBannerAck: (input: { bodyHash: string }) =>
+    j<{ ack: LoginBannerAck }>('/v1/login-banner/ack', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }).then((r) => r.ack),
+  loginBannerAcks: () =>
+    j<{ banner: LoginBanner; acks: LoginBannerAck[]; totalAcks: number }>(
+      '/v1/login-banner/acks',
+    ),
 };
+
+export type LoginBannerSeverity = 'info' | 'warning' | 'critical';
+
+export interface LoginBanner {
+  enabled: boolean;
+  title: string;
+  body: string;
+  severity: LoginBannerSeverity;
+  requireAck: boolean;
+  bodyHash: string | null;
+  publishedBy: string | null;
+  publishedAt: number | null;
+  updatedAt: number;
+}
+
+export interface LoginBannerAck {
+  userId: string;
+  sessionIdHash: string;
+  bodyHash: string;
+  ackedAt: number;
+  ip: string | null;
+  userAgent: string | null;
+}
 
 export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type IncidentStatus = 'investigating' | 'identified' | 'monitoring' | 'resolved';

@@ -10,6 +10,37 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Pre-auth system use notification banner (NIST 800-53 AC-8): workspace owners publish a short banner from `/settings/login-banner` with a title, markdown body, severity, and a `requireAck` toggle. The login page reads it unauthenticated from `GET /v1/login-banner` and renders it before credentials are entered, satisfying FedRAMP, FISMA, and FFIEC requirements that the notice precede authentication. When `requireAck` is on, an auth plugin gates every mutating session request: after sign-in the user must call `POST /v1/login-banner/ack` with the current SHA-256 `bodyHash` once per browser session before any write is accepted. Mutations from a session without a matching ack return `HTTP 412 login-banner-ack-required` with `X-Login-Banner-Ack-Required: 1` and `X-Login-Banner-Hash: <hash>` so the dashboard can redirect to the ack screen, and a `login-banner.denied` row is appended to the hash-chained audit log with actor, route, and request id. Acks are bound to the session id hash and body hash, so changing the banner body invalidates every prior ack and forces a re-acknowledgment on the next request; switching browsers also requires a fresh ack. Reads, the banner and ack endpoints themselves, auth/MFA/sessions flows, and API key callers (a service-account contract, not a per-user consent surface) are exempt. Admins can audit every recorded ack from `GET /v1/login-banner/acks` and the same screen, which lists userId, session id prefix, IP, and timestamp. Disk read errors fail open so a corrupt banner file cannot brick the API. Cross-session isolation is covered by a regression test that proves an ack recorded by session A does not satisfy the gate for session B even when both belong to the same user.
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # Owner publishes a banner (requires MFA step-up)
+  curl -sS -X PUT -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"enabled":true,"title":"System Use Notice","body":"WARNING: Authorized use only. Activity may be monitored.","severity":"warning","requireAck":true}' \
+    http://localhost:8787/v1/login-banner
+
+  # The login page reads it without authentication
+  curl -sS http://localhost:8787/v1/login-banner | jq
+
+  # Session user attempts a write before acknowledging
+  curl -sSi -b cookies.txt -X POST http://localhost:8787/v1/ingest -d '{}' | head -10
+  # -> HTTP/1.1 412 Precondition Failed, X-Login-Banner-Ack-Required: 1
+
+  # User acknowledges (the dashboard does this with the bodyHash from /v1/login-banner)
+  BODY_HASH=$(curl -sS http://localhost:8787/v1/login-banner | jq -r '.banner.bodyHash')
+  curl -sS -b cookies.txt -X POST -H "content-type: application/json" \
+    -d "{\"bodyHash\":\"$BODY_HASH\"}" \
+    http://localhost:8787/v1/login-banner/ack
+
+  # Admin reads the ack ledger
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:8787/v1/login-banner/acks | jq '.totalAcks'
+  ```
+
+  Console: <http://localhost:3000/settings/login-banner>.
+
 - API key forced-rotation enforcement at the auth boundary: workspace owners have long been able to set `forcedRotationDays` in the API key policy, but until now the cap was only surfaced as a hint on the `/v1/keys` list view. Over-age keys still authenticated, so a procurement auditor's question ("prove that a credential past the rotation cap cannot transact") had no honest answer. The cap is now enforced inside the auth plugin: after `verifySecret` matches, the workspace policy is consulted and any key whose age (since creation or the last successful rotate) is at or past `forcedRotationDays` is rejected with `401 rotation-required`. The response carries `X-API-Key-Rotation-Required: 1`, `X-API-Key-Age-Days`, and `X-API-Key-Max-Age-Days` so SDKs and CI scripts can detect the case without re-reading the policy endpoint, and a `api_key.rotation.denied` row is appended to the hash-chained audit log with actor, route, IP, age, and the cap. Existing per-key behaviours (IP allowlist, origin allowlist, scope check, custom rate limit) are unaffected because the rotation gate runs before any of them. Setting `forcedRotationDays = 0` (the default for fresh deployments) disables the check, preserving backwards compatibility. The console at `/settings/keys` surfaces a workspace-wide banner stating the current rotation cap and the count of overdue keys, and stamps a red `rotation required` badge on each individual row so an owner can act before the auditor calls. A transient policy-store read error fails open so a corrupt file cannot lock every automation out; the doctor route surfaces the broken file separately.
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
