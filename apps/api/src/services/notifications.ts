@@ -17,6 +17,7 @@ export type NotificationKind =
   | 'webhook.disabled'
   | 'webhook.failed'
   | 'sub-processor.changed'
+  | 'ropa.changed'
   | 'system';
 
 export interface NotificationRecord {

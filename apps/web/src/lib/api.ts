@@ -2391,6 +2391,69 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  // Record of Processing Activities (GDPR Art. 30). GET /v1/ropa is
+  // public so customer DPAs can cite the URL; the admin view
+  // surfaces operator-only notes for the operator console.
+  ropaPublic: () =>
+    j<{
+      intro: string;
+      controllerContact: string | null;
+      dpoName: string | null;
+      updatedAt: number;
+      entries: Omit<RopaActivity, 'notes'>[];
+    }>('/v1/ropa'),
+  ropaAdmin: () => j<RopaRegistry>('/v1/ropa/admin'),
+  ropaCreate: (body: {
+    name: string;
+    purpose: string;
+    legalBasis: RopaLegalBasis;
+    dataCategories: string;
+    dataSubjects: string;
+    storageRegion: string;
+    retention: string;
+    recipients?: string | null;
+    transferMechanism?: string | null;
+    notes?: string | null;
+  }) =>
+    j<{ entry: RopaActivity; registry: RopaRegistry }>('/v1/ropa', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  ropaUpdate: (
+    id: string,
+    body: Partial<{
+      name: string;
+      purpose: string;
+      legalBasis: RopaLegalBasis;
+      dataCategories: string;
+      dataSubjects: string;
+      storageRegion: string;
+      retention: string;
+      recipients: string | null;
+      transferMechanism: string | null;
+      notes: string | null;
+      status: 'active' | 'retired';
+    }>,
+  ) =>
+    j<{ entry: RopaActivity; registry: RopaRegistry }>(
+      `/v1/ropa/${encodeURIComponent(id)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  ropaRetire: (id: string) =>
+    j<{ entry: RopaActivity; registry: RopaRegistry }>(
+      `/v1/ropa/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    ),
+  ropaSettings: (body: {
+    intro?: string;
+    controllerContact?: string | null;
+    dpoName?: string | null;
+  }) =>
+    j<RopaRegistry>('/v1/ropa/settings', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
   // Recovery contacts. GET /v1/recovery-contacts is public (no auth)
   // so a buyer's incident-response runbook can cite a stable URL; the
   // admin view surfaces internal notes and updatedBy for owners.
@@ -2833,6 +2896,40 @@ export interface SubProcessorRegistry {
   intro: string;
   contactEmail: string | null;
   entries: SubProcessor[];
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export type RopaLegalBasis =
+  | 'consent'
+  | 'contract'
+  | 'legal_obligation'
+  | 'vital_interests'
+  | 'public_task'
+  | 'legitimate_interests';
+
+export interface RopaActivity {
+  id: string;
+  name: string;
+  purpose: string;
+  legalBasis: RopaLegalBasis;
+  dataCategories: string;
+  dataSubjects: string;
+  storageRegion: string;
+  recipients: string | null;
+  retention: string;
+  transferMechanism: string | null;
+  status: 'active' | 'retired';
+  disclosedAt: number;
+  updatedAt: number;
+  notes: string | null;
+}
+
+export interface RopaRegistry {
+  intro: string;
+  controllerContact: string | null;
+  dpoName: string | null;
+  entries: RopaActivity[];
   updatedAt: number;
   updatedBy: string | null;
 }

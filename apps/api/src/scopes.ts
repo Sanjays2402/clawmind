@@ -416,6 +416,16 @@ export const Scopes = {
   // playbook the next time they need it.
   RecoveryContactsRead: 'recovery-contacts:read',
   RecoveryContactsManage: 'recovery-contacts:admin',
+
+  // Record of Processing Activities (GDPR Article 30). The public
+  // projection at GET /v1/ropa has no auth at all by design so a
+  // customer's DPA can cite a stable URL and their DPO can verify our
+  // Art. 30 register exists. Read returns the operator view (private
+  // notes, updatedBy) and is admin+. Manage is owner-only with MFA
+  // step-up because every change is a regulatory disclosure that
+  // broadcasts an in-app notification to every member.
+  RopaRead: 'ropa:read',
+  RopaManage: 'ropa:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

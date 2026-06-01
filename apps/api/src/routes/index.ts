@@ -80,6 +80,7 @@ import { acceptableUseRoutes } from './acceptable-use.js';
 import { auditDrainsRoutes } from './audit-drains.js';
 import { classificationRoutes } from './classification.js';
 import { recoveryContactsRoutes } from './recovery-contacts.js';
+import { ropaRoutes } from './ropa.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -144,6 +145,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(workspaceQuotaRoutes, { prefix: '/v1' });
   await app.register(apiKeyBruteForceRoutes, { prefix: '/v1' });
   await app.register(subProcessorsRoutes, { prefix: '/v1' });
+  await app.register(ropaRoutes, { prefix: '/v1' });
   await app.register(piiRedactionRoutes, { prefix: '/v1' });
   await app.register(dataResidencyRoutes, { prefix: '/v1' });
   await app.register(dsrRoutes, { prefix: '/v1' });
