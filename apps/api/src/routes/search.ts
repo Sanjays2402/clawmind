@@ -7,6 +7,7 @@ import { recordUsage } from '../services/usage.js';
 import { enforceQuotaGate } from '../lib/quota-gate.js';
 import { enforceQueryBlocklist } from '../lib/query-blocklist-gate.js';
 import { enforcePiiRedaction } from '../lib/pii-redaction-gate.js';
+import { scanSources as scanInjectionSources } from '../lib/prompt-injection-gate.js';
 
 const SearchBody = QuerySchema.extend({
   /** When true (default), include a `snippet` with highlighted term spans. */
@@ -39,7 +40,18 @@ export const searchRoutes: FastifyPluginAsyncZod = async (app) => {
         const short = app.aliases.shorten(h.path);
         return short ? { ...h, displayPath: short } : h;
       });
-      if (!highlight) return { hits: decorated };
+      if (!highlight) {
+        const scan0 = await scanInjectionSources(app, req.user!.id, '/v1/search', decorated as any);
+        if (scan0.mode === 'block' && scan0.flagged.length > 0) {
+          return reply.code(422).send({
+            error: 'injection-detected',
+            message:
+              'Retrieved chunks contain content matching the workspace prompt-injection policy. Results were withheld.',
+            sourceIds: scan0.flagged.map((f) => f.source.id),
+          });
+        }
+        return { hits: scan0.annotated };
+      }
       // Combine the original query and the expanded query terms so synonyms
       // also light up in the snippet. We re-derive the expansion via the
       // same tokenizer here to keep the route stateless.
@@ -48,7 +60,16 @@ export const searchRoutes: FastifyPluginAsyncZod = async (app) => {
         ...h,
         snippet: snippetFor(h, terms, snippetWidth),
       }));
-      return { hits: enriched };
+      const scan = await scanInjectionSources(app, req.user!.id, '/v1/search', enriched as any);
+      if (scan.mode === 'block' && scan.flagged.length > 0) {
+        return reply.code(422).send({
+          error: 'injection-detected',
+          message:
+            'Retrieved chunks contain content matching the workspace prompt-injection policy. Results were withheld.',
+          sourceIds: scan.flagged.map((f) => f.source.id),
+        });
+      }
+      return { hits: scan.annotated };
     },
   });
 };

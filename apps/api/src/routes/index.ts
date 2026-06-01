@@ -56,6 +56,7 @@ import { dualControlRoutes } from './dual-control.js';
 import { policyRoutes } from './policies.js';
 import { workspaceExportRoutes } from './workspace-export.js';
 import { queryBlocklistRoutes } from './query-blocklist.js';
+import { promptInjectionPolicyRoutes } from './prompt-injection-policy.js';
 import { accessReviewsRoutes } from './access-reviews.js';
 import { offboardingRoutes } from './offboarding.js';
 import { workspaceQuotaRoutes } from './workspace-quota.js';
@@ -147,6 +148,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(policyRoutes, { prefix: '/v1' });
   await app.register(workspaceExportRoutes, { prefix: '/v1' });
   await app.register(queryBlocklistRoutes, { prefix: '/v1' });
+  await app.register(promptInjectionPolicyRoutes, { prefix: '/v1' });
   await app.register(accessReviewsRoutes, { prefix: '/v1' });
   await app.register(offboardingRoutes, { prefix: '/v1' });
   await app.register(workspaceQuotaRoutes, { prefix: '/v1' });

@@ -240,6 +240,15 @@ export const Scopes = {
   QueryBlocklistRead: 'query-blocklist:read',
   QueryBlocklistManage: 'query-blocklist:admin',
 
+  // Indirect prompt-injection policy. Scans retrieved RAG context
+  // for jailbreak / exfil / role-override payloads BEFORE the answer
+  // is surfaced. Read is admin+ so an auditor can review which rules
+  // are active (built-in seeds + workspace customs). Manage is
+  // owner-only with MFA step-up because flipping the mode to `block`
+  // can immediately 422 every /ask call hitting a poisoned chunk.
+  PromptInjectionRead: 'prompt-injection:read',
+  PromptInjectionManage: 'prompt-injection:admin',
+
   // Periodic access reviews (SOC2 CC6.3 / ISO 27001 A.9.2.5). Read is
   // admin+ so a compliance operator can pull historic recertifications;
   // Manage is owner-only with MFA step-up because closing a review can

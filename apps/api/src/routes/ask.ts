@@ -13,6 +13,9 @@ import { applyRateLimitHeaders } from '../services/rate-headers.js';
 import { enforceQueryBlocklist } from '../lib/query-blocklist-gate.js';
 import { enforcePiiRedaction } from '../lib/pii-redaction-gate.js';
 import { enforceModelAllowlist } from '../lib/model-allowlist-gate.js';
+import {
+  scanSources as scanInjectionSources,
+} from '../lib/prompt-injection-gate.js';
 
 export const askRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/ask', {
@@ -36,7 +39,22 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
       reply.header('x-clawmind-cache', 'miss');
       const result = await ask(app.rag, body);
       if (!(await enforceModelAllowlist(app, reply, req.user!.id, '/v1/ask', result.model))) return;
-      app.answerCache.set(key, result);
+      // Scan retrieved context for indirect prompt-injection. In
+      // `block` mode we refuse to surface the answer at all even
+      // though the LLM has already produced it; this is the
+      // documented trade-off for a non-streaming endpoint and is
+      // why the streaming path scans BEFORE the LLM is invoked.
+      const scan = await scanInjectionSources(app, req.user!.id, '/v1/ask', result.sources);
+      if (scan.mode === 'block' && scan.flagged.length > 0) {
+        return reply.code(422).send({
+          error: 'injection-detected',
+          message:
+            'Retrieved context contains content matching the workspace prompt-injection policy. The response was withheld.',
+          sourceIds: scan.flagged.map((f) => f.source.id),
+        });
+      }
+      const annotatedResult = { ...result, sources: scan.annotated };
+      app.answerCache.set(key, annotatedResult);
       const id = nanoid(10);
       await recordHistory(app.clawmind.dataDir, {
         id, ts: Date.now(), userId: req.user!.id, query: req.body.q,
@@ -49,7 +67,7 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
       }, req.user!.id);
       void recordUsage(app.clawmind.dataDir, req.user!.id, 'ask', 1).catch(() => undefined);
       void completeOnboardingStep(app.clawmind.dataDir, req.user!.id, 'ask').catch(() => undefined);
-      return { id, ...result };
+      return { id, ...annotatedResult };
     },
   });
 
@@ -84,20 +102,58 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
       const send = (event: unknown) => reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
       try {
         let buf = '';
-        const sources: unknown[] = [];
+        const sources: any[] = [];
         const body = { ...req.body, q: app.aliases.expandQuery(req.body.q) };
+        let injectionBlocked = false;
+        let injectionFlagsBySource: Record<string, unknown> | null = null;
         for await (const evt of askStream(app.rag, body)) {
+          if (evt.type === 'sources') {
+            const incoming = evt.value as any[];
+            sources.push(...incoming);
+            const scan = await scanInjectionSources(
+              app,
+              req.user!.id,
+              '/v1/ask/stream',
+              incoming,
+            );
+            if (scan.mode === 'block' && scan.flagged.length > 0) {
+              injectionBlocked = true;
+              send({
+                type: 'error',
+                value: {
+                  code: 'injection-detected',
+                  message:
+                    'Retrieved context matched the workspace prompt-injection policy; response withheld.',
+                  sourceIds: scan.flagged.map((f) => f.source.id),
+                },
+              });
+              break;
+            }
+            const annotated = scan.annotated;
+            if (scan.flagged.length > 0 && scan.mode === 'flag') {
+              injectionFlagsBySource = Object.fromEntries(
+                scan.flagged.map((f) => [f.source.id, f.flags]),
+              );
+              send({
+                type: 'injection-flags',
+                value: { mode: scan.mode, flags: injectionFlagsBySource },
+              });
+            }
+            send({ type: 'sources', value: annotated });
+            continue;
+          }
           if (evt.type === 'token') buf += evt.value;
-          if (evt.type === 'sources') sources.push(...(evt.value as unknown[]));
           send(evt);
         }
-        await recordHistory(app.clawmind.dataDir, {
-          id: nanoid(10), ts: Date.now(), userId: req.user!.id,
-          query: req.body.q, answer: buf, sources: sources as never, model: app.clawmind.llm.id,
-        });
-        void emitWebhook(app.clawmind.dataDir, 'ask.completed', {
-          query: req.body.q, answer: buf, sources, model: app.clawmind.llm.id,
-        }, req.user!.id);
+        if (!injectionBlocked) {
+          await recordHistory(app.clawmind.dataDir, {
+            id: nanoid(10), ts: Date.now(), userId: req.user!.id,
+            query: req.body.q, answer: buf, sources: sources as never, model: app.clawmind.llm.id,
+          });
+          void emitWebhook(app.clawmind.dataDir, 'ask.completed', {
+            query: req.body.q, answer: buf, sources, model: app.clawmind.llm.id,
+          }, req.user!.id);
+        }
       } catch (err) {
         send({ type: 'error', value: { message: (err as Error).message } });
       } finally {

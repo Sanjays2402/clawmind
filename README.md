@@ -10,6 +10,28 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Indirect prompt-injection policy: every retrieved RAG chunk is scanned BEFORE it is surfaced to the user or the LLM stream emits tokens, so an attacker who poisoned an ingested document (a webpage, a PR description, a shared note) cannot use that chunk to override the system prompt, exfiltrate keys, or trigger DAN-style jailbreaks. The policy ships with seven curated built-in rules covering the OWASP LLM Top 10 indirect-injection class (instruction override, system prompt disclosure, role override, image-tag exfiltration, zero-width payloads, embedded `<system>` tags, exfil keywords). Workspace owners (with MFA step-up) add their own regexes via `POST /v1/prompt-injection-policy/rules` and flip the global mode at `PUT /v1/prompt-injection-policy/mode` between `off`, `monitor` (audit only), `flag` (annotate each affected source with `injectionFlags: [{ruleId, severity, label}]` so the client can render a warning chip), and `block` (refuse `/v1/ask`, `/v1/ask/stream`, `/v1/search` with `422 injection-detected` listing the offending source ids). Every detection writes one audit row per call with `{ mode, sourceCount, sources: [{id, ruleIds, severity}] }` — never the matched excerpt text, so the tamper-evident chain never echoes the rotating jailbreak strings security teams add daily. Built-in rules can be individually disabled per workspace via `DELETE /v1/prompt-injection-policy/rules/:id` without removing the seed for fresh deployments. Backed by new `prompt-injection:read` and `prompt-injection:admin` scopes; admins can list active rules but cannot edit them.
+
+  Try it locally (API on `http://localhost:7410`):
+
+  ```bash
+  # 1. Flip the workspace into block mode (owner key with MFA step-up)
+  curl -X PUT http://localhost:7410/v1/prompt-injection-policy/mode \
+    -H "authorization: Bearer $OWNER_KEY" -H "content-type: application/json" \
+    -d '{"mode":"block"}'
+
+  # 2. List the active rule set (seven built-ins seeded on first read)
+  curl http://localhost:7410/v1/prompt-injection-policy -H "authorization: Bearer $ADMIN_KEY"
+
+  # 3. Add a workspace-specific rule for a rotated credential prefix
+  curl -X POST http://localhost:7410/v1/prompt-injection-policy/rules \
+    -H "authorization: Bearer $OWNER_KEY" -H "content-type: application/json" \
+    -d '{"pattern":"sk-live-ACME-[A-Z0-9]{16,}","severity":"high","label":"rotated ACME key"}'
+
+  # 4. Any /v1/ask whose retrieved context matches now returns 422 injection-detected
+  #    with sourceIds, and a prompt-injection.detected row lands in the audit chain.
+  ```
+
 - Dual-control approvals (four-eyes / NIST AC-3(2) two-person integrity): the most destructive admin actions can no longer be executed by a single human, even one with owner + MFA. ClawMind ships a tenant-scoped approval ledger at `GET/POST /v1/dual-control` and per-id `approve`/`reject` endpoints, all owner-gated and MFA-stepped. The first guarded action is `POST /v1/workspace/deletion` (workspace scheduled wipe): on a call without an `X-DualControl-Approval` header the API mints a pending approval and returns `412 Precondition Required` with the id; a second owner approves it in the `/admin/approvals` console; the original caller retries with the header set and the API consumes the approval and runs the action. The service enforces the cross-actor isolation rule in three places — requester != approver, approver != executor, and approvals are bound to a specific (action, resource) pair — so a compromised single owner credential cannot schedule a destructive action even with MFA. Every transition (request, approve, reject, consume, expire) lands in the hash-chained audit log with both human ids so a SOC2 reviewer can reconstruct who asked, who signed, and who pressed go. Approvals carry a TTL clamped to [5 min, 24 h], default 1 h, and are stored at `<dataDir>/dual-control.json` with atomic tmp+rename and the same on-disk shape conventions as `workspace-deletion.json`. Backed by new `dual-control:read` and `dual-control:admin` scopes.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
