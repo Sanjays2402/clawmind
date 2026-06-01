@@ -451,6 +451,7 @@ function ShortcutsCard() {
     { href: '/settings/pii-redaction', label: 'PII redaction', description: 'Scrub or block email, phone, SSN, credit card, IP, and custom regex matches before any query reaches retrieval or the LLM.', Icon: IconShield },
     { href: '/settings/pii-redaction', label: 'PII redaction', description: 'Redact or block secrets such as emails, SSNs and credit cards before any query reaches the LLM.', Icon: IconShield },
     { href: '/settings/policies', label: 'Workspace policies', description: 'Publish TOS, DPA, and AUP versions and track per-user acceptance.', Icon: IconBook },
+    { href: '/settings/acceptable-use', label: 'Acceptable use enforcement', description: 'Publish a versioned acceptable use policy and block writes from members who have not accepted the current version. Owner only with MFA step up.', Icon: IconBook },
     { href: '/settings/maintenance', label: 'Storage maintenance', description: 'Compact dangling rows and bulk forget indexed sources by glob.', Icon: IconShield },
     { href: '/settings/notifications', label: 'Notification preferences', description: 'Pick which inbox alerts you want to receive.', Icon: IconSettings },
     { href: '/usage', label: 'Usage details', description: 'Per-kind breakdown and reset timer.', Icon: IconChartBar },

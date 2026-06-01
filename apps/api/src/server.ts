@@ -33,6 +33,7 @@ import { securityHeadersPlugin } from './plugins/security-headers.js';
 import policyGatePlugin from './plugins/policy-gate.js';
 import { idempotencyPlugin } from './plugins/idempotency.js';
 import { loginBannerPlugin } from './plugins/login-banner.js';
+import { acceptableUsePlugin } from './plugins/acceptable-use.js';
 
 export async function buildApp(): Promise<any> {
   const env = loadEnv();
@@ -216,6 +217,7 @@ export async function buildApp(): Promise<any> {
   await app.register(mfaPolicyPlugin);
   await app.register(policyGatePlugin);
   await app.register(loginBannerPlugin);
+  await app.register(acceptableUsePlugin);
   await app.register(idempotencyPlugin);
   await app.register(ragPlugin);
   await registerRoutes(app as unknown as Parameters<typeof registerRoutes>[0]);

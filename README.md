@@ -479,6 +479,43 @@ curl -sS -i http://localhost:8787/v1/conversations \
   -d '{"title":"Different title"}'
 ```
 
+## Try it: acceptable use policy
+
+```bash
+# Owner publishes a versioned AUP and turns on enforcement.
+curl -sS http://localhost:8787/v1/acceptable-use \
+  -X PUT \
+  -H "authorization: Bearer $CLAWMIND_OWNER_KEY" \
+  -H "content-type: application/json" \
+  -d '{
+    "version": "2026-06-01",
+    "title": "Acceptable Use Policy",
+    "body": "Do not upload prohibited content...",
+    "requireAcceptance": true
+  }'
+
+# A member that has not accepted gets 412 on every mutating route,
+# with x-acceptable-use-version and an acceptUrl in the body.
+curl -sS -i http://localhost:8787/v1/docs \
+  -X POST \
+  -H "authorization: Bearer $CLAWMIND_MEMBER_KEY" \
+  -d '{"title":"notes"}'
+
+# Member accepts by echoing back the version and SHA-256 of the body
+# they saw. The bodyHash is returned from GET /v1/acceptable-use.
+curl -sS http://localhost:8787/v1/acceptable-use/accept \
+  -X POST \
+  -H "authorization: Bearer $CLAWMIND_MEMBER_KEY" \
+  -H "content-type: application/json" \
+  -d '{"version":"2026-06-01","bodyHash":"<sha256>"}'
+
+# Admins inspect coverage: who has accepted, who is outstanding.
+curl -sS http://localhost:8787/v1/acceptable-use/coverage \
+  -H "authorization: Bearer $CLAWMIND_ADMIN_KEY"
+```
+
+UI lives at <http://localhost:3000/settings/acceptable-use>.
+
 ## Try it: tamper-evident audit anchors
 
 The audit log is hash-chained, so an in-place edit shows up as a hash break.

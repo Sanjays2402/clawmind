@@ -2344,6 +2344,27 @@ export const api = {
     j<{ banner: LoginBanner; acks: LoginBannerAck[]; totalAcks: number }>(
       '/v1/login-banner/acks',
     ),
+
+  acceptableUseGet: () =>
+    j<{ policy: AcceptableUsePolicy; viewer: { userId: string; accepted: boolean } | null }>(
+      '/v1/acceptable-use',
+    ),
+  acceptableUsePublish: (input: {
+    version: string;
+    title: string;
+    body: string;
+    requireAcceptance: boolean;
+  }) =>
+    j<{ policy: AcceptableUsePolicy }>('/v1/acceptable-use', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.policy),
+  acceptableUseAccept: (input: { version: string; bodyHash: string }) =>
+    j<{ acceptance: AcceptableUseAcceptance }>('/v1/acceptable-use/accept', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }).then((r) => r.acceptance),
+  acceptableUseCoverage: () => j<AcceptableUseCoverage>('/v1/acceptable-use/coverage'),
 };
 
 export type LoginBannerSeverity = 'info' | 'warning' | 'critical';
@@ -2369,6 +2390,45 @@ export interface LoginBannerAck {
   userAgent: string | null;
 }
 
+export interface AcceptableUsePolicy {
+  version: string;
+  title: string;
+  body: string;
+  requireAcceptance: boolean;
+  publishedBy: string | null;
+  publishedAt: number | null;
+  bodyHash: string | null;
+}
+
+export interface AcceptableUseAcceptance {
+  userId: string;
+  version: string;
+  bodyHash: string;
+  acceptedAt: number;
+  ip: string | null;
+  userAgent: string | null;
+}
+
+export interface AcceptableUseCoverage {
+  policy: AcceptableUsePolicy;
+  accepted: Array<{
+    userId: string;
+    email: string | null;
+    label: string | null;
+    role: string;
+    acceptedAt: number | null;
+    ip: string | null;
+  }>;
+  outstanding: Array<{
+    userId: string;
+    email: string | null;
+    label: string | null;
+    role: string;
+  }>;
+  totalMembers: number;
+  totalAccepted: number;
+  totalAcceptances: number;
+}
 export type IncidentSeverity = 'low' | 'medium' | 'high' | 'critical';
 export type IncidentStatus = 'investigating' | 'identified' | 'monitoring' | 'resolved';
 export interface IncidentUpdate {
