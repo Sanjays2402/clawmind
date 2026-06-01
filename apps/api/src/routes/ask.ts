@@ -12,6 +12,7 @@ import { completeStep as completeOnboardingStep } from '../services/onboarding.j
 import { applyRateLimitHeaders } from '../services/rate-headers.js';
 import { enforceQueryBlocklist } from '../lib/query-blocklist-gate.js';
 import { enforcePiiRedaction } from '../lib/pii-redaction-gate.js';
+import { enforceModelAllowlist } from '../lib/model-allowlist-gate.js';
 
 export const askRoutes: FastifyPluginAsyncZod = async (app) => {
   app.post('/ask', {
@@ -34,6 +35,7 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
       }
       reply.header('x-clawmind-cache', 'miss');
       const result = await ask(app.rag, body);
+      if (!(await enforceModelAllowlist(app, reply, req.user!.id, '/v1/ask', result.model))) return;
       app.answerCache.set(key, result);
       const id = nanoid(10);
       await recordHistory(app.clawmind.dataDir, {
@@ -72,6 +74,9 @@ export const askRoutes: FastifyPluginAsyncZod = async (app) => {
       if (!pii.ok) return;
       req.body.q = pii.query!;
       if (!(await enforceQueryBlocklist(app, reply, req.user!.id, '/v1/ask/stream', req.body.q))) return;
+      // Enforce model allowlist before opening the SSE stream so a denied
+      // model never produces partial tokens to the client.
+      if (!(await enforceModelAllowlist(app, reply, req.user!.id, '/v1/ask/stream', app.clawmind.llm.id))) return;
       reply.raw.setHeader('content-type', 'text/event-stream');
       reply.raw.setHeader('cache-control', 'no-cache');
       reply.raw.setHeader('connection', 'keep-alive');

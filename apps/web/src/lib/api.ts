@@ -2010,6 +2010,26 @@ export const api = {
       method: 'DELETE',
     }).then((r) => r.rule),
 
+  // Workspace LLM model allowlist. Owner-managed policy controlling
+  // which model identifiers may serve answers. Enforced on /v1/ask and
+  // /v1/ask/stream; a non-approved model returns 422 'model-not-allowed'.
+  modelAllowlistGet: () =>
+    j<{ policy: ModelAllowlistPolicy }>('/v1/model-allowlist').then((r) => r.policy),
+  modelAllowlistSetMode: (mode: ModelAllowlistMode) =>
+    j<{ policy: ModelAllowlistPolicy }>('/v1/model-allowlist/mode', {
+      method: 'PUT',
+      body: JSON.stringify({ mode }),
+    }).then((r) => r.policy),
+  modelAllowlistAdd: (input: { model: string; label?: string | null }) =>
+    j<{ rule: ModelAllowlistRule }>('/v1/model-allowlist', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }).then((r) => r.rule),
+  modelAllowlistRemove: (id: string) =>
+    j<{ rule: ModelAllowlistRule }>(`/v1/model-allowlist/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    }).then((r) => r.rule),
+
   // Workspace PII redaction policy. Owner-managed detector classes
   // (email/phone/ssn/credit_card/ipv4 plus custom regex) enforced
   // before retrieval and the LLM on /v1/ask, /v1/ask/stream,
@@ -2365,6 +2385,25 @@ export interface BlocklistRule {
   label: string | null;
   createdBy: string;
   createdAt: number;
+  updatedAt: number;
+}
+
+export type ModelAllowlistMode = 'disabled' | 'allow' | 'block';
+
+export interface ModelAllowlistRule {
+  id: string;
+  model: string;
+  label: string | null;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ModelAllowlistPolicy {
+  version: 1;
+  mode: ModelAllowlistMode;
+  models: ModelAllowlistRule[];
+  updatedBy: string | null;
   updatedAt: number;
 }
 

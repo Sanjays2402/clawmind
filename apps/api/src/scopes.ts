@@ -349,6 +349,14 @@ export const Scopes = {
   // entire workspace out from a given region on the next sign-in.
   SignInGeofenceRead: 'sign-in-geofence:read',
   SignInGeofenceManage: 'sign-in-geofence:admin',
+
+  // Workspace LLM model allowlist. Read is admin+ so a compliance
+  // operator can quote the approved model set in a DPA without being
+  // able to widen it. Manage is owner-only with MFA step-up at the
+  // route because tightening it can immediately 422 the next /v1/ask
+  // call whose fallback model is no longer approved.
+  ModelAllowlistRead: 'model-allowlist:read',
+  ModelAllowlistManage: 'model-allowlist:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

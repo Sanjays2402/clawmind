@@ -10,6 +10,27 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Model allowlist: enterprise procurement teams need a contractual guarantee that only approved LLM models ever serve answers in their workspace, even when the router has a fallback chain that could silently switch providers under load. `GET /v1/model-allowlist` (admin+) returns the current policy (`disabled`, `allow`, or `block`) with the configured model ids; `PUT /v1/model-allowlist/mode`, `POST /v1/model-allowlist`, and `DELETE /v1/model-allowlist/:id` are owner-only with MFA step-up. Enforcement runs on `/v1/ask` AFTER the LLM returns its model tag (so a fallback to a non-approved model is caught before the answer is written to history or fanned out to webhooks) and on `/v1/ask/stream` BEFORE the SSE stream opens (so a denied model never produces partial tokens). A non-approved model is rejected with `422 model-not-allowed` and every block writes a `model-allowlist.blocked` row to the hash-chained audit log with the model id, route, and policy mode. `allow` mode with an empty list is fail-closed by design: the console flags it explicitly so an owner cannot accidentally enable a policy that rejects every request. Read is gated by `model-allowlist:read` (admin), writes by `model-allowlist:admin` (owner + MFA). The settings console at `/settings/model-allowlist` exposes the mode toggle, an add/remove form, and the current rule list.
+
+  Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):
+
+  ```bash
+  # Read the current policy (admin or higher)
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:8787/v1/model-allowlist
+
+  # Switch to allow-mode and pin an approved model (owner + MFA)
+  curl -sS -X PUT -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"mode":"allow"}' \
+    http://localhost:8787/v1/model-allowlist/mode
+
+  curl -sS -X POST -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"model":"gpt-4o-mini","label":"prod"}' \
+    http://localhost:8787/v1/model-allowlist
+  ```
+
 - Sign-in geofence: enterprise security teams routinely require that human sign-ins originate from a known set of countries (HR is in the EU, contractors are in two named LATAM markets, nobody should be completing OAuth from a sanctioned region). `GET /v1/sign-in-geofence` (owner) returns the active policy with limits and the default trusted-header list; `PUT /v1/sign-in-geofence` (owner + MFA) replaces it atomically with an `allow` or `block` list of ISO 3166-1 alpha-2 codes, a `requireCountry` fail-closed flag, and an optional `trustedHeaders` override for non-default reverse proxies. The country is resolved at the GitHub and OIDC callbacks from a trusted upstream header (`cf-ipcountry`, `cloudfront-viewer-country`, `x-vercel-ip-country`, `x-country`, `x-geo-country` by default), evaluated only at sign-in so an existing session is not killed when a member travels, and every block writes a `sign-in.geofence.blocked` row to the hash-chained audit log plus a failure row to the sign-in activity log with the resolved country and reason. The PUT path refuses to enable a policy that would block the caller's own current request unless `confirmSelfLockoutAccepted=true` is passed, so a typo in the policy editor cannot lock the whole workspace out. The console at `/settings/sign-in-geofence` exposes the allow/block toggle, a country chip list with comma-paste support, the fail-closed switch, and a live `What the server sees` probe at `GET /v1/sign-in-geofence/probe` that shows the country, source header, and current decision for the admin's browser before they save. Read is gated by `sign-in-geofence:read` (owner), writes by `sign-in-geofence:admin` (owner + MFA). The management endpoints are deliberately never gated by the policy itself so an owner whose region was just blocked can still recover via an alternate path.
 
   Try it locally (API on `http://localhost:8787`, web on `http://localhost:3000`):

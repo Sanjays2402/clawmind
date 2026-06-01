@@ -444,6 +444,7 @@ function ShortcutsCard() {
     { href: '/settings/encryption', label: 'Encryption keys (CMEK)', description: 'Bring your own KEK, rotate the workspace DEK, and audit every key transition. Owner only with MFA step up.', Icon: IconKey },
     { href: '/settings/workspace-export', label: 'Workspace export (GDPR)', description: 'Owner-only tenant-wide data export as JSON or ZIP. Required for exit and data-portability obligations.', Icon: IconShield },
     { href: '/settings/query-blocklist', label: 'Query blocklist', description: 'Block literal or regex patterns from reaching retrieval or the model on ask, search, and explain.', Icon: IconShield },
+    { href: '/settings/model-allowlist', label: 'Model allowlist', description: 'Restrict which LLM model identifiers may serve answers. Enforced on ask and ask stream with audit log; supports allow and block modes.', Icon: IconShield },
     { href: '/settings/pii-redaction', label: 'PII redaction', description: 'Scrub or block email, phone, SSN, credit card, IP, and custom regex matches before any query reaches retrieval or the LLM.', Icon: IconShield },
     { href: '/settings/pii-redaction', label: 'PII redaction', description: 'Redact or block secrets such as emails, SSNs and credit cards before any query reaches the LLM.', Icon: IconShield },
     { href: '/settings/policies', label: 'Workspace policies', description: 'Publish TOS, DPA, and AUP versions and track per-user acceptance.', Icon: IconBook },
