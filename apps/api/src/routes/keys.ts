@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS, setKeyAllowedIps, normaliseKeyIpRules, MAX_KEY_IP_RULES, setKeyAllowedOrigins, normaliseKeyOriginRules, MAX_KEY_ORIGIN_RULES, MAX_ORIGIN_LENGTH } from '../services/api-keys.js';
+import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS, setKeyAllowedIps, normaliseKeyIpRules, MAX_KEY_IP_RULES, setKeyAllowedOrigins, normaliseKeyOriginRules, MAX_KEY_ORIGIN_RULES, MAX_ORIGIN_LENGTH, setKeyAllowedHours, normaliseAllowedHours, MAX_KEY_HOURS_WINDOWS, MAX_KEY_TZ_LENGTH } from '../services/api-keys.js';
 import { getUsageReport, purgeUsage } from '../services/api-key-usage.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
@@ -315,6 +315,71 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
         action: normalised.length > 0 ? 'api_key.origin_allowlist.set' : 'api_key.origin_allowlist.clear',
         resource: req.params.id,
         meta: { count: normalised.length, origins: normalised },
+      });
+      return { key: redact(updated) };
+    },
+  });
+
+  // Set or clear the per-key time-of-day window. The policy is { tz,
+  // windows: [{ days, startMin, endMin }] } evaluated in the configured
+  // IANA tz. A request hitting this key outside every listed window is
+  // rejected 403 by the auth layer. Pass { allowedHours: null } to drop
+  // the restriction. Audited on every change.
+  app.put<{
+    Params: { id: string };
+    Body: {
+      allowedHours?: {
+        tz: string;
+        windows: { days: number[]; startMin: number; endMin: number }[];
+      } | null;
+    };
+  }>('/keys/:id/allowed-hours', {
+    schema: {
+      body: z.object({
+        allowedHours: z
+          .object({
+            tz: z.string().min(1).max(MAX_KEY_TZ_LENGTH),
+            windows: z
+              .array(
+                z.object({
+                  days: z.array(z.number().int().min(0).max(6)).min(1).max(7),
+                  startMin: z.number().int().min(0).max(1440),
+                  endMin: z.number().int().min(0).max(1440),
+                }),
+              )
+              .min(1)
+              .max(MAX_KEY_HOURS_WINDOWS),
+          })
+          .nullable()
+          .optional(),
+      }),
+    },
+    preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.KeysManage)],
+    handler: async (req, reply) => {
+      const raw = req.body.allowedHours ?? null;
+      const v = normaliseAllowedHours(raw);
+      if (!v.ok) {
+        return reply.code(400).send({
+          error: 'invalid allowed-hours policy',
+          message: v.message,
+          index: v.index,
+        });
+      }
+      const policy = v.policy ?? null;
+      const updated = await setKeyAllowedHours(
+        app.clawmind.dataDir,
+        req.user!.id,
+        req.params.id,
+        policy,
+      );
+      if (!updated) return reply.code(404).send({ error: 'not found' });
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: policy ? 'api_key.allowed_hours.set' : 'api_key.allowed_hours.clear',
+        resource: req.params.id,
+        meta: policy
+          ? { tz: policy.tz, windows: policy.windows.length }
+          : { cleared: true },
       });
       return { key: redact(updated) };
     },

@@ -858,6 +858,10 @@ export interface ApiKey {
   rateLimit?: { max: number; windowMs: number } | null;
   allowedIps?: string[] | null;
   allowedOrigins?: string[] | null;
+  allowedHours?: {
+    tz: string;
+    windows: { days: number[]; startMin: number; endMin: number }[];
+  } | null;
 }
 
 export interface KeyUsageEvent {
@@ -1166,6 +1170,17 @@ export const api = {
     j<{ key: ApiKey }>(
       `/v1/keys/${id}/origin-allowlist`,
       { method: 'PUT', body: JSON.stringify({ allowedOrigins }) },
+    ).then((r) => r.key),
+  keySetAllowedHours: (
+    id: string,
+    allowedHours: {
+      tz: string;
+      windows: { days: number[]; startMin: number; endMin: number }[];
+    } | null,
+  ) =>
+    j<{ key: ApiKey }>(
+      `/v1/keys/${id}/allowed-hours`,
+      { method: 'PUT', body: JSON.stringify({ allowedHours }) },
     ).then((r) => r.key),
   keyUsage: (id: string, opts: { recent?: number; routes?: number } = {}) => {
     const q = new URLSearchParams();

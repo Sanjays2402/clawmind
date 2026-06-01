@@ -326,6 +326,25 @@ export default function KeysPage() {
   );
 }
 
+function minutesToHHMM(min: number): string {
+  const m = Math.max(0, Math.min(1440, Math.round(min)));
+  const h = Math.floor(m / 60);
+  const r = m % 60;
+  return `${String(h).padStart(2, '0')}:${String(r).padStart(2, '0')}`;
+}
+
+function hhmmToMinutes(hhmm: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  if (!m) return null;
+  const h = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(h) || !Number.isFinite(mm)) return null;
+  if (h < 0 || h > 24 || mm < 0 || mm > 59) return null;
+  const total = h * 60 + mm;
+  if (total > 1440) return null;
+  return total;
+}
+
 function KeyRow({
   k,
   onRevoke,
@@ -361,6 +380,68 @@ function KeyRow({
   const [originsText, setOriginsText] = useState((k.allowedOrigins ?? []).join('\n'));
   const [originsSaving, setOriginsSaving] = useState(false);
   const [originsError, setOriginsError] = useState<string | null>(null);
+
+  const [showHours, setShowHours] = useState(false);
+  const initialHoursWindow = k.allowedHours?.windows?.[0];
+  const [hoursTz, setHoursTz] = useState(
+    k.allowedHours?.tz ?? (typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : 'UTC'),
+  );
+  const [hoursDays, setHoursDays] = useState<number[]>(
+    initialHoursWindow?.days ?? [1, 2, 3, 4, 5],
+  );
+  const [hoursStart, setHoursStart] = useState(
+    minutesToHHMM(initialHoursWindow?.startMin ?? 540),
+  );
+  const [hoursEnd, setHoursEnd] = useState(
+    minutesToHHMM(initialHoursWindow?.endMin ?? 1080),
+  );
+  const [hoursSaving, setHoursSaving] = useState(false);
+  const [hoursError, setHoursError] = useState<string | null>(null);
+
+  async function saveHours() {
+    const startMin = hhmmToMinutes(hoursStart);
+    const endMin = hhmmToMinutes(hoursEnd);
+    if (startMin == null || endMin == null) {
+      setHoursError('start and end must be HH:MM');
+      return;
+    }
+    if (endMin <= startMin) {
+      setHoursError('end must be after start (split overnight windows)');
+      return;
+    }
+    if (hoursDays.length === 0) {
+      setHoursError('pick at least one day');
+      return;
+    }
+    setHoursSaving(true);
+    setHoursError(null);
+    try {
+      await api.keySetAllowedHours(k.id, {
+        tz: hoursTz,
+        windows: [{ days: [...hoursDays].sort((a, b) => a - b), startMin, endMin }],
+      });
+      setShowHours(false);
+      window.location.reload();
+    } catch (err) {
+      setHoursError((err as Error).message);
+    } finally {
+      setHoursSaving(false);
+    }
+  }
+
+  async function clearHours() {
+    setHoursSaving(true);
+    setHoursError(null);
+    try {
+      await api.keySetAllowedHours(k.id, null);
+      setShowHours(false);
+      window.location.reload();
+    } catch (err) {
+      setHoursError((err as Error).message);
+    } finally {
+      setHoursSaving(false);
+    }
+  }
 
   async function saveOrigins() {
     const parsed = originsText
@@ -533,6 +614,11 @@ function KeyRow({
               origin allowlist {k.allowedOrigins.length}
             </span>
           )}
+          {k.allowedHours && k.allowedHours.windows.length > 0 && (
+            <span title={`${k.allowedHours.tz}, ${k.allowedHours.windows.length} window(s)`}>
+              hours {k.allowedHours.tz}
+            </span>
+          )}
         </div>
         {k.scopes && k.scopes.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
@@ -572,6 +658,13 @@ function KeyRow({
             className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
           >
             {showOrigins ? 'Hide origins' : k.allowedOrigins && k.allowedOrigins.length > 0 ? `Origins (${k.allowedOrigins.length})` : 'Restrict origins'}
+          </button>
+          <button
+            onClick={() => setShowHours((v) => !v)}
+            aria-expanded={showHours}
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
+          >
+            {showHours ? 'Hide hours' : k.allowedHours && k.allowedHours.windows.length > 0 ? `Hours (${k.allowedHours.tz})` : 'Restrict hours'}
           </button>
           <button
             onClick={() => onRotate(k.id)}
@@ -720,6 +813,99 @@ function KeyRow({
           </div>
           {originsError && (
             <div className="mt-2 text-xs text-cm-danger">{originsError}</div>
+          )}
+        </div>
+      )}
+      {showHours && (
+        <div className="mt-2 rounded-md border border-cm-border p-3">
+          <div className="mb-2 text-xs text-cm-muted">
+            Per-key time of day window. Requests outside this schedule are rejected with 403 before the call runs. Use to bind a CI key to business hours. Overnight windows: clear here and create two adjacent windows via the API.
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="flex flex-col text-xs text-cm-muted">
+              timezone (IANA)
+              <input
+                type="text"
+                value={hoursTz}
+                onChange={(e) => setHoursTz(e.target.value)}
+                placeholder="America/Los_Angeles"
+                spellCheck={false}
+                className="mt-1 w-56 rounded-md border border-cm-border bg-transparent px-2 py-1 font-mono text-xs text-cm-fg"
+              />
+            </label>
+            <label className="flex flex-col text-xs text-cm-muted">
+              start
+              <input
+                type="time"
+                value={hoursStart}
+                onChange={(e) => setHoursStart(e.target.value)}
+                className="mt-1 w-28 rounded-md border border-cm-border bg-transparent px-2 py-1 text-sm text-cm-fg"
+              />
+            </label>
+            <label className="flex flex-col text-xs text-cm-muted">
+              end
+              <input
+                type="time"
+                value={hoursEnd}
+                onChange={(e) => setHoursEnd(e.target.value)}
+                className="mt-1 w-28 rounded-md border border-cm-border bg-transparent px-2 py-1 text-sm text-cm-fg"
+              />
+            </label>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1">
+            {[
+              { v: 0, label: 'Sun' },
+              { v: 1, label: 'Mon' },
+              { v: 2, label: 'Tue' },
+              { v: 3, label: 'Wed' },
+              { v: 4, label: 'Thu' },
+              { v: 5, label: 'Fri' },
+              { v: 6, label: 'Sat' },
+            ].map((d) => {
+              const on = hoursDays.includes(d.v);
+              return (
+                <button
+                  key={d.v}
+                  type="button"
+                  onClick={() =>
+                    setHoursDays((cur) =>
+                      cur.includes(d.v) ? cur.filter((x) => x !== d.v) : [...cur, d.v],
+                    )
+                  }
+                  className={[
+                    'rounded-md border px-2 py-1 text-xs',
+                    on
+                      ? 'border-cm-fg bg-cm-fg text-cm-bg'
+                      : 'border-cm-border text-cm-muted hover:text-cm-fg',
+                  ].join(' ')}
+                  aria-pressed={on}
+                >
+                  {d.label}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              onClick={saveHours}
+              disabled={hoursSaving}
+              className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-fg px-3 py-1.5 text-sm text-cm-bg hover:opacity-90 disabled:opacity-50"
+            >
+              {hoursSaving ? <Spinner size={14} /> : <IconCheck size={14} />}
+              Save
+            </button>
+            {k.allowedHours && k.allowedHours.windows.length > 0 && (
+              <button
+                onClick={clearHours}
+                disabled={hoursSaving}
+                className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-danger disabled:opacity-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {hoursError && (
+            <div className="mt-2 text-xs text-cm-danger">{hoursError}</div>
           )}
         </div>
       )}

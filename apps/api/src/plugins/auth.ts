@@ -1,6 +1,6 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
-import { verifySecret, hasScope, ipAllowedByKey, originAllowedByKey } from '../services/api-keys.js';
+import { verifySecret, hasScope, ipAllowedByKey, originAllowedByKey, withinAllowedHours } from '../services/api-keys.js';
 import { recordIncident as recordHoneytokenIncident } from '../services/api-key-honeytokens.js';
 import { recordUsage, normaliseUa } from '../services/api-key-usage.js';
 import { consume as consumeKeyBucket } from '../services/api-key-rate-limit.js';
@@ -282,6 +282,26 @@ const plugin: FastifyPluginAsync = async (app) => {
             return reply.code(403).send({
               error: 'origin not allowed for this key',
               origin: originStr ?? null,
+            });
+          }
+        }
+        // Per-key time-of-day window. Reject before issuing usage credit
+        // so a probing client outside business hours cannot map scopes.
+        if (result.record.allowedHours && result.record.allowedHours.windows?.length) {
+          if (!withinAllowedHours(result.record.allowedHours)) {
+            await app.clawmind.audit.write({
+              actor: result.record.userId,
+              action: 'api_key.hours.denied',
+              resource: result.record.id,
+              meta: {
+                tz: result.record.allowedHours.tz,
+                windows: result.record.allowedHours.windows.length,
+                route: req.url,
+              },
+            }).catch(() => undefined);
+            return reply.code(403).send({
+              error: 'request outside allowed-hours window for this key',
+              tz: result.record.allowedHours.tz,
             });
           }
         }

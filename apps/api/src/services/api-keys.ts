@@ -88,12 +88,208 @@ export interface ApiKeyRecord {
   // where the secret was planted (e.g. "committed to legacy repo").
   isCanary?: boolean;
   canaryNote?: string | null;
+  // Optional per-key time-of-day access window. When set, the auth layer
+  // rejects any request whose wall-clock time (in the configured IANA
+  // tz) does not fall inside at least one of the listed windows. This
+  // lets a customer constrain a CI key to business hours so a stolen
+  // credential cannot be used overnight or on weekends. When undefined
+  // or empty there is no time restriction.
+  //
+  // Each window is { days: 0..6 (Sun..Sat), startMin: 0..1440,
+  // endMin: 0..1440 }. endMin must be strictly greater than startMin
+  // (overnight windows are expressed as two adjacent windows so the
+  // model stays trivially auditable). Max 14 windows per key.
+  allowedHours?: AllowedHoursPolicy | null;
   // Anchor used by the api-key-expiry policy to emit at most one
   // `api-key.expiry_warned` audit entry per key per warning crossing.
   // Set to expiresAt at the moment of warning so a subsequent extension
   // of the TTL (rotation) naturally clears the dedupe and a future
   // warning fires again.
   lastExpiryWarnedForExpiresAt?: number | null;
+}
+
+export const MAX_KEY_HOURS_WINDOWS = 14;
+export const MAX_KEY_TZ_LENGTH = 64;
+
+export interface AllowedHoursWindow {
+  /** Weekdays this window applies to. 0 = Sunday, 6 = Saturday. */
+  days: number[];
+  /** Inclusive start, minutes since midnight in tz. */
+  startMin: number;
+  /** Exclusive end, minutes since midnight in tz. Must be > startMin. */
+  endMin: number;
+}
+
+export interface AllowedHoursPolicy {
+  /** IANA timezone name, e.g. 'America/Los_Angeles' or 'UTC'. */
+  tz: string;
+  windows: AllowedHoursWindow[];
+}
+
+export interface AllowedHoursValidation {
+  ok: boolean;
+  policy?: AllowedHoursPolicy;
+  message?: string;
+  index?: number;
+}
+
+function isValidTimezone(tz: string): boolean {
+  if (typeof tz !== 'string' || tz.length === 0 || tz.length > MAX_KEY_TZ_LENGTH) return false;
+  try {
+    // Throws RangeError on unknown zones.
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validate and normalise an allowed-hours policy. Sorts and dedupes the
+ * `days` array of each window and returns canonical form so saved
+ * records compare cleanly.
+ */
+export function normaliseAllowedHours(raw: unknown): AllowedHoursValidation {
+  if (raw == null) return { ok: true };
+  if (typeof raw !== 'object') return { ok: false, message: 'policy must be an object' };
+  const r = raw as { tz?: unknown; windows?: unknown };
+  if (!isValidTimezone(String(r.tz ?? ''))) {
+    return { ok: false, message: 'invalid timezone' };
+  }
+  if (!Array.isArray(r.windows)) {
+    return { ok: false, message: 'windows must be an array' };
+  }
+  if (r.windows.length === 0) {
+    return { ok: false, message: 'at least one window is required' };
+  }
+  if (r.windows.length > MAX_KEY_HOURS_WINDOWS) {
+    return { ok: false, message: `too many windows (max ${MAX_KEY_HOURS_WINDOWS})` };
+  }
+  const out: AllowedHoursWindow[] = [];
+  for (let i = 0; i < r.windows.length; i++) {
+    const w = r.windows[i] as { days?: unknown; startMin?: unknown; endMin?: unknown };
+    if (!w || typeof w !== 'object') {
+      return { ok: false, index: i, message: 'window must be an object' };
+    }
+    if (!Array.isArray(w.days) || w.days.length === 0) {
+      return { ok: false, index: i, message: 'days must be a non-empty array' };
+    }
+    const days: number[] = [];
+    const seen = new Set<number>();
+    for (const d of w.days) {
+      if (!Number.isInteger(d) || (d as number) < 0 || (d as number) > 6) {
+        return { ok: false, index: i, message: 'days entries must be integers 0..6' };
+      }
+      const n = d as number;
+      if (seen.has(n)) continue;
+      seen.add(n);
+      days.push(n);
+    }
+    days.sort((a, b) => a - b);
+    if (!Number.isInteger(w.startMin) || (w.startMin as number) < 0 || (w.startMin as number) > 1440) {
+      return { ok: false, index: i, message: 'startMin must be 0..1440' };
+    }
+    if (!Number.isInteger(w.endMin) || (w.endMin as number) < 0 || (w.endMin as number) > 1440) {
+      return { ok: false, index: i, message: 'endMin must be 0..1440' };
+    }
+    if ((w.endMin as number) <= (w.startMin as number)) {
+      return { ok: false, index: i, message: 'endMin must be greater than startMin (split overnight windows)' };
+    }
+    out.push({ days, startMin: w.startMin as number, endMin: w.endMin as number });
+  }
+  return { ok: true, policy: { tz: String(r.tz), windows: out } };
+}
+
+// Cached formatter per tz so a hot auth path does not allocate.
+const HOURS_FORMATTERS = new Map<string, Intl.DateTimeFormat>();
+function hoursFormatter(tz: string): Intl.DateTimeFormat {
+  let f = HOURS_FORMATTERS.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+    HOURS_FORMATTERS.set(tz, f);
+  }
+  return f;
+}
+
+const WEEKDAY_INDEX: Record<string, number> = {
+  Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+};
+
+/**
+ * Return true when the wall-clock time `at` in the policy's tz falls
+ * inside any of the configured windows. An undefined or empty policy
+ * means unrestricted.
+ */
+export function withinAllowedHours(
+  policy: AllowedHoursPolicy | null | undefined,
+  at: Date = new Date(),
+): boolean {
+  if (!policy || !policy.windows || policy.windows.length === 0) return true;
+  let parts;
+  try {
+    parts = hoursFormatter(policy.tz).formatToParts(at);
+  } catch {
+    // Unknown tz at evaluation time: fail closed so a corrupted record
+    // does not silently widen access.
+    return false;
+  }
+  let weekday = -1;
+  let hour = -1;
+  let minute = -1;
+  for (const p of parts) {
+    if (p.type === 'weekday') {
+      const idx = WEEKDAY_INDEX[p.value];
+      if (idx != null) weekday = idx;
+    } else if (p.type === 'hour') {
+      // Intl returns '24' for midnight in some locales; normalise to 0.
+      const h = Number(p.value);
+      hour = h === 24 ? 0 : h;
+    } else if (p.type === 'minute') {
+      minute = Number(p.value);
+    }
+  }
+  if (weekday < 0 || hour < 0 || minute < 0) return false;
+  const minOfDay = hour * 60 + minute;
+  for (const w of policy.windows) {
+    if (!w.days.includes(weekday)) continue;
+    if (minOfDay >= w.startMin && minOfDay < w.endMin) return true;
+  }
+  return false;
+}
+
+/**
+ * Update or clear the per-key allowed-hours policy. Returns the updated
+ * record or null if the key is not owned by the user, revoked, or
+ * expired. Pass null to remove a previously configured policy.
+ */
+export async function setKeyAllowedHours(
+  dataDir: string,
+  userId: string,
+  id: string,
+  policy: AllowedHoursPolicy | null,
+  now: number = Date.now(),
+): Promise<ApiKeyRecord | null> {
+  if (policy != null) {
+    const v = normaliseAllowedHours(policy);
+    if (!v.ok) throw new Error(v.message ?? 'invalid allowed-hours policy');
+    policy = v.policy!;
+  }
+  const all = await loadKeys(dataDir);
+  const idx = all.findIndex((k) => k.id === id && k.userId === userId);
+  if (idx < 0) return null;
+  const cur = all[idx]!;
+  if (cur.revokedAt) return null;
+  if (cur.expiresAt && now > cur.expiresAt) return null;
+  const next: ApiKeyRecord = { ...cur, allowedHours: policy };
+  all[idx] = next;
+  await saveKeys(dataDir, all);
+  return next;
 }
 
 export const MAX_KEY_IP_RULES = 64;
@@ -547,6 +743,7 @@ export function redact(rec: ApiKeyRecord) {
     rateLimit: rec.rateLimit ?? null,
     allowedIps: rec.allowedIps ?? null,
     allowedOrigins: rec.allowedOrigins ?? null,
+    allowedHours: rec.allowedHours ?? null,
     isCanary: rec.isCanary === true,
     canaryNote: rec.canaryNote ?? null,
   };

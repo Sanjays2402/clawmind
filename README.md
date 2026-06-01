@@ -10,6 +10,31 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Per-API-key time-of-day window (allowed hours): enterprise security teams routinely require that automation credentials only work during business hours, so a stolen CI key cannot be replayed by an attacker overnight. ClawMind adds an `allowedHours` policy to every API key, set through `PUT /v1/keys/:id/allowed-hours` (owner + MFA + `keys:manage`) with `{ tz, windows:[{ days, startMin, endMin }] }` where `tz` is any IANA timezone, `days` is a list of 0..6 (Sun..Sat), and `startMin` / `endMin` are minutes since midnight. The auth layer evaluates the current wall-clock time in the configured tz on every request: if no window matches, the key is rejected with `403 request outside allowed-hours window for this key` before usage credit, scope mapping, or per-key rate limit decisions run, and an `api_key.hours.denied` row lands in the hash-chained audit log. Unknown timezones at evaluation time fail closed so a corrupted record cannot silently widen access; the validator also rejects overnight windows where end <= start (the buyer splits them into two adjacent windows so the model stays trivially auditable) and dedupes/sorts the `days` array for clean diffs. The `/keys` console exposes the same control as a compact panel with a timezone field, start/end pickers, and a day-of-week toggle row; the redacted key list surfaces the active window so admins can see at a glance which credentials are scheduled.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # 1. Bind a CI key to Mon-Fri 09:00..18:00 America/Los_Angeles.
+  curl -sS -X PUT http://localhost:7410/v1/keys/$KEY_ID/allowed-hours \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"allowedHours":{"tz":"America/Los_Angeles","windows":[{"days":[1,2,3,4,5],"startMin":540,"endMin":1080}]}}' | jq
+
+  # 2. A request outside the window is rejected at the auth boundary.
+  curl -sSi -H "Authorization: Bearer $CLAWMIND_CI_KEY" \
+    http://localhost:7410/v1/whoami | head -1
+
+  # 3. Clear the schedule.
+  curl -sS -X PUT http://localhost:7410/v1/keys/$KEY_ID/allowed-hours \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"allowedHours":null}' | jq
+
+  # Web console.
+  open http://localhost:7412/keys
+  ```
+
 - Software Bill of Materials (CycloneDX 1.5): every enterprise buyer's vulnerability-management team (Anchore, Snyk, Dependency-Track) needs a stable, machine-readable inventory of what runs in the deployment to reconcile against CISA's KEV catalog (US Executive Order 14028, EU CRA). ClawMind exposes one at `GET /v1/sbom.json` with no authentication so a procurement reviewer can pin the URL in their own record. The component graph is generated at request time from the on-disk `package.json` files across the monorepo (root + `apps/*` + `packages/*`), so a malicious admin cannot quietly drop a vulnerable library from the published SBOM. A small owner-managed attestation overlay (vendor identity, source repository, build commit, notes) layers on top and is stored separately; `POST /v1/admin/sbom/attestation/sign` pins a SHA-256 over the canonical document (timestamp and signature-derived properties stripped, so the signature is reproducible from the published SBOM) and records `signedBy` + component count. Editing the overlay automatically clears any prior signature so a buyer never sees a stale signed-by alongside fresh content. The public `/sbom` web page mirrors the trust-center surface with component counts, the signed attestation, and a one-click download. Backed by the new `sbom:read` (admin+) / `sbom:admin` (owner-only, MFA-stepped) scopes, every mutation lands in the hash-chained audit log with the commit and repository captured so a reviewer can reconstruct the public surface at any point.
 
 - Identity introspection (`/v1/whoami`): SDK and integrator debug endpoint that returns the server's view of the current request as `{ authenticated, via, user, apiKey:{ id, scopes }, elevation, request:{ id, ip, forwardedFor, userAgent, method, url, serverTime } }`. Safe to call anonymously: unauthenticated callers get a 200 with `authenticated:false` instead of a 401 so SDKs can tell apart "no creds" from "bad creds" without special-case error handling. Bearer tokens and cookies are never echoed back in the response. The companion `/settings/whoami` page renders the same envelope as a token / session debugger so a customer integrator can confirm role, scopes, source IP, and the request id the audit log will key on before they open a support ticket. Kubernetes-convention probe aliases `/healthz`, `/livez`, and `/readyz` are exposed alongside the existing `/live`, `/ready`, and `/health` so standard ingress controllers and security scanners work without operator overrides.
