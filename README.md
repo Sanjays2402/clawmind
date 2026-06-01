@@ -10,6 +10,28 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Record of Processing Activities (GDPR Article 30): every workspace publishes a register of processing activities at the unauthenticated `GET /v1/ropa` so a buyer's Data Protection Officer can cite a stable URL from their own Article 30 register during their review of the Data Processing Agreement instead of waiting on a manual PDF exchange. Each entry records the activity name, purpose, legal basis (one of the six Article 6(1) bases), data categories, data subjects, storage region, retention, recipients, and any non-EEA transfer mechanism such as SCCs. The public projection deliberately strips operator-only fields (internal notes, `updatedBy`) so an unauthenticated reader can never see private detail; a regression test pins that `publicView` removes notes. Admins read the operator view at `GET /v1/ropa/admin`; owners with MFA step-up add, update, retire, or restore entries via `POST/PATCH/DELETE /v1/ropa/:id`, and tune the public intro, controller contact, and DPO name via `PUT /v1/ropa/settings`. Every mutation writes a structured audit row with before/after diff and fans out a `ropa.changed` in-app notification to every workspace member, satisfying the "advance notice of material changes to processing" clause most enterprise master agreements require; broadcasts are best-effort so a notification failure cannot roll back the register write. Duplicate active names are rejected case-insensitively but a name becomes available again once retired so a renamed activity can be re-disclosed cleanly. The `/settings/ropa` page surfaces the active and retired registers, lets owners disclose, retire, and restore activities, and supports the `dry_run=1` query param on every mutation so an operator can preview a change before committing it.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # Public register. No auth. Safe to cite from a buyer's DPA.
+  curl -sS http://localhost:7410/v1/ropa | jq
+
+  # Owner discloses a processing activity. Owner role + MFA required.
+  curl -sS -X POST -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"name":"Notes ingest","purpose":"Index notes for retrieval","legalBasis":"contract","dataCategories":"note text, embeddings","dataSubjects":"workspace members","storageRegion":"us-east-1","retention":"90 days then erased"}' \
+    http://localhost:7410/v1/ropa | jq
+
+  # Admin sees the operator view including internal notes and updatedBy.
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:7410/v1/ropa/admin | jq
+
+  # Web UI for the register.
+  open http://localhost:7412/settings/ropa
+  ```
+
 - API key expiry warnings (SOC2 CC6.1 / ISO 27001 A.9.2.6): every workspace publishes a rotation window so customers integrating against the API see TTL based key expiry coming before it breaks production. The auth layer reads the workspace policy on every successful API key authentication and, when the key is inside the warning window, attaches `X-ClawMind-Api-Key-Expires-At` (ISO timestamp), `X-ClawMind-Api-Key-Expires-In-Days` (integer), and a standard RFC 7234 `Warning: 299 - "API key expires in N days"` header to the response so any SDK can detect the warning without parsing a custom field. The first request that crosses into the window writes exactly one `api-key.expiry_warned` audit row, dedup keyed on the key id and the current `expiresAt` so a rotation that extends the TTL naturally resets the anchor and a future warning fires again. Admins read the policy and the upcoming list at `GET /v1/api-key-expiry` and `GET /v1/api-key-expiry/upcoming`; owners with MFA step up change the window via `PUT /v1/api-key-expiry`, each mutation audited with a before/after diff. The `/settings/api-key-expiry` page surfaces counts (active keys, keys with a TTL, keys expiring soon) and a soonest first list of the upcoming expirations with urgency coloring (red within one day, amber within seven). A regression test pins that the policy defaults to 14 days, that out of range warn days values are rejected, that `classifyKey` returns `off` for never expiring or already revoked or already expired keys and `expiring` only inside the window, that `findUpcomingKeys` ignores keys without a TTL and sorts soonest first, and that `touchExpiryWarning` dedupes per (key, expiresAt) so the audit fires exactly once per crossing and resets when a rotation lifts the expiry.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
