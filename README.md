@@ -10,6 +10,31 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Dual-control approvals (four-eyes / NIST AC-3(2) two-person integrity): the most destructive admin actions can no longer be executed by a single human, even one with owner + MFA. ClawMind ships a tenant-scoped approval ledger at `GET/POST /v1/dual-control` and per-id `approve`/`reject` endpoints, all owner-gated and MFA-stepped. The first guarded action is `POST /v1/workspace/deletion` (workspace scheduled wipe): on a call without an `X-DualControl-Approval` header the API mints a pending approval and returns `412 Precondition Required` with the id; a second owner approves it in the `/admin/approvals` console; the original caller retries with the header set and the API consumes the approval and runs the action. The service enforces the cross-actor isolation rule in three places — requester != approver, approver != executor, and approvals are bound to a specific (action, resource) pair — so a compromised single owner credential cannot schedule a destructive action even with MFA. Every transition (request, approve, reject, consume, expire) lands in the hash-chained audit log with both human ids so a SOC2 reviewer can reconstruct who asked, who signed, and who pressed go. Approvals carry a TTL clamped to [5 min, 24 h], default 1 h, and are stored at `<dataDir>/dual-control.json` with atomic tmp+rename and the same on-disk shape conventions as `workspace-deletion.json`. Backed by new `dual-control:read` and `dual-control:admin` scopes.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # 1. Owner A tries to schedule workspace deletion. Refused, gets approval id.
+  curl -sS -X POST http://localhost:7410/v1/workspace/deletion \
+    -H "Authorization: Bearer $OWNER_A_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"reason":"contract exit","ticket":"CS-9"}' | jq
+  # => { error: 'dual-control-required', approvalId: 'dca_...', expiresAt: ... }
+
+  # 2. Owner B opens the console and approves (or curl):
+  curl -sS -X POST http://localhost:7410/v1/dual-control/$APPROVAL_ID/approve \
+    -H "Authorization: Bearer $OWNER_B_KEY" | jq
+  open http://localhost:7412/admin/approvals
+
+  # 3. Owner A retries with the approval header. Now it runs.
+  curl -sS -X POST http://localhost:7410/v1/workspace/deletion \
+    -H "Authorization: Bearer $OWNER_A_KEY" \
+    -H "X-DualControl-Approval: $APPROVAL_ID" \
+    -H 'content-type: application/json' \
+    -d '{"reason":"contract exit","ticket":"CS-9"}' | jq
+  ```
+
 - Per-API-key time-of-day window (allowed hours): enterprise security teams routinely require that automation credentials only work during business hours, so a stolen CI key cannot be replayed by an attacker overnight. ClawMind adds an `allowedHours` policy to every API key, set through `PUT /v1/keys/:id/allowed-hours` (owner + MFA + `keys:manage`) with `{ tz, windows:[{ days, startMin, endMin }] }` where `tz` is any IANA timezone, `days` is a list of 0..6 (Sun..Sat), and `startMin` / `endMin` are minutes since midnight. The auth layer evaluates the current wall-clock time in the configured tz on every request: if no window matches, the key is rejected with `403 request outside allowed-hours window for this key` before usage credit, scope mapping, or per-key rate limit decisions run, and an `api_key.hours.denied` row lands in the hash-chained audit log. Unknown timezones at evaluation time fail closed so a corrupted record cannot silently widen access; the validator also rejects overnight windows where end <= start (the buyer splits them into two adjacent windows so the model stays trivially auditable) and dedupes/sorts the `days` array for clean diffs. The `/keys` console exposes the same control as a compact panel with a timezone field, start/end pickers, and a day-of-week toggle row; the redacted key list surfaces the active window so admins can see at a glance which credentials are scheduled.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):

@@ -2797,7 +2797,52 @@ export const api = {
   // authenticated:false instead of 401 so the page can render a clean
   // "you are not signed in" state without special-case error handling.
   whoami: () => j<WhoamiEnvelope>('/v1/whoami'),
+
+  // Dual-control (four-eyes) approval ledger. Owner-gated on the
+  // server; gating destructive admin actions like workspace deletion.
+  dualControlList: () => j<{ items: DualControlRequest[]; limits: DualControlLimits }>(
+    '/v1/dual-control',
+  ),
+  dualControlRequest: (body: { action: string; resource: string; reason?: string | null; ttlMs?: number | null }) =>
+    j<{ item: DualControlRequest }>('/v1/dual-control', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }).then((r) => r.item),
+  dualControlApprove: (id: string) =>
+    j<{ item: DualControlRequest }>(`/v1/dual-control/${encodeURIComponent(id)}/approve`, {
+      method: 'POST',
+      body: '{}',
+    }).then((r) => r.item),
+  dualControlReject: (id: string) =>
+    j<{ item: DualControlRequest }>(`/v1/dual-control/${encodeURIComponent(id)}/reject`, {
+      method: 'POST',
+      body: '{}',
+    }).then((r) => r.item),
 };
+
+export interface DualControlRequest {
+  id: string;
+  action: string;
+  resource: string;
+  reason: string | null;
+  requestedBy: string;
+  requestedAt: number;
+  expiresAt: number;
+  state: 'pending' | 'approved' | 'rejected' | 'consumed' | 'expired';
+  approvedBy: string | null;
+  approvedAt: number | null;
+  rejectedBy: string | null;
+  rejectedAt: number | null;
+  consumedAt: number | null;
+  consumedBy: string | null;
+  updatedAt: number;
+}
+
+export interface DualControlLimits {
+  minTtlMs: number;
+  defaultTtlMs: number;
+  maxTtlMs: number;
+}
 
 export interface WhoamiEnvelope {
   schema: 'clawmind.whoami.v1';

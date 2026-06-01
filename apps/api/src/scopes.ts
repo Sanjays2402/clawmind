@@ -461,6 +461,15 @@ export const Scopes = {
   // side effect of fulfilling a DSR erasure row and is gated by
   // DsrManage at that boundary; there is no public mint surface.
   ErasureCertificatesRead: 'erasure-certificates:read',
+
+  // Dual-control approvals (four-eyes / NIST AC-3(2) two-person
+  // integrity). Read returns the pending and historical approval
+  // ledger so an admin can see what's outstanding; Manage requests,
+  // approves, or rejects entries. Both are owner-only at the route
+  // because the entire point of the control is that only owners can
+  // participate in approving destructive admin actions.
+  DualControlRead: 'dual-control:read',
+  DualControlManage: 'dual-control:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];
