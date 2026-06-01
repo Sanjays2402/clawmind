@@ -10,6 +10,27 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Per-API-key HTTP method allowlist: enterprise reviewers regularly demand a credential that is provably read-only at the wire, independent of scopes. ClawMind adds an `allowedMethods` policy to every API key, set through `PUT /v1/keys/:id/method-allowlist` (owner + MFA + `keys:manage`) with `{ allowedMethods: ['GET','HEAD'] }` (any subset of GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE; max 8; deduped and upper-cased server-side). The auth layer enforces the allowlist before scope mapping, per-key rate limits, or route handlers run: a disallowed verb returns `405 method not allowed for this key` with an `Allow:` header listing the permitted methods and a structured body `{ error, method, allowedMethods }`, and writes an `api_key.method.denied` row to the hash-chained audit log with the actor, the route, and the configured list. Distinct from scopes: a key with `search:read` and `ingest:write` but `allowedMethods=['GET']` still cannot mutate, so a stolen credential cannot escalate even if the resource scope would permit it. The `/keys` console exposes the control as a method-toggle row with a one-click "Read-only preset" (GET + HEAD); the redacted key list surfaces the active set as `methods GET/HEAD` so admins can audit at a glance.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # 1. Pin a CI key to read-only verbs (owner + MFA + keys:manage).
+  curl -sS -X PUT http://localhost:7410/v1/keys/$KEY_ID/method-allowlist \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"allowedMethods":["GET","HEAD"]}' | jq
+
+  # 2. The same key can still read.
+  curl -sS -H "Authorization: Bearer $RO_KEY" http://localhost:7410/v1/whoami | jq
+
+  # 3. Any mutation is rejected at the auth boundary with 405 + Allow: GET, HEAD.
+  curl -sS -i -X POST http://localhost:7410/v1/ingest \
+    -H "Authorization: Bearer $RO_KEY" -H 'content-type: application/json' -d '{}' | head -20
+  ```
+
+  Or open `http://localhost:7412/keys` and click "Restrict methods" on the key to manage it from the dashboard.
+
 - Audit inclusion proofs: external auditors and procurement reviewers routinely ask the narrow question "prove this specific event was in your log on this date," which a full chain export does not answer cleanly. ClawMind owners now mint a single-event certificate at `GET /v1/admin/audit/:id/proof` (owner + `audit:read`). The proof embeds the full event, its 1-indexed chronological position across rotated chain files, a snapshot of the chain head hash and length at the moment of issuance, an issuance timestamp, and an HMAC-SHA256 signature over the canonical body. Verification is stateless and offline: any holder of the HMAC secret recomputes SHA-256 over the embedded event (catches tamper of any field) and the HMAC over the certificate body (catches tamper of position, chain head, or issuance time). The verifier lives at `POST /v1/admin/audit/proofs/verify` for in-product use and is fully described in `packages/store/src/audit-proofs.ts` so an auditor with their own toolchain can reimplement it from the schema. Both endpoints write their action to the hash-chained audit log (`audit.proof.issue`, `audit.proof.verify`) with the proof id and event id captured so the act of minting or verifying a certificate is itself part of the tamper-evident trail. The chain is verified before a proof is issued and the route returns `409 chain_not_verified` if the on-disk chain is broken, refusing to anchor a certificate to an inconsistent state. The `/settings/audit-proofs` console exposes both flows: paste an event id to mint and download a certificate, or paste a certificate JSON to get a structured verdict (event hash valid, signature valid, reason on failure, recomputed hash for side-by-side comparison). Six store-package tests pin issuance, offline verification, event-body tamper detection, wrong-secret rejection, position-rewrite rejection, and not-found behaviour; four API-route tests pin the end-to-end issue + verify round-trip, tamper rejection, 404 on unknown ids, and that `audit:read` scope is required.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS, setKeyAllowedIps, normaliseKeyIpRules, MAX_KEY_IP_RULES, setKeyAllowedOrigins, normaliseKeyOriginRules, MAX_KEY_ORIGIN_RULES, MAX_ORIGIN_LENGTH, setKeyAllowedHours, normaliseAllowedHours, MAX_KEY_HOURS_WINDOWS, MAX_KEY_TZ_LENGTH } from '../services/api-keys.js';
+import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS, setKeyAllowedIps, normaliseKeyIpRules, MAX_KEY_IP_RULES, setKeyAllowedOrigins, normaliseKeyOriginRules, MAX_KEY_ORIGIN_RULES, MAX_ORIGIN_LENGTH, setKeyAllowedHours, normaliseAllowedHours, MAX_KEY_HOURS_WINDOWS, MAX_KEY_TZ_LENGTH, setKeyAllowedMethods, normaliseKeyMethodRules, MAX_KEY_METHOD_RULES, VALID_HTTP_METHODS } from '../services/api-keys.js';
 import { getUsageReport, purgeUsage } from '../services/api-key-usage.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
@@ -384,4 +384,54 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
       return { key: redact(updated) };
     },
   });
+
+  // Set or clear the per-key HTTP method allowlist. Pin a credential to
+  // a subset of verbs (e.g. ['GET','HEAD'] for a read-only analytics
+  // exporter) so a stolen key cannot mutate state even if its resource
+  // scopes would otherwise allow it. Pass { allowedMethods: null } or
+  // an empty array to drop the restriction. Audited on every change.
+  app.put<{ Params: { id: string }; Body: { allowedMethods?: string[] | null } }>(
+    '/keys/:id/method-allowlist',
+    {
+      schema: {
+        body: z.object({
+          allowedMethods: z
+            .array(z.string().min(1).max(16))
+            .max(MAX_KEY_METHOD_RULES)
+            .nullable()
+            .optional(),
+        }),
+      },
+      preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.KeysManage)],
+      handler: async (req, reply) => {
+        const raw = req.body.allowedMethods ?? null;
+        const v = normaliseKeyMethodRules(raw);
+        if (!v.ok) {
+          return reply.code(400).send({
+            error: 'invalid method allowlist',
+            message: v.message,
+            index: v.index,
+            allowed: VALID_HTTP_METHODS,
+          });
+        }
+        const normalised = v.methods ?? [];
+        const updated = await setKeyAllowedMethods(
+          app.clawmind.dataDir,
+          req.user!.id,
+          req.params.id,
+          normalised.length > 0 ? normalised : null,
+        );
+        if (!updated) return reply.code(404).send({ error: 'not found' });
+        await app.clawmind.audit.write({
+          actor: req.user!.id,
+          action: normalised.length > 0
+            ? 'api_key.method_allowlist.set'
+            : 'api_key.method_allowlist.clear',
+          resource: req.params.id,
+          meta: { count: normalised.length, methods: normalised },
+        });
+        return { key: redact(updated) };
+      },
+    },
+  );
 };

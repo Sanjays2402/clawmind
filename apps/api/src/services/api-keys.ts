@@ -100,6 +100,14 @@ export interface ApiKeyRecord {
   // (overnight windows are expressed as two adjacent windows so the
   // model stays trivially auditable). Max 14 windows per key.
   allowedHours?: AllowedHoursPolicy | null;
+  // Optional per-key HTTP method allowlist. When set, the auth layer
+  // rejects any request whose HTTP method (uppercased) is not in the
+  // list. Distinct from scopes: scopes gate resources, this gates verbs.
+  // Lets a customer declare "this key is read-only at the wire level"
+  // (e.g. ['GET','HEAD']) so a stolen credential cannot mutate even if
+  // the resource scope would otherwise allow it. Undefined or empty
+  // means unrestricted (default). Max 8 distinct methods per key.
+  allowedMethods?: string[] | null;
   // Anchor used by the api-key-expiry policy to emit at most one
   // `api-key.expiry_warned` audit entry per key per warning crossing.
   // Set to expiresAt at the moment of warning so a subsequent extension
@@ -448,6 +456,100 @@ export function ipAllowedByKey(ip: string | undefined | null, rules: readonly st
   return ipAllowedByRules(ip, rules.map((cidr) => ({ cidr })));
 }
 
+export const MAX_KEY_METHOD_RULES = 8;
+export const VALID_HTTP_METHODS = ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+export type HttpMethod = (typeof VALID_HTTP_METHODS)[number];
+
+export interface MethodAllowlistValidation {
+  ok: boolean;
+  /** Normalised, uppercased, deduped, sorted list when ok is true. */
+  methods?: string[];
+  message?: string;
+  index?: number;
+}
+
+/**
+ * Normalise a per-key HTTP method allowlist. Methods are upper-cased,
+ * deduped, sorted, and validated against a fixed list of safe verbs.
+ * An empty input is treated as "unrestricted" and returns ok with an
+ * empty array; callers that want to clear an existing restriction can
+ * pass null or [] interchangeably.
+ */
+export function normaliseKeyMethodRules(
+  input: readonly string[] | null | undefined,
+): MethodAllowlistValidation {
+  if (!input) return { ok: true, methods: [] };
+  if (input.length > MAX_KEY_METHOD_RULES) {
+    return { ok: false, message: `too many methods (max ${MAX_KEY_METHOD_RULES})` };
+  }
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (let i = 0; i < input.length; i++) {
+    const raw = input[i];
+    if (typeof raw !== 'string' || !raw.trim()) {
+      return { ok: false, index: i, message: 'method must be a non-empty string' };
+    }
+    const norm = raw.trim().toUpperCase();
+    if (!(VALID_HTTP_METHODS as readonly string[]).includes(norm)) {
+      return {
+        ok: false,
+        index: i,
+        message: `invalid method: ${raw} (allowed: ${VALID_HTTP_METHODS.join(', ')})`,
+      };
+    }
+    if (seen.has(norm)) {
+      return { ok: false, index: i, message: `duplicate method: ${norm}` };
+    }
+    seen.add(norm);
+    out.push(norm);
+  }
+  out.sort();
+  return { ok: true, methods: out };
+}
+
+/**
+ * Return true when the request's HTTP method is permitted by the per-key
+ * allowlist. Unrestricted (null/empty) accepts everything. Case-insensitive.
+ * A configured allowlist with a missing method fails closed.
+ */
+export function methodAllowedByKey(
+  method: string | undefined | null,
+  rules: readonly string[] | null | undefined,
+): boolean {
+  if (!rules || rules.length === 0) return true; // unrestricted
+  if (!method) return false; // restrictive list but no method
+  return rules.includes(method.toUpperCase());
+}
+
+/**
+ * Update or clear the per-key HTTP method allowlist. Returns the updated
+ * record or null if the key is not owned by the user, revoked, or
+ * expired. Pass null or an empty array to remove the restriction.
+ */
+export async function setKeyAllowedMethods(
+  dataDir: string,
+  userId: string,
+  id: string,
+  allowedMethods: readonly string[] | null,
+  now: number = Date.now(),
+): Promise<ApiKeyRecord | null> {
+  const v = normaliseKeyMethodRules(allowedMethods);
+  if (!v.ok) throw new Error(v.message ?? 'invalid method rules');
+  const all = await loadKeys(dataDir);
+  const idx = all.findIndex((k) => k.id === id && k.userId === userId);
+  if (idx < 0) return null;
+  const cur = all[idx]!;
+  if (cur.revokedAt) return null;
+  if (cur.expiresAt && now > cur.expiresAt) return null;
+  const next: ApiKeyRecord = {
+    ...cur,
+    allowedMethods: v.methods && v.methods.length > 0 ? v.methods : null,
+  };
+  all[idx] = next;
+  await saveKeys(dataDir, all);
+  return next;
+}
+
 /**
  * Update or clear the per-key IP allowlist. Returns the updated record or
  * null if the key is not owned by the user, revoked, or expired. Pass null
@@ -744,6 +846,7 @@ export function redact(rec: ApiKeyRecord) {
     allowedIps: rec.allowedIps ?? null,
     allowedOrigins: rec.allowedOrigins ?? null,
     allowedHours: rec.allowedHours ?? null,
+    allowedMethods: rec.allowedMethods ?? null,
     isCanary: rec.isCanary === true,
     canaryNote: rec.canaryNote ?? null,
   };

@@ -1,6 +1,6 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
-import { verifySecret, hasScope, ipAllowedByKey, originAllowedByKey, withinAllowedHours } from '../services/api-keys.js';
+import { verifySecret, hasScope, ipAllowedByKey, originAllowedByKey, withinAllowedHours, methodAllowedByKey } from '../services/api-keys.js';
 import { recordIncident as recordHoneytokenIncident } from '../services/api-key-honeytokens.js';
 import { recordUsage, normaliseUa } from '../services/api-key-usage.js';
 import { consume as consumeKeyBucket } from '../services/api-key-rate-limit.js';
@@ -302,6 +302,30 @@ const plugin: FastifyPluginAsync = async (app) => {
             return reply.code(403).send({
               error: 'request outside allowed-hours window for this key',
               tz: result.record.allowedHours.tz,
+            });
+          }
+        }
+        // Per-key HTTP method allowlist. Wire-level read-only enforcement:
+        // a key restricted to ['GET','HEAD'] is rejected on any mutating
+        // verb regardless of its resource scopes. Audited so an admin can
+        // see exactly which verb was blocked and from where.
+        if (result.record.allowedMethods && result.record.allowedMethods.length > 0) {
+          if (!methodAllowedByKey(req.method, result.record.allowedMethods)) {
+            await app.clawmind.audit.write({
+              actor: result.record.userId,
+              action: 'api_key.method.denied',
+              resource: result.record.id,
+              meta: {
+                method: req.method,
+                route: req.url,
+                allowed: result.record.allowedMethods,
+              },
+            }).catch(() => undefined);
+            reply.header('Allow', result.record.allowedMethods.join(', '));
+            return reply.code(405).send({
+              error: 'method not allowed for this key',
+              method: req.method,
+              allowedMethods: result.record.allowedMethods,
             });
           }
         }

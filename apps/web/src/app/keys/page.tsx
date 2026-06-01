@@ -398,6 +398,45 @@ function KeyRow({
   const [hoursSaving, setHoursSaving] = useState(false);
   const [hoursError, setHoursError] = useState<string | null>(null);
 
+  const [showMethods, setShowMethods] = useState(false);
+  const ALL_METHODS = ['GET', 'HEAD', 'OPTIONS', 'POST', 'PUT', 'PATCH', 'DELETE'] as const;
+  const [methodSet, setMethodSet] = useState<string[]>(k.allowedMethods ?? []);
+  const [methodsSaving, setMethodsSaving] = useState(false);
+  const [methodsError, setMethodsError] = useState<string | null>(null);
+
+  async function saveMethods() {
+    if (methodSet.length === 0) {
+      setMethodsError('pick at least one method (or click Clear to remove the restriction)');
+      return;
+    }
+    setMethodsSaving(true);
+    setMethodsError(null);
+    try {
+      await api.keySetAllowedMethods(k.id, [...methodSet].sort());
+      setShowMethods(false);
+      window.location.reload();
+    } catch (err) {
+      setMethodsError((err as Error).message);
+    } finally {
+      setMethodsSaving(false);
+    }
+  }
+
+  async function clearMethods() {
+    setMethodsSaving(true);
+    setMethodsError(null);
+    try {
+      await api.keySetAllowedMethods(k.id, null);
+      setMethodSet([]);
+      setShowMethods(false);
+      window.location.reload();
+    } catch (err) {
+      setMethodsError((err as Error).message);
+    } finally {
+      setMethodsSaving(false);
+    }
+  }
+
   async function saveHours() {
     const startMin = hhmmToMinutes(hoursStart);
     const endMin = hhmmToMinutes(hoursEnd);
@@ -619,6 +658,11 @@ function KeyRow({
               hours {k.allowedHours.tz}
             </span>
           )}
+          {k.allowedMethods && k.allowedMethods.length > 0 && (
+            <span title={`Wire-level: only ${k.allowedMethods.join(', ')}`}>
+              methods {k.allowedMethods.join('/')}
+            </span>
+          )}
         </div>
         {k.scopes && k.scopes.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">
@@ -665,6 +709,13 @@ function KeyRow({
             className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
           >
             {showHours ? 'Hide hours' : k.allowedHours && k.allowedHours.windows.length > 0 ? `Hours (${k.allowedHours.tz})` : 'Restrict hours'}
+          </button>
+          <button
+            onClick={() => setShowMethods((v) => !v)}
+            aria-expanded={showMethods}
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
+          >
+            {showMethods ? 'Hide methods' : k.allowedMethods && k.allowedMethods.length > 0 ? `Methods (${k.allowedMethods.length})` : 'Restrict methods'}
           </button>
           <button
             onClick={() => onRotate(k.id)}
@@ -906,6 +957,68 @@ function KeyRow({
           </div>
           {hoursError && (
             <div className="mt-2 text-xs text-cm-danger">{hoursError}</div>
+          )}
+        </div>
+      )}
+      {showMethods && !k.revokedAt && (
+        <div className="mt-3 rounded-md border border-cm-border bg-cm-bg/50 p-3">
+          <div className="text-xs text-cm-muted">
+            Pin this key to a subset of HTTP verbs. A request using any other method is rejected with 405 before the route handler runs, regardless of scopes. Useful for read-only exporters and webhook receivers.
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {ALL_METHODS.map((m) => {
+              const on = methodSet.includes(m);
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() =>
+                    setMethodSet((cur) =>
+                      cur.includes(m) ? cur.filter((x) => x !== m) : [...cur, m],
+                    )
+                  }
+                  className={[
+                    'rounded border px-2 py-1 font-mono text-[11px]',
+                    on
+                      ? 'border-cm-fg bg-cm-fg text-cm-bg'
+                      : 'border-cm-border text-cm-muted hover:text-cm-fg',
+                  ].join(' ')}
+                  aria-pressed={on}
+                >
+                  {m}
+                </button>
+              );
+            })}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              onClick={saveMethods}
+              disabled={methodsSaving}
+              className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-fg px-3 py-1.5 text-sm text-cm-bg hover:opacity-90 disabled:opacity-50"
+            >
+              {methodsSaving ? <Spinner size={14} /> : <IconCheck size={14} />}
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => setMethodSet(['GET', 'HEAD'])}
+              disabled={methodsSaving}
+              className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg disabled:opacity-50"
+            >
+              Read-only preset
+            </button>
+            {k.allowedMethods && k.allowedMethods.length > 0 && (
+              <button
+                onClick={clearMethods}
+                disabled={methodsSaving}
+                className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-danger disabled:opacity-50"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {methodsError && (
+            <div className="mt-2 text-xs text-cm-danger">{methodsError}</div>
           )}
         </div>
       )}
