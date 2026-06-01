@@ -1,6 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { createHash } from 'node:crypto';
+import { signPayload, verifyPayload } from './signing-keys.js';
 
 // Warrant canary.
 //
@@ -34,6 +35,17 @@ import { createHash } from 'node:crypto';
 
 export type CanaryStatus = 'unconfigured' | 'active' | 'stale' | 'withdrawn';
 
+export interface CanarySignature {
+  /** Base64url Ed25519 signature over canonicalAttestation(record). */
+  signature: string;
+  /** kid of the workspace signing key that produced `signature`. */
+  kid: string;
+  /** Always 'EdDSA' (RFC 8037). */
+  alg: 'EdDSA';
+  /** Hex SHA-256 of the canonical bytes that were signed. */
+  digest: string;
+}
+
 export interface CanaryAttestation {
   id: string;
   statement: string;
@@ -42,9 +54,59 @@ export interface CanaryAttestation {
   cadenceDays: number;
   expiresAt: number;
   fingerprint: string;
+  /**
+   * Detached Ed25519 signature so a third-party auditor can verify
+   * this record offline against the public JWKS at
+   * /.well-known/clawmind-signing.json. Older records that pre-date
+   * the signing-keys feature carry `null` here; the public projection
+   * advertises this nullability so a verifier can detect and report
+   * unsigned-legacy entries explicitly rather than silently treating
+   * them as valid.
+   */
+  proof: CanarySignature | null;
   withdrawnAt: number | null;
   withdrawnBy: string | null;
   withdrawnReason: string | null;
+}
+
+/**
+ * Canonical, sort-order-independent serialisation of the signed
+ * fields of a CanaryAttestation. Procurement reviewers need a stable
+ * byte sequence that they can reproduce in any language; we use
+ * JSON.stringify with an explicit key ordering rather than a JCS
+ * library to keep dependencies minimal. Withdrawal fields are NOT
+ * signed because withdrawal happens AFTER the attestation and would
+ * otherwise invalidate the original signature.
+ */
+export function canonicalAttestation(record: CanaryAttestation): string {
+  return JSON.stringify({
+    id: record.id,
+    statement: record.statement,
+    attestedAt: record.attestedAt,
+    cadenceDays: record.cadenceDays,
+    expiresAt: record.expiresAt,
+    fingerprint: record.fingerprint,
+  });
+}
+
+/**
+ * Offline verifier: confirms the embedded proof matches the canonical
+ * bytes derived from the record and the current workspace key. Used
+ * by the reference /v1/warrant-canary/verify endpoint and by tests.
+ */
+export async function verifyAttestationSignature(
+  dataDir: string,
+  record: CanaryAttestation,
+): Promise<{ valid: boolean; reason: string | null }> {
+  if (!record.proof) {
+    return { valid: false, reason: 'attestation is unsigned (pre-dates signing keys)' };
+  }
+  const ok = await verifyPayload(dataDir, canonicalAttestation(record), {
+    signature: record.proof.signature,
+    kid: record.proof.kid,
+  });
+  if (!ok) return { valid: false, reason: 'signature does not verify against current workspace key' };
+  return { valid: true, reason: null };
 }
 
 export interface CanaryDocument {
@@ -113,10 +175,22 @@ async function readDoc(dataDir: string): Promise<CanaryDocument> {
     const raw = await readFile(file(dataDir), 'utf8');
     const parsed = JSON.parse(raw) as Partial<CanaryDocument>;
     const base = emptyDoc(Date.now());
+    const history = Array.isArray(parsed.history)
+      ? parsed.history.map((r) => {
+          // Back-compat: docs written before signing-keys was wired
+          // up have no `proof` field. We surface `null` so the
+          // public projection (and the offline verifier) can flag
+          // them as legacy-unsigned rather than crashing in
+          // strict-mode consumers that expect the field to exist.
+          const merged = { ...(r as CanaryAttestation) };
+          if (merged.proof === undefined) merged.proof = null;
+          return merged;
+        })
+      : [];
     return {
       ...base,
       ...parsed,
-      history: Array.isArray(parsed.history) ? parsed.history : [],
+      history,
     } as CanaryDocument;
   } catch (err: unknown) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -206,9 +280,23 @@ export async function signAttestation(
     cadenceDays,
     expiresAt: now + cadenceDays * DAY_MS,
     fingerprint: fingerprint(trimmed, now, cadenceDays),
+    proof: null,
     withdrawnAt: null,
     withdrawnBy: null,
     withdrawnReason: null,
+  };
+  // Sign AFTER fingerprint/expiresAt are committed: canonicalisation
+  // pulls those fields and any later mutation would silently
+  // invalidate the signature. proof.digest is redundant with the
+  // fingerprint for the default canonical form but verifiers in
+  // other languages find it useful for sanity-checking their
+  // serialiser before they touch the curve math.
+  const signed = await signPayload(dataDir, canonicalAttestation(record));
+  record.proof = {
+    signature: signed.signature,
+    kid: signed.kid,
+    alg: signed.alg,
+    digest: signed.digest,
   };
   doc.history.push(record);
   doc.updatedAt = now;
@@ -249,6 +337,10 @@ export function publicView(doc: CanaryDocument, now: number = Date.now()): Recor
     cadenceDays: r.cadenceDays,
     expiresAt: r.expiresAt,
     fingerprint: r.fingerprint,
+    // proof is part of the public projection: the whole point is
+    // that an external auditor can verify each record against the
+    // published JWKS without operator cooperation.
+    proof: r.proof,
     withdrawnAt: r.withdrawnAt,
     withdrawnReason: r.withdrawnReason,
   }));

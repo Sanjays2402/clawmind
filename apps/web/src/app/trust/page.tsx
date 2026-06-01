@@ -28,6 +28,27 @@ async function fetchProfile(): Promise<TrustPublicProfile | null> {
   }
 }
 
+interface SigningKeyPublic {
+  kid: string;
+  alg: string;
+  crv: string;
+  createdAt: number;
+}
+
+async function fetchSigningKey(): Promise<SigningKeyPublic | null> {
+  // Procurement-relevant: surfacing the fingerprint here lets a
+  // buyer's vendor-review team pin a value and detect silent key
+  // rotations. We tolerate failure because trust pages must render
+  // even if the signing endpoint is briefly unavailable.
+  try {
+    const r = await fetch(`${API_BASE}/v1/warrant-canary/key-fingerprint`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    return (await r.json()) as SigningKeyPublic;
+  } catch {
+    return null;
+  }
+}
+
 function statusLabel(s: string): string {
   if (s === 'achieved') return 'Achieved';
   if (s === 'in_progress') return 'In progress';
@@ -46,7 +67,7 @@ function fmtDate(iso: string | null): string {
 }
 
 export default async function TrustCenterPage() {
-  const profile = await fetchProfile();
+  const [profile, signingKey] = await Promise.all([fetchProfile(), fetchSigningKey()]);
 
   return (
     <main style={{ maxWidth: 880, margin: '60px auto', padding: '0 24px', lineHeight: 1.6 }}>
@@ -156,6 +177,27 @@ export default async function TrustCenterPage() {
               </ul>
             </Section>
           )}
+
+          <Section title="Signing key">
+            {signingKey ? (
+              <div style={{ display: 'grid', gap: 8 }}>
+                <Fact label="Algorithm" value={`${signingKey.alg} (${signingKey.crv})`} />
+                <Fact label="Key ID" value={signingKey.kid} />
+                <Fact label="Issued" value={new Date(signingKey.createdAt).toISOString().slice(0, 10)} />
+                <p style={{ margin: '8px 0 0', color: 'var(--cm-muted)', fontSize: 13 }}>
+                  Warrant canary attestations carry an Ed25519 signature you can verify
+                  offline against the JWKS at{' '}
+                  <a href="/.well-known/clawmind-signing.json">/.well-known/clawmind-signing.json</a>{' '}
+                  or the PEM at{' '}
+                  <a href="/.well-known/clawmind-signing.pem">/.well-known/clawmind-signing.pem</a>.
+                  Pin the Key ID above in your vendor review record so a silent rotation
+                  is visible.
+                </p>
+              </div>
+            ) : (
+              <EmptyNote>Signing key is not available right now.</EmptyNote>
+            )}
+          </Section>
 
           <footer style={{ marginTop: 40, color: 'var(--cm-muted)', fontSize: 12 }}>
             Profile last updated {new Date(profile.updatedAt).toISOString().slice(0, 10)}.

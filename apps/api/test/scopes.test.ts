@@ -27,8 +27,11 @@ const ROUTE_FILES = readdirSync(routesDir)
 // also do not declare scopes. Everything else must. /whoami is the
 // identity introspection endpoint and must be callable anonymously so
 // SDKs can distinguish "no creds" from "bad creds" without 401-parsing
-// special cases; it never returns workspace data.
-const UNGATED_ROUTE_FILES = new Set(['health.ts', 'whoami.ts']);
+// special cases; it never returns workspace data. signing-keys.ts is
+// the public JWKS + offline verifier surface; the entire point is
+// that a procurement reviewer can hit it without an account, so it
+// likewise carries no auth and no scope.
+const UNGATED_ROUTE_FILES = new Set(['health.ts', 'whoami.ts', 'signing-keys.ts']);
 
 describe('scope registry', () => {
   it('every Scopes.* value matches the wildcard or resource:action grammar', () => {

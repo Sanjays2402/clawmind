@@ -213,6 +213,24 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
     http://localhost:7410/v1/warrant-canary/admin | jq
   ```
 
+- Public Ed25519 signing keys (offline verification of canary attestations): every workspace generates a per-instance Ed25519 keypair on first boot (RFC 8032 / RFC 8037), persists the private key as PKCS#8 PEM at `0600` under the data directory, and publishes the public half at the unauthenticated `GET /.well-known/clawmind-signing.json` (JWKS, RFC 7517) and `GET /.well-known/clawmind-signing.pem` (SPKI PEM for `openssl pkeyutl` users). The kid is a 16-byte truncated SHA-256 over the canonical JWK so a procurement reviewer can pin one short string in their vendor file and detect a silent key rotation. Every new warrant canary attestation is now co-signed at issuance: a detached Ed25519 signature is computed over a canonical JSON serialisation of `{id, statement, attestedAt, cadenceDays, expiresAt, fingerprint}` (the signed fields exclude withdrawal so a later revocation does not invalidate the original proof) and the resulting `{signature, kid, alg, digest}` is embedded into the attestation record itself, surfaced on both the public projection and the admin view, and persisted through reload. Pre-signing legacy records load with `proof: null` so verifiers can flag them as legacy-unsigned rather than crash; new records always carry a verifiable proof. Reference verifiers live at `POST /v1/signing/verify` for arbitrary canonical payloads, `POST /v1/warrant-canary/verify` for a full attestation record (the server re-derives the canonical bytes and returns them in the response so an auditor can diff against their own serialiser), `GET /v1/warrant-canary/attestations/:id/verify` for a stored attestation, and `GET /v1/warrant-canary/key-fingerprint` for a tiny pinning helper. The trust center page renders the algorithm, kid, and issue date alongside links to both well-known surfaces. Nine regression tests pin the kid stability across reload, the JWKS shape, sign/verify round-trip, kid-mismatch rejection, and the procurement-relevant invariant that a signature produced by the service verifies against the published PEM using stock `crypto.verify` with no ClawMind code in the loop; integration tests confirm tampering the statement invalidates the proof and that round-tripping through disk preserves both the canonical bytes and verification.
+
+  Try it locally (API on `http://localhost:7410`):
+
+  ```bash
+  # Pull the public JWKS. Cache it; the kid is what you pin in your vendor file.
+  curl -sS http://localhost:7410/.well-known/clawmind-signing.json | jq
+
+  # Or the PEM, for openssl-based verifiers.
+  curl -sS http://localhost:7410/.well-known/clawmind-signing.pem
+
+  # Fetch the current warrant canary; the latest attestation carries a `proof`.
+  curl -sS http://localhost:7410/v1/warrant-canary | jq '.current'
+
+  # Ask the server to verify a stored attestation by id.
+  curl -sS http://localhost:7410/v1/warrant-canary/attestations/wc_000001/verify | jq
+  ```
+
 - Data classification with share-time enforcement (SOC2 CC6.7 / ISO 27001 A.8.2): every cited source path can carry exactly one sensitivity label from a fixed four-level scale (`public`, `internal`, `confidential`, `restricted`) and the workspace owner sets `allowPublicShareUpTo` to cap which labels are permitted in a public `/s/<id>` link. Unlabelled paths fall back to the workspace `defaultLabel` (initially `internal`) so existing content is not silently downgraded the moment the policy is enabled, and an owner can flip the default to `confidential` to quarantine new documents from share-by-default until they are reviewed. The gate lives in `POST /v1/share` after the share-policy check: the route walks every source path in the body, looks up its effective label, and refuses the mint with `403 classification policy denied` the first time a label exceeds the cap. The 403 body and the audit row both name the offending path and label, so a security operator can answer "which document blocked the share" without grepping the source list. Owners manage policy and labels from `/settings/classification`: a single page covers the cap, the default, and a per-path label list with inline relabel and clear. Policy and label mutations require owner role plus MFA step-up and write before/after diffs to the hash-chained audit log; reads are admin+. A regression test pins the four-level rank order, proves an unlabelled path is blocked when the default exceeds the cap, proves an explicit `public` label permits the share, and proves the first violation in a multi-source citation is the one reported back.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
