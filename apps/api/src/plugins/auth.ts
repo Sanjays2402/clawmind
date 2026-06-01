@@ -1,7 +1,7 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { verifySecret, hasScope, ipAllowedByKey, originAllowedByKey } from '../services/api-keys.js';
-import { recordUsage } from '../services/api-key-usage.js';
+import { recordUsage, normaliseUa } from '../services/api-key-usage.js';
 import { consume as consumeKeyBucket } from '../services/api-key-rate-limit.js';
 import {
   status as bruteforceStatus,
@@ -100,6 +100,12 @@ const plugin: FastifyPluginAsync = async (app) => {
       method: req.method,
       status: reply.statusCode,
       ms: Math.max(0, Date.now() - started),
+      // Forensic context. req.ip respects the trust-proxy configuration so
+      // a customer behind a CDN sees the original client IP, not the edge.
+      // The UA is truncated to a sane upper bound inside normaliseUa to
+      // keep the per-key jsonl file from being pumped by a hostile header.
+      ip: req.ip,
+      ua: normaliseUa(req.headers['user-agent']),
     });
   });
 

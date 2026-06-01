@@ -845,6 +845,16 @@ export interface KeyUsageEvent {
   method: string;
   status: number;
   ms: number;
+  // Forensic context. Optional because pre-launch log lines do not carry
+  // these fields; the UI tolerates undefined and renders "unknown".
+  ip?: string;
+  ua?: string;
+}
+
+export interface KeyUsageIpAggregate {
+  ip: string;
+  count: number;
+  lastAt: number;
 }
 
 export interface KeyUsageReport {
@@ -860,6 +870,8 @@ export interface KeyUsageReport {
   };
   recent: KeyUsageEvent[];
   byRoute: { route: string; method: string; count: number; lastAt: number }[];
+  byIp: KeyUsageIpAggregate[];
+  uniqueIps: number;
 }
 
 export type WebhookEvent = 'ask.completed' | 'ingest.completed' | 'audit.event';

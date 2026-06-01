@@ -18,6 +18,9 @@ import {
 const UsageQuery = z.object({
   recent: z.coerce.number().int().positive().max(200).optional(),
   routes: z.coerce.number().int().positive().max(50).optional(),
+  // Forensic IP aggregation cap. Bounded so a polling UI cannot ask for
+  // an unbounded scan of the per-key log.
+  ips: z.coerce.number().int().positive().max(50).optional(),
 });
 
 const ScopeSchema = z.string()
@@ -178,6 +181,7 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
       const report = await getUsageReport(app.clawmind.dataDir, req.params.id, {
         recent: req.query.recent,
         routes: req.query.routes,
+        ips: req.query.ips,
       });
       return report;
     },

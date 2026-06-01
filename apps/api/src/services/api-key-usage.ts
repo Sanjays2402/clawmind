@@ -18,6 +18,26 @@ export interface UsageEvent {
   method: string;      // GET, POST, ...
   status: number;      // HTTP status code
   ms: number;          // request duration in ms (0 if unavailable)
+  // Forensic context. Captured on the request that produced the event so a
+  // workspace owner can answer "which IP made this call?" and "which
+  // client library is using this key?" without grepping the audit chain.
+  // Optional because the field was introduced after launch and old log
+  // lines do not have it; UI must tolerate undefined.
+  ip?: string;         // client IP as Fastify resolved it (respects trust proxy)
+  ua?: string;         // first 256 chars of the User-Agent header; truncated
+}
+
+// Hard cap on the User-Agent we store. A maliciously long header should
+// not blow up the per-key log file. 256 is plenty for every real client
+// string we have ever seen and keeps a 1000-line log under ~512 KB even
+// if every entry uses the full budget.
+export const UA_MAX_LEN = 256;
+
+export function normaliseUa(raw: string | undefined | null): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = String(raw).trim();
+  if (!trimmed) return undefined;
+  return trimmed.length > UA_MAX_LEN ? trimmed.slice(0, UA_MAX_LEN) : trimmed;
 }
 
 export interface UsageTotals {
@@ -37,11 +57,19 @@ export interface RouteAggregate {
   lastAt: number;
 }
 
+export interface IpAggregate {
+  ip: string;
+  count: number;
+  lastAt: number;
+}
+
 export interface UsageReport {
   keyId: string;
   totals: UsageTotals;
   recent: UsageEvent[];         // newest first, capped
   byRoute: RouteAggregate[];    // sorted by count desc, capped
+  byIp: IpAggregate[];          // sorted by count desc, capped; forensic
+  uniqueIps: number;            // total distinct IPs across the whole log
 }
 
 const DIR = 'api-key-usage';
@@ -49,6 +77,7 @@ const MAX_BYTES = 256 * 1024;        // ~256 KB per key before we trim
 const TRIM_KEEP = 1000;              // entries retained after a trim
 const DEFAULT_RECENT = 25;
 const DEFAULT_ROUTES = 10;
+const DEFAULT_IPS = 10;
 
 function fileFor(dataDir: string, keyId: string): string {
   // keyId comes from nanoid and is alphanum, but be defensive.
@@ -116,6 +145,7 @@ async function readAll(dataDir: string, keyId: string): Promise<UsageEvent[]> {
 export interface ReportOptions {
   recent?: number;
   routes?: number;
+  ips?: number;
   now?: number;
 }
 
@@ -158,6 +188,25 @@ export async function getUsageReport(
     }
   }
 
+  // Aggregate by source IP for the forensics panel. Events with no IP
+  // (older log lines from before forensic capture, or internal calls)
+  // are skipped so the panel only shows actionable rows.
+  const ipMap = new Map<string, IpAggregate>();
+  for (const ev of events) {
+    if (!ev.ip) continue;
+    const existing = ipMap.get(ev.ip);
+    if (existing) {
+      existing.count++;
+      if (ev.ts > existing.lastAt) existing.lastAt = ev.ts;
+    } else {
+      ipMap.set(ev.ip, { ip: ev.ip, count: 1, lastAt: ev.ts });
+    }
+  }
+  const ipLimit = Math.max(1, Math.min(50, (opts as { ips?: number }).ips ?? DEFAULT_IPS));
+  const byIp = [...ipMap.values()]
+    .sort((a, b) => b.count - a.count || b.lastAt - a.lastAt)
+    .slice(0, ipLimit);
+
   const recent = events.slice(-recentLimit).reverse();
   const byRoute = [...routeMap.values()]
     .sort((a, b) => b.count - a.count || b.lastAt - a.lastAt)
@@ -176,6 +225,8 @@ export async function getUsageReport(
     },
     recent,
     byRoute,
+    byIp,
+    uniqueIps: ipMap.size,
   };
 }
 

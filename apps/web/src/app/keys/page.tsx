@@ -760,9 +760,10 @@ function UsagePanel({
       </div>
     );
   }
-  const { totals, recent, byRoute } = usage;
+  const { totals, recent, byRoute, byIp, uniqueIps } = usage;
   return (
-    <div className="mt-1 grid grid-cols-1 gap-3 rounded-md border border-cm-border bg-cm-bg/50 p-3 sm:grid-cols-3">
+    <div className="mt-1 space-y-3 rounded-md border border-cm-border bg-cm-bg/50 p-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
       <div>
         <div className="text-[10px] uppercase tracking-wide text-cm-muted">Totals</div>
         <dl className="mt-1.5 grid grid-cols-2 gap-y-1 text-xs">
@@ -771,6 +772,7 @@ function UsagePanel({
           <dt className="text-cm-muted">Last 7d</dt><dd className="text-right tabular-nums">{totals.last7d}</dd>
           <dt className="text-cm-muted">7d 2xx</dt><dd className="text-right tabular-nums text-cm-success">{totals.lastStatusOk}</dd>
           <dt className="text-cm-muted">7d errors</dt><dd className="text-right tabular-nums text-cm-danger">{totals.lastStatusErr}</dd>
+          <dt className="text-cm-muted">Unique IPs</dt><dd className="text-right tabular-nums">{uniqueIps}</dd>
           <dt className="text-cm-muted">First seen</dt><dd className="text-right text-[11px]">{totals.firstAt ? fmtRelative(totals.firstAt) : 'never'}</dd>
         </dl>
       </div>
@@ -788,15 +790,43 @@ function UsagePanel({
         </ul>
       </div>
       <div>
+        <div className="text-[10px] uppercase tracking-wide text-cm-muted">Source IPs</div>
+        {byIp.length === 0 ? (
+          <div className="mt-1.5 text-xs text-cm-muted">No IPs captured yet.</div>
+        ) : (
+          <ul className="mt-1.5 space-y-1">
+            {byIp.map((r) => (
+              <li key={r.ip} className="flex items-center justify-between gap-2 text-xs">
+                <span className="truncate font-mono text-cm-fg" title={r.ip}>{r.ip}</span>
+                <span className="shrink-0 tabular-nums text-cm-muted">{r.count}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      </div>
+      <div>
         <div className="text-[10px] uppercase tracking-wide text-cm-muted">Recent calls</div>
         <ul className="mt-1.5 space-y-1">
           {recent.map((ev, i) => (
-            <li key={i} className="flex items-center justify-between gap-2 text-xs">
+            <li key={i} className="flex flex-col gap-0.5 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-2">
               <span className="truncate font-mono text-cm-muted">
                 <span className={ev.status >= 400 ? 'text-cm-danger' : 'text-cm-success'}>{ev.status}</span>{' '}
                 {ev.method} {ev.route}
               </span>
-              <span className="shrink-0 tabular-nums text-cm-muted">{fmtRelative(ev.ts)}</span>
+              <span className="flex shrink-0 items-center gap-2 text-[11px] text-cm-muted">
+                {ev.ip ? (
+                  <span
+                    className="truncate font-mono text-cm-fg"
+                    title={ev.ua ? `${ev.ip} \u00b7 ${ev.ua}` : ev.ip}
+                  >
+                    {ev.ip}
+                  </span>
+                ) : (
+                  <span className="text-cm-muted">unknown</span>
+                )}
+                <span className="tabular-nums">{fmtRelative(ev.ts)}</span>
+              </span>
             </li>
           ))}
         </ul>
