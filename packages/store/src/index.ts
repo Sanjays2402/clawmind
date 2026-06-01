@@ -3,4 +3,5 @@ export * from './manifest.js';
 export * from './schema.js';
 export * from './audit-log.js';
 export * from './audit-anchors.js';
+export * from './audit-proofs.js';
 export * from './bm25-index.js';

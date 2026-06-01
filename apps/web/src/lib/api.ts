@@ -2097,6 +2097,25 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(note ? { note } : {}),
     }),
+  // Per-event inclusion proof. Pins one audit event to its 1-indexed
+  // position in the chain at the moment of issuance with an HMAC
+  // signature, so an external auditor can later confirm offline that
+  // the event was logged and has not been altered.
+  auditProofIssue: (eventId: string) =>
+    j<{ proof: AuditInclusionProof }>(
+      `/v1/admin/audit/${encodeURIComponent(eventId)}/proof`,
+    ),
+  auditProofVerify: (proof: AuditInclusionProof) =>
+    j<{
+      ok: boolean;
+      eventHashValid: boolean;
+      signatureValid: boolean;
+      reason: 'event-hash-mismatch' | 'bad-signature' | 'missing-event-hash' | null;
+      recomputedEventHash: string;
+    }>('/v1/admin/audit/proofs/verify', {
+      method: 'POST',
+      body: JSON.stringify({ proof }),
+    }),
   // Stream the full chain (subject to the same filters as auditQuery)
   // as a blob the browser can save. We pull through fetch instead of a
   // raw anchor so the request inherits the same cookie credentials used
@@ -3353,6 +3372,17 @@ export interface AuditEvent {
   meta?: Record<string, unknown>;
   prevHash?: string;
   hash?: string;
+}
+
+export interface AuditInclusionProof {
+  id: string;
+  ts: number;
+  event: AuditEvent;
+  eventHash: string;
+  position: number;
+  chainHeadHash: string | null;
+  chainChecked: number;
+  hmac: string;
 }
 
 export type NotificationKind =

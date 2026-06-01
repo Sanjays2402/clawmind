@@ -85,7 +85,7 @@ function buildApp(opts: { user: { id: string; role: 'owner' | 'reader'; scopes?:
   app.setSerializerCompiler(serializerCompiler);
   app.register(sensible);
   const audit = new AuditLog(join(dir, 'audit.log'));
-  app.decorate('clawmind', { audit, dataDir: dir } as never);
+  app.decorate('clawmind', { audit, dataDir: dir, env: { CLAWMIND_SESSION_SECRET: 'test-secret' } } as never);
 
   app.addHook('preHandler', async (req) => {
     if (opts.user) req.user = { ...opts.user, github: null, via: 'session' } as never;
@@ -283,6 +283,97 @@ describe('GET /v1/admin/audit/export route', () => {
       url: '/v1/admin/audit/export?format=xml',
     });
     expect(res.statusCode).toBe(400);
+    await app.close();
+  });
+});
+
+describe('audit inclusion proofs', () => {
+  it('issues a proof for an existing event and verifies it', async () => {
+    const { app, audit } = buildApp({
+      user: { id: 'owner', role: 'owner', scopes: [Scopes.AuditRead] },
+    });
+    const ev = await audit.write({
+      actor: 'alice',
+      action: 'POST 200',
+      resource: '/v1/sensitive',
+    });
+    const issued = await app.inject({
+      method: 'GET',
+      url: `/v1/admin/audit/${ev.id}/proof`,
+    });
+    expect(issued.statusCode).toBe(200);
+    const proof = issued.json().proof;
+    expect(proof.event.id).toBe(ev.id);
+    expect(proof.position).toBeGreaterThanOrEqual(1);
+    expect(proof.eventHash).toBe(ev.hash);
+    expect(proof.hmac).toMatch(/^[a-f0-9]{64}$/);
+
+    const verified = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/audit/proofs/verify',
+      payload: { proof },
+    });
+    expect(verified.statusCode).toBe(200);
+    const verdict = verified.json();
+    expect(verdict.ok).toBe(true);
+    expect(verdict.eventHashValid).toBe(true);
+    expect(verdict.signatureValid).toBe(true);
+    await app.close();
+  });
+
+  it('rejects a proof whose event body was tampered', async () => {
+    const { app, audit } = buildApp({
+      user: { id: 'owner', role: 'owner', scopes: [Scopes.AuditRead] },
+    });
+    const ev = await audit.write({
+      actor: 'alice',
+      action: 'POST 200',
+      resource: '/v1/secret',
+    });
+    const issued = await app.inject({
+      method: 'GET',
+      url: `/v1/admin/audit/${ev.id}/proof`,
+    });
+    const proof = issued.json().proof;
+    proof.event.actor = 'mallory';
+    const verified = await app.inject({
+      method: 'POST',
+      url: '/v1/admin/audit/proofs/verify',
+      payload: { proof },
+    });
+    expect(verified.statusCode).toBe(200);
+    const verdict = verified.json();
+    expect(verdict.ok).toBe(false);
+    expect(verdict.reason).toBe('event-hash-mismatch');
+    await app.close();
+  });
+
+  it('returns 404 for an unknown event id', async () => {
+    const { app } = buildApp({
+      user: { id: 'owner', role: 'owner', scopes: [Scopes.AuditRead] },
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/audit/does-not-exist/proof',
+    });
+    expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it('requires the audit:read scope', async () => {
+    const { app, audit } = buildApp({
+      user: { id: 'owner', role: 'owner', scopes: ['other:read'] },
+    });
+    const ev = await audit.write({
+      actor: 'u',
+      action: 'POST 200',
+      resource: '/v1/x',
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: `/v1/admin/audit/${ev.id}/proof`,
+    });
+    expect(res.statusCode).toBe(403);
     await app.close();
   });
 });

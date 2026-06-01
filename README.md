@@ -10,6 +10,24 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Audit inclusion proofs: external auditors and procurement reviewers routinely ask the narrow question "prove this specific event was in your log on this date," which a full chain export does not answer cleanly. ClawMind owners now mint a single-event certificate at `GET /v1/admin/audit/:id/proof` (owner + `audit:read`). The proof embeds the full event, its 1-indexed chronological position across rotated chain files, a snapshot of the chain head hash and length at the moment of issuance, an issuance timestamp, and an HMAC-SHA256 signature over the canonical body. Verification is stateless and offline: any holder of the HMAC secret recomputes SHA-256 over the embedded event (catches tamper of any field) and the HMAC over the certificate body (catches tamper of position, chain head, or issuance time). The verifier lives at `POST /v1/admin/audit/proofs/verify` for in-product use and is fully described in `packages/store/src/audit-proofs.ts` so an auditor with their own toolchain can reimplement it from the schema. Both endpoints write their action to the hash-chained audit log (`audit.proof.issue`, `audit.proof.verify`) with the proof id and event id captured so the act of minting or verifying a certificate is itself part of the tamper-evident trail. The chain is verified before a proof is issued and the route returns `409 chain_not_verified` if the on-disk chain is broken, refusing to anchor a certificate to an inconsistent state. The `/settings/audit-proofs` console exposes both flows: paste an event id to mint and download a certificate, or paste a certificate JSON to get a structured verdict (event hash valid, signature valid, reason on failure, recomputed hash for side-by-side comparison). Six store-package tests pin issuance, offline verification, event-body tamper detection, wrong-secret rejection, position-rewrite rejection, and not-found behaviour; four API-route tests pin the end-to-end issue + verify round-trip, tamper rejection, 404 on unknown ids, and that `audit:read` scope is required.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```sh
+  # 1. Find an event id from the audit log (the export route is already documented elsewhere).
+  curl -s -H "x-clawmind-key: $KEY" 'http://localhost:7410/v1/admin/audit?limit=1' | jq '.events[0].id'
+
+  # 2. Mint an inclusion proof for that event. Save the JSON; this is the certificate.
+  curl -s -H "x-clawmind-key: $KEY" "http://localhost:7410/v1/admin/audit/<event-id>/proof" > proof.json
+
+  # 3. Verify it server-side. Returns { ok, eventHashValid, signatureValid, reason, recomputedEventHash }.
+  jq '{proof: .proof}' proof.json | curl -s -X POST -H 'content-type: application/json' -H "x-clawmind-key: $KEY" \
+    --data @- http://localhost:7410/v1/admin/audit/proofs/verify
+  ```
+
+  Or open `http://localhost:7412/settings/audit-proofs` to mint, download, and verify certificates in the dashboard.
+
 - Indirect prompt-injection policy: every retrieved RAG chunk is scanned BEFORE it is surfaced to the user or the LLM stream emits tokens, so an attacker who poisoned an ingested document (a webpage, a PR description, a shared note) cannot use that chunk to override the system prompt, exfiltrate keys, or trigger DAN-style jailbreaks. The policy ships with seven curated built-in rules covering the OWASP LLM Top 10 indirect-injection class (instruction override, system prompt disclosure, role override, image-tag exfiltration, zero-width payloads, embedded `<system>` tags, exfil keywords). Workspace owners (with MFA step-up) add their own regexes via `POST /v1/prompt-injection-policy/rules` and flip the global mode at `PUT /v1/prompt-injection-policy/mode` between `off`, `monitor` (audit only), `flag` (annotate each affected source with `injectionFlags: [{ruleId, severity, label}]` so the client can render a warning chip), and `block` (refuse `/v1/ask`, `/v1/ask/stream`, `/v1/search` with `422 injection-detected` listing the offending source ids). Every detection writes one audit row per call with `{ mode, sourceCount, sources: [{id, ruleIds, severity}] }` — never the matched excerpt text, so the tamper-evident chain never echoes the rotating jailbreak strings security teams add daily. Built-in rules can be individually disabled per workspace via `DELETE /v1/prompt-injection-policy/rules/:id` without removing the seed for fresh deployments. Backed by new `prompt-injection:read` and `prompt-injection:admin` scopes; admins can list active rules but cannot edit them.
 
   Try it locally (API on `http://localhost:7410`):

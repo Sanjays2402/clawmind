@@ -2,6 +2,11 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import { Scopes } from '../scopes.js';
 import type { AuditEvent } from '@clawmind/types';
+import {
+  issueInclusionProof,
+  verifyInclusionProof,
+  type AuditInclusionProof,
+} from '@clawmind/store';
 
 // RFC 4180 CSV cell: quote if the value contains a quote, comma, or
 // newline; double any embedded quote. Numbers/null are stringified plainly
@@ -288,6 +293,117 @@ export const auditRoutes: FastifyPluginAsyncZod = async (app) => {
           anchorChecked: result.anchor?.checked ?? null,
           currentHeadHash: v.headHash,
           currentChecked: v.checked,
+        },
+      });
+      return result;
+    },
+  });
+
+  // Per-event inclusion proof. An offline-verifiable HMAC-signed
+  // certificate that pins one audit event to its 1-indexed position in
+  // the chain at the moment of issuance. External auditors use this to
+  // prove "event X was in your log on date Y and has not been altered"
+  // without ever seeing the full chain.
+  app.get<{ Params: { id: string } }>('/admin/audit/:id/proof', {
+    preHandler: [
+      app.requireAuth,
+      app.requireRole('owner'),
+      app.requireScope(Scopes.AuditRead),
+    ],
+    handler: async (req, reply) => {
+      const id = req.params.id;
+      // Snapshot the chain head FIRST so the certificate binds to a
+      // verified state, not an interleaved write.
+      const head = await app.clawmind.audit.verify();
+      if (!head.ok) {
+        reply.code(409);
+        return {
+          error: 'chain_not_verified',
+          message:
+            'Audit chain failed verification; refusing to issue a proof over a broken chain.',
+          reason: head.reason,
+        };
+      }
+      const result = await issueInclusionProof({
+        eventId: id,
+        iterate: () => app.clawmind.audit.iterate(),
+        chainHeadHash: head.headHash,
+        chainChecked: head.checked,
+        secret: app.clawmind.env.CLAWMIND_SESSION_SECRET,
+      });
+      if (!result.ok) {
+        reply.code(result.reason === 'not-found' ? 404 : 422);
+        return { error: result.reason };
+      }
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: 'audit.proof.issue',
+        resource: `/v1/admin/audit/${id}/proof`,
+        meta: {
+          proofId: result.proof.id,
+          eventId: id,
+          position: result.proof.position,
+          chainHeadHash: result.proof.chainHeadHash,
+          chainChecked: result.proof.chainChecked,
+        },
+      });
+      return { proof: result.proof };
+    },
+  });
+
+  // Verify a previously-issued inclusion proof. Stateless: the verifier
+  // only needs the certificate body and the workspace HMAC secret, which
+  // is held by the server. We expose this endpoint so the UI can offer a
+  // "paste in a certificate, get a verdict" workflow that mirrors what
+  // an external auditor would run offline with the documented format.
+  const ProofBody = z
+    .object({
+      proof: z
+        .object({
+          id: z.string(),
+          ts: z.number(),
+          event: z.object({
+            id: z.string(),
+            ts: z.number(),
+            actor: z.string(),
+            action: z.string(),
+            resource: z.string(),
+            meta: z.record(z.unknown()).optional(),
+            prevHash: z.string().optional(),
+            hash: z.string().optional(),
+          }),
+          eventHash: z.string(),
+          position: z.number().int().nonnegative(),
+          chainHeadHash: z.string().nullable(),
+          chainChecked: z.number().int().nonnegative(),
+          hmac: z.string(),
+        })
+        .strict(),
+    })
+    .strict();
+
+  app.post('/admin/audit/proofs/verify', {
+    preHandler: [
+      app.requireAuth,
+      app.requireRole('owner'),
+      app.requireScope(Scopes.AuditRead),
+    ],
+    schema: { body: ProofBody },
+    handler: async (req) => {
+      const body = req.body as z.infer<typeof ProofBody>;
+      const result = verifyInclusionProof(
+        body.proof as AuditInclusionProof,
+        app.clawmind.env.CLAWMIND_SESSION_SECRET,
+      );
+      await app.clawmind.audit.write({
+        actor: req.user!.id,
+        action: 'audit.proof.verify',
+        resource: '/v1/admin/audit/proofs/verify',
+        meta: {
+          proofId: body.proof.id,
+          eventId: body.proof.event.id,
+          ok: result.ok,
+          reason: result.reason,
         },
       });
       return result;
