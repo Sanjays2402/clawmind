@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS, setKeyAllowedIps, normaliseKeyIpRules, MAX_KEY_IP_RULES, setKeyAllowedOrigins, normaliseKeyOriginRules, MAX_KEY_ORIGIN_RULES, MAX_ORIGIN_LENGTH, setKeyAllowedHours, normaliseAllowedHours, MAX_KEY_HOURS_WINDOWS, MAX_KEY_TZ_LENGTH, setKeyAllowedMethods, normaliseKeyMethodRules, MAX_KEY_METHOD_RULES, VALID_HTTP_METHODS } from '../services/api-keys.js';
+import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS, setKeyAllowedIps, normaliseKeyIpRules, MAX_KEY_IP_RULES, setKeyAllowedOrigins, normaliseKeyOriginRules, MAX_KEY_ORIGIN_RULES, MAX_ORIGIN_LENGTH, setKeyAllowedHours, normaliseAllowedHours, MAX_KEY_HOURS_WINDOWS, MAX_KEY_TZ_LENGTH, setKeyAllowedMethods, normaliseKeyMethodRules, MAX_KEY_METHOD_RULES, VALID_HTTP_METHODS, setKeyNotBefore, normaliseNotBefore, MAX_NOT_BEFORE_AHEAD_MS } from '../services/api-keys.js';
 import { getUsageReport, purgeUsage } from '../services/api-key-usage.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
@@ -41,6 +41,11 @@ const IssueBody = z.object({
   role: z.enum(['owner', 'reader']).default('owner'),
   scopes: z.array(ScopeSchema).max(32).optional(),
   ttlMs: z.number().int().positive().max(365 * 24 * 60 * 60_000).nullable().optional(),
+  // Optional scheduled activation. Absolute epoch ms in the future,
+  // bounded to one year ahead so a typo cannot mint a credential that
+  // sleeps for a decade. A value at or before now is coerced to null
+  // (already active) by the service layer.
+  notBefore: z.number().int().positive().nullable().optional(),
 });
 
 export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
@@ -123,16 +128,26 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
           message: verdict.message,
         });
       }
-      const issued = await issueKey(app.clawmind.dataDir, {
-        userId: req.user!.id,
-        label: req.body.label,
-        role: req.body.role,
-        scopes: req.body.scopes,
-        ttlMs: req.body.ttlMs ?? null,
-      });
+      let issued;
+      try {
+        issued = await issueKey(app.clawmind.dataDir, {
+          userId: req.user!.id,
+          label: req.body.label,
+          role: req.body.role,
+          scopes: req.body.scopes,
+          ttlMs: req.body.ttlMs ?? null,
+          notBefore: req.body.notBefore ?? null,
+        });
+      } catch (err) {
+        const msg = (err as Error).message;
+        if (msg.includes('notBefore')) {
+          return reply.code(409).send({ error: 'activation conflict', message: msg });
+        }
+        throw err;
+      }
       await app.clawmind.audit.write({
         actor: req.user!.id, action: 'api_key.issue', resource: issued.record.id,
-        meta: { label: issued.record.label, role: issued.record.role, scopes: issued.record.scopes ?? null },
+        meta: { label: issued.record.label, role: issued.record.role, scopes: issued.record.scopes ?? null, notBefore: issued.record.notBefore ?? null },
       });
       void completeOnboardingStep(app.clawmind.dataDir, req.user!.id, 'configure').catch(() => undefined);
       return { key: redact(issued.record), secret: issued.secret };
@@ -429,6 +444,61 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
             : 'api_key.method_allowlist.clear',
           resource: req.params.id,
           meta: { count: normalised.length, methods: normalised },
+        });
+        return { key: redact(updated) };
+      },
+    },
+  );
+
+  // Set or clear the per-key activation timestamp. Pass
+  //   { notBefore: <epoch-ms in future> } to schedule a future go-live,
+  //   { notBefore: null } to activate immediately.
+  // Audited. Returns 409 when the activation moment would land at or
+  // after the key's expiresAt (the key would never be usable).
+  app.put<{ Params: { id: string }; Body: { notBefore?: number | null } }>(
+    '/keys/:id/activates-at',
+    {
+      schema: {
+        body: z.object({
+          notBefore: z.number().int().positive().nullable().optional(),
+        }),
+      },
+      preHandler: [app.requireRole('owner'), app.requireMfa, app.requireScope(Scopes.KeysManage)],
+      handler: async (req, reply) => {
+        const raw = req.body.notBefore ?? null;
+        const v = normaliseNotBefore(raw);
+        if (!v.ok) {
+          return reply.code(400).send({
+            error: 'invalid notBefore',
+            message: v.message,
+            maxAheadMs: MAX_NOT_BEFORE_AHEAD_MS,
+          });
+        }
+        let updated;
+        try {
+          updated = await setKeyNotBefore(
+            app.clawmind.dataDir,
+            req.user!.id,
+            req.params.id,
+            v.value ?? null,
+          );
+        } catch (err) {
+          return reply.code(409).send({
+            error: 'activation conflict',
+            message: (err as Error).message,
+          });
+        }
+        if (!updated) return reply.code(404).send({ error: 'not found' });
+        await app.clawmind.audit.write({
+          actor: req.user!.id,
+          action: v.value ? 'api_key.activation.scheduled' : 'api_key.activation.cleared',
+          resource: req.params.id,
+          meta: v.value
+            ? {
+                notBefore: new Date(v.value).toISOString(),
+                waitSeconds: Math.max(0, Math.ceil((v.value - Date.now()) / 1000)),
+              }
+            : {},
         });
         return { key: redact(updated) };
       },

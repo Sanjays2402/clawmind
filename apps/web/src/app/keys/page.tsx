@@ -663,6 +663,14 @@ function KeyRow({
               methods {k.allowedMethods.join('/')}
             </span>
           )}
+          {k.notBefore && k.active === false && (
+            <span
+              title={`Activates ${new Date(k.notBefore).toLocaleString()}`}
+              className="rounded border border-amber-500/40 px-1.5 py-0.5 text-amber-600"
+            >
+              activates {new Date(k.notBefore).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
         </div>
         {k.scopes && k.scopes.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1">

@@ -863,6 +863,12 @@ export interface ApiKey {
     windows: { days: number[]; startMin: number; endMin: number }[];
   } | null;
   allowedMethods?: string[] | null;
+  // Scheduled activation. When set and in the future the key authenticates
+  // with 401 reason 'not_yet_active' until the moment arrives. `active`
+  // is the server-side evaluation so the dashboard can show a clear
+  // pending vs live badge without re-implementing the rule.
+  notBefore?: number | null;
+  active?: boolean;
 }
 
 export interface KeyUsageEvent {
@@ -1149,7 +1155,7 @@ export const api = {
       policy: { forcedRotationDays: number };
       inactivity: { idleDays: number; warnDays: number; lastSweepAt: number | null };
     }>('/v1/keys'),
-  keyIssue: (input: { label: string; role?: 'owner' | 'reader'; scopes?: string[]; ttlMs?: number | null }) =>
+  keyIssue: (input: { label: string; role?: 'owner' | 'reader'; scopes?: string[]; ttlMs?: number | null; notBefore?: number | null }) =>
     j<{ key: ApiKey; secret: string }>('/v1/keys', { method: 'POST', body: JSON.stringify(input) }),
   keyRevoke: (id: string) => j<{ ok: boolean }>(`/v1/keys/${id}`, { method: 'DELETE' }),
   keyRotate: (id: string) =>
@@ -1187,6 +1193,11 @@ export const api = {
     j<{ key: ApiKey }>(
       `/v1/keys/${id}/method-allowlist`,
       { method: 'PUT', body: JSON.stringify({ allowedMethods }) },
+    ).then((r) => r.key),
+  keySetActivation: (id: string, notBefore: number | null) =>
+    j<{ key: ApiKey }>(
+      `/v1/keys/${id}/activates-at`,
+      { method: 'PUT', body: JSON.stringify({ notBefore }) },
     ).then((r) => r.key),
   keyUsage: (id: string, opts: { recent?: number; routes?: number } = {}) => {
     const q = new URLSearchParams();

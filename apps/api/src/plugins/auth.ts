@@ -242,6 +242,41 @@ const plugin: FastifyPluginAsync = async (app) => {
           // policy file does not lock every automation out. The doctor
           // route surfaces the broken file separately.
         }
+        // Pre-activation gate. A key with a future notBefore was minted
+        // ahead of a scheduled go-live and must refuse to transact until
+        // wall-clock time crosses that moment. Surfaced with a 401, a
+        // structured reason, and the activation timestamp so SDKs can
+        // surface a clean error or schedule a retry without polling.
+        if (
+          result.record.notBefore != null &&
+          result.record.notBefore > Date.now()
+        ) {
+          const nb = result.record.notBefore;
+          const iso = new Date(nb).toISOString();
+          await app.clawmind.audit.write({
+            actor: result.record.userId,
+            action: 'api_key.not_yet_active.denied',
+            resource: result.record.id,
+            meta: {
+              ip: req.ip,
+              route: req.url,
+              notBefore: iso,
+              waitSeconds: Math.max(0, Math.ceil((nb - Date.now()) / 1000)),
+              requestId: req.id,
+            },
+          }).catch(() => undefined);
+          reply.header('X-API-Key-Not-Before', iso);
+          reply.header(
+            'retry-after',
+            String(Math.max(1, Math.ceil((nb - Date.now()) / 1000))),
+          );
+          return reply.code(401).send({
+            error: 'api key not yet active',
+            reason: 'not_yet_active',
+            notBefore: iso,
+            waitSeconds: Math.max(0, Math.ceil((nb - Date.now()) / 1000)),
+          });
+        }
         // Per-key IP allowlist. Reject before issuing usage credit so a
         // probing client cannot map the key's scope set from outside its
         // permitted range. The workspace-level allowlist (if any) is

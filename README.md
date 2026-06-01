@@ -10,6 +10,30 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Per-API-key scheduled activation (`notBefore`): enterprise change-management workflows mint credentials ahead of a planned cutover (vendor go-live, scheduled maintenance, contract start date) and need them to refuse to transact until the chosen moment. ClawMind adds an optional `notBefore` timestamp to every API key, accepted at issuance (`POST /v1/keys` with `{ notBefore }`, owner + MFA + `keys:manage`) or set later via `PUT /v1/keys/:id/activates-at` (same guards). Values are validated to be finite, no more than 365 days ahead, and strictly less than the key's `expiresAt` (a window where the key would expire before it activated is rejected with `409 activation conflict` so a typo cannot mint a permanently dead credential). The auth layer evaluates `notBefore` before usage credit, scope mapping, or per-key rate limits: a pre-activation key is rejected with `401 api key not yet active`, a structured `{ reason: 'not_yet_active', notBefore, waitSeconds }` body, and `X-API-Key-Not-Before` plus `Retry-After` response headers so SDKs can surface a clean error or schedule a retry without polling. Every denial writes an `api_key.not_yet_active.denied` row to the hash-chained audit log with the actor, the route, the request id, and the configured activation timestamp, and the issue + schedule + clear actions all emit audit rows of their own. The `/keys` console surfaces an `activates <date>` badge on any pending key so admins can see at a glance which credentials are scheduled and when. Ten tests pin normalisation (null, past-coerced-to-null, NaN, year-cap), issuance persistence, the `notBefore >= expiresAt` refusal, owner-scoping of the update endpoint, and end-to-end auth-plugin behaviour (denied before activation with the documented headers, authenticates once the moment passes).
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # 1. Mint a key that goes live in one hour (owner + MFA + keys:manage).
+  curl -sS -X POST http://localhost:7410/v1/keys \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d "{\"label\":\"vendor-cutover\",\"notBefore\":$(($(date +%s%3N)+3600000))}" | jq
+
+  # 2. Using it before activation fails fast with structured headers.
+  curl -sS -i -H "Authorization: Bearer $SCHEDULED_KEY" http://localhost:7410/v1/whoami | head -20
+  # -> HTTP/1.1 401, X-API-Key-Not-Before: ..., Retry-After: <seconds>
+
+  # 3. Reschedule (or clear with notBefore=null) without re-minting.
+  curl -sS -X PUT http://localhost:7410/v1/keys/$KEY_ID/activates-at \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -H 'content-type: application/json' \
+    -d '{"notBefore":null}' | jq
+  ```
+
+  Or open `http://localhost:7412/keys` to see the `activates <date>` badge on any pending key.
+
 - Per-API-key HTTP method allowlist: enterprise reviewers regularly demand a credential that is provably read-only at the wire, independent of scopes. ClawMind adds an `allowedMethods` policy to every API key, set through `PUT /v1/keys/:id/method-allowlist` (owner + MFA + `keys:manage`) with `{ allowedMethods: ['GET','HEAD'] }` (any subset of GET, HEAD, OPTIONS, POST, PUT, PATCH, DELETE; max 8; deduped and upper-cased server-side). The auth layer enforces the allowlist before scope mapping, per-key rate limits, or route handlers run: a disallowed verb returns `405 method not allowed for this key` with an `Allow:` header listing the permitted methods and a structured body `{ error, method, allowedMethods }`, and writes an `api_key.method.denied` row to the hash-chained audit log with the actor, the route, and the configured list. Distinct from scopes: a key with `search:read` and `ingest:write` but `allowedMethods=['GET']` still cannot mutate, so a stolen credential cannot escalate even if the resource scope would permit it. The `/keys` console exposes the control as a method-toggle row with a one-click "Read-only preset" (GET + HEAD); the redacted key list surfaces the active set as `methods GET/HEAD` so admins can audit at a glance.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):

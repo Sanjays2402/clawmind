@@ -108,6 +108,15 @@ export interface ApiKeyRecord {
   // the resource scope would otherwise allow it. Undefined or empty
   // means unrestricted (default). Max 8 distinct methods per key.
   allowedMethods?: string[] | null;
+  // Optional activation timestamp. When set to a future epoch-ms value
+  // the auth layer rejects this key with reason 'not_yet_active' until
+  // wall-clock time reaches notBefore. This is the symmetric pair of
+  // expiresAt: change-management can mint a credential ahead of a
+  // scheduled go-live (vendor cutover, planned maintenance) and the
+  // key will refuse to transact until the chosen moment. Once active
+  // the field is ignored by the hot path. Null or undefined means the
+  // key is active immediately at issuance (the existing default).
+  notBefore?: number | null;
   // Anchor used by the api-key-expiry policy to emit at most one
   // `api-key.expiry_warned` audit entry per key per warning crossing.
   // Set to expiresAt at the moment of warning so a subsequent extension
@@ -655,7 +664,43 @@ export interface IssueInput {
   role?: KeyRole;
   scopes?: string[];
   ttlMs?: number | null;
+  // Optional activation moment. Absolute epoch ms. When set and > now,
+  // the key is persisted but refuses to authenticate until the time
+  // arrives. Validated to be at most one year in the future and, when
+  // combined with ttlMs, strictly less than the resulting expiresAt.
+  notBefore?: number | null;
   now?: number;
+}
+
+/** Maximum window we will accept for a future activation. One year, same
+ *  bound the issue route already applies to ttlMs so the two surfaces
+ *  cannot drift. */
+export const MAX_NOT_BEFORE_AHEAD_MS = 365 * 24 * 60 * 60_000;
+
+export interface NotBeforeValidation {
+  ok: boolean;
+  value?: number | null;
+  message?: string;
+}
+
+/** Reject negative, NaN, or absurdly distant activation timestamps. A
+ *  null or undefined input clears the field. A value <= now is accepted
+ *  but coerced to null (already-active keys have no scheduled activation
+ *  to display). */
+export function normaliseNotBefore(
+  raw: number | null | undefined,
+  now: number = Date.now(),
+): NotBeforeValidation {
+  if (raw === null || raw === undefined) return { ok: true, value: null };
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+    return { ok: false, message: 'notBefore must be a finite epoch-ms number' };
+  }
+  const v = Math.trunc(raw);
+  if (v <= now) return { ok: true, value: null };
+  if (v - now > MAX_NOT_BEFORE_AHEAD_MS) {
+    return { ok: false, message: 'notBefore cannot be more than 365 days in the future' };
+  }
+  return { ok: true, value: v };
 }
 
 export interface IssuedKey {
@@ -674,6 +719,16 @@ export async function issueKey(dataDir: string, input: IssueInput): Promise<Issu
     // Dedupe and sort so saved records compare cleanly.
     scopes = [...new Set(input.scopes)].sort();
   }
+  const nb = normaliseNotBefore(input.notBefore ?? null, now);
+  if (!nb.ok) throw new Error(nb.message ?? 'invalid notBefore');
+  const notBefore = nb.value ?? null;
+  const expiresAt = input.ttlMs ? now + input.ttlMs : null;
+  // Refuse a window where the key would expire before it activates. The
+  // store would silently accept it but the credential could never be
+  // used, which is a footgun the issuance API should fail fast on.
+  if (notBefore !== null && expiresAt !== null && notBefore >= expiresAt) {
+    throw new Error('notBefore must be strictly before expiresAt');
+  }
   const record: ApiKeyRecord = {
     id: nanoid(10),
     userId: input.userId,
@@ -682,9 +737,10 @@ export async function issueKey(dataDir: string, input: IssueInput): Promise<Issu
     hash: hashSecret(secret),
     scopes,
     createdAt: now,
-    expiresAt: input.ttlMs ? now + input.ttlMs : null,
+    expiresAt,
     lastUsedAt: null,
     revokedAt: null,
+    notBefore,
   };
   const all = await loadKeys(dataDir);
   all.push(record);
@@ -849,7 +905,43 @@ export function redact(rec: ApiKeyRecord) {
     allowedMethods: rec.allowedMethods ?? null,
     isCanary: rec.isCanary === true,
     canaryNote: rec.canaryNote ?? null,
+    // Surface the activation timestamp and a derived 'active' flag so the
+    // dashboard can render a clear pending/active badge without recomputing
+    // the rule on the client.
+    notBefore: rec.notBefore ?? null,
+    active: rec.notBefore == null || rec.notBefore <= Date.now(),
   };
+}
+
+/** Update or clear the activation timestamp on an existing key. Returns
+ *  null when the key is not owned by the user, was revoked, or has
+ *  expired. Returns the updated record otherwise. The audit entry is the
+ *  caller's responsibility (the route writes it so the actor and request
+ *  context are captured). */
+export async function setKeyNotBefore(
+  dataDir: string,
+  userId: string,
+  id: string,
+  notBefore: number | null,
+  nowArg?: number,
+): Promise<ApiKeyRecord | null> {
+  const now = nowArg ?? Date.now();
+  const v = normaliseNotBefore(notBefore, now);
+  if (!v.ok) throw new Error(v.message ?? 'invalid notBefore');
+  const all = await loadKeys(dataDir);
+  const idx = all.findIndex((k) => k.id === id && k.userId === userId);
+  if (idx < 0) return null;
+  const cur = all[idx]!;
+  if (cur.revokedAt) return null;
+  if (cur.expiresAt && now > cur.expiresAt) return null;
+  const next: ApiKeyRecord = { ...cur, notBefore: v.value ?? null };
+  const nb = next.notBefore ?? null;
+  if (nb !== null && next.expiresAt !== null && nb >= next.expiresAt) {
+    throw new Error('notBefore must be strictly before expiresAt');
+  }
+  all[idx] = next;
+  await saveKeys(dataDir, all);
+  return next;
 }
 
 export interface IssueCanaryInput {
