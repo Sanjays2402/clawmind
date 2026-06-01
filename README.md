@@ -123,6 +123,37 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
     http://localhost:7410/v1/recovery-contacts/admin | jq
   ```
 
+- Warrant canary (transparency / vendor due-diligence): every workspace can publish a signed, periodically-renewed attestation at `GET /v1/warrant-canary` so a buyer's vendor-review tool can pin one URL and watch for silence. The public projection is unauthenticated (an instance whose canary 401s ends procurement on the spot), exposes the workspace preamble plus the current `statement`, `attestedAt`, `expiresAt`, `cadenceDays`, and a SHA-256 `fingerprint` of the canonicalised statement (operator name, instance domain, attested timestamp, statement body) so the wording cannot be silently rewritten without the fingerprint changing, and strips `attestedBy` / `withdrawnBy` / `updatedBy` from both the current record and the full history list. Status derives from server time: `unconfigured` before first signing, `active` while within cadence, `stale` once `expiresAt` has passed, and `withdrawn` once the current record has been explicitly revoked, so the absence-as-signal is computable by any downstream poller without trusting the operator. Settings (`enabled`, `defaultCadenceDays` 1-365, `preamble` up to 4 KB), new attestations (`statement` up to 8 KB, optional per-signing `cadenceDays` override), and withdrawals (`reason`, audited verbatim) are all owner-only with MFA step-up at the route, support `?dry_run=true`, and every mutation writes a structured row to the hash-chained audit log capturing the attestation id, fingerprint, cadence, and (for withdrawals) the reason. The service refuses to sign while disabled, refuses to double-withdraw, and preserves the full history after a revocation so an operator-side admin GET (`/v1/warrant-canary/admin`) can reconstruct the chain. Eleven regression tests pin the unconfigured-on-fresh-install state, the cadence range, the disabled-signing guard, the stale-after-expiry transition, the withdrawal reason requirement and double-withdraw refusal, the history preservation, the no-`attestedBy`-leak invariant in the public projection, and the recomputable-fingerprint contract.
+
+  Try it locally (API on `http://localhost:7410`):
+
+  ```bash
+  # Public projection. No auth. Vendor-review tools pin this URL.
+  curl -sS http://localhost:7410/v1/warrant-canary | jq
+
+  # Owner enables the canary, picks a 30-day cadence, sets the preamble.
+  curl -sS -X PUT -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"enabled":true,"defaultCadenceDays":30,"preamble":"Signed by the workspace owner."}' \
+    http://localhost:7410/v1/warrant-canary/settings
+
+  # Owner signs a fresh attestation. Returns id + fingerprint + expiresAt.
+  curl -sS -X POST -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"statement":"No undisclosed legal process has been received since the previous attestation."}' \
+    http://localhost:7410/v1/warrant-canary/attestations
+
+  # Owner withdraws the current attestation with an audited reason.
+  curl -sS -X POST -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"reason":"Received order under seal; canary withdrawn pending review."}' \
+    http://localhost:7410/v1/warrant-canary/withdraw
+
+  # Admin operator view (incl. attestedBy / withdrawnBy / updatedBy).
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:7410/v1/warrant-canary/admin | jq
+  ```
+
 - Data classification with share-time enforcement (SOC2 CC6.7 / ISO 27001 A.8.2): every cited source path can carry exactly one sensitivity label from a fixed four-level scale (`public`, `internal`, `confidential`, `restricted`) and the workspace owner sets `allowPublicShareUpTo` to cap which labels are permitted in a public `/s/<id>` link. Unlabelled paths fall back to the workspace `defaultLabel` (initially `internal`) so existing content is not silently downgraded the moment the policy is enabled, and an owner can flip the default to `confidential` to quarantine new documents from share-by-default until they are reviewed. The gate lives in `POST /v1/share` after the share-policy check: the route walks every source path in the body, looks up its effective label, and refuses the mint with `403 classification policy denied` the first time a label exceeds the cap. The 403 body and the audit row both name the offending path and label, so a security operator can answer "which document blocked the share" without grepping the source list. Owners manage policy and labels from `/settings/classification`: a single page covers the cap, the default, and a per-path label list with inline relabel and clear. Policy and label mutations require owner role plus MFA step-up and write before/after diffs to the hash-chained audit log; reads are admin+. A regression test pins the four-level rank order, proves an unlabelled path is blocked when the default exceeds the cap, proves an explicit `public` label permits the share, and proves the first violation in a multi-source citation is the one reported back.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):

@@ -2600,6 +2600,27 @@ export const api = {
   trustUpdate: (body: Partial<TrustProfileInput>) =>
     j<TrustProfile>('/v1/trust', { method: 'PUT', body: JSON.stringify(body) }),
 
+  // Warrant canary. Public GET /v1/warrant-canary is the URL a buyer's
+  // vendor-review tool will pin in their own record, so it must stay
+  // unauthenticated. Every mutation is owner+MFA at the API.
+  warrantCanaryPublic: () => j<WarrantCanaryPublic>('/v1/warrant-canary'),
+  warrantCanaryAdmin: () => j<WarrantCanaryAdmin>('/v1/warrant-canary/admin'),
+  warrantCanarySettings: (body: WarrantCanarySettingsInput) =>
+    j<WarrantCanaryAdmin>('/v1/warrant-canary/settings', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  warrantCanaryAttest: (body: { statement: string; cadenceDays?: number }) =>
+    j<WarrantCanaryAttestation>('/v1/warrant-canary/attestations', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  warrantCanaryWithdraw: (body: { reason: string }) =>
+    j<WarrantCanaryAttestation>('/v1/warrant-canary/withdraw', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   // Break-glass / time-bound role elevation. Members file a request with
   // a reason and bounded duration; an owner approves with MFA step-up;
   // the API auth plugin overlays the elevated role for the window and
@@ -2893,6 +2914,43 @@ export interface TrustProfileInput {
   encryptionInTransit: string | null;
   dataResidency: string | null;
   links: TrustLink[];
+}
+
+export type WarrantCanaryStatus = 'unconfigured' | 'active' | 'stale' | 'withdrawn';
+export interface WarrantCanaryAttestation {
+  id: string;
+  statement: string;
+  attestedBy?: string;
+  attestedAt: number;
+  cadenceDays: number;
+  expiresAt: number;
+  fingerprint: string;
+  withdrawnAt: number | null;
+  withdrawnBy?: string | null;
+  withdrawnReason: string | null;
+}
+export interface WarrantCanaryAdmin {
+  enabled: boolean;
+  status: WarrantCanaryStatus;
+  defaultCadenceDays: number;
+  preamble: string;
+  history: WarrantCanaryAttestation[];
+  updatedAt: number;
+  updatedBy: string | null;
+}
+export interface WarrantCanaryPublic {
+  enabled: boolean;
+  status: WarrantCanaryStatus;
+  preamble: string;
+  defaultCadenceDays: number;
+  current: WarrantCanaryAttestation | null;
+  history: WarrantCanaryAttestation[];
+  generatedAt: number;
+}
+export interface WarrantCanarySettingsInput {
+  enabled?: boolean;
+  defaultCadenceDays?: number;
+  preamble?: string;
 }
 
 export type DsrKind = 'access' | 'erasure' | 'rectification' | 'portability' | 'restriction';

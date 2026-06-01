@@ -426,6 +426,15 @@ export const Scopes = {
   // broadcasts an in-app notification to every member.
   RopaRead: 'ropa:read',
   RopaManage: 'ropa:admin',
+
+  // Warrant canary. Read is admin+ so a compliance operator can pull
+  // the operator view (attestedBy / withdrawnBy / updatedBy) without
+  // being able to sign or withdraw an attestation. Manage is owner-only
+  // with MFA step-up at the route because every mutation is a
+  // regulatory-adjacent public statement; a silent edit to the canary
+  // is a much louder signal than the canary itself.
+  WarrantCanaryRead: 'warrant-canary:read',
+  WarrantCanaryManage: 'warrant-canary:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];
