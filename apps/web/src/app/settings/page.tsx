@@ -460,6 +460,7 @@ function ShortcutsCard() {
     { href: '/settings/quota', label: 'Workspace quota', description: 'Cap monthly ask/search/batch spend across the workspace and per member. Required for enterprise spend controls.', Icon: IconChartBar },
     { href: '/settings/api-key-bruteforce', label: 'API key brute-force monitor', description: 'See source IPs blocked after repeated failed Bearer verifications and clear individual lockouts.', Icon: IconShield },
     { href: '/settings/sub-processors', label: 'Sub-processors', description: 'GDPR Article 28 disclosure registry referenced by your DPA. Mutations are audit logged and notify members.', Icon: IconShield },
+    { href: '/settings/dpa', label: 'Data Processing Agreement', description: 'Record owner acceptance of a versioned DPA. Returns an HMAC-signed receipt for the buyer\u2019s legal team.', Icon: IconShield },
     { href: '/settings/ropa', label: 'Record of Processing Activities', description: 'GDPR Article 30 register of processing activities. Public projection at /v1/ropa lets a buyer DPO cite a stable URL during their own register review.', Icon: IconShield },
     { href: '/settings/recovery-contacts', label: 'Recovery contacts', description: 'Named escalation channels for BCP / incident response. Public projection at /v1/recovery-contacts for buyer runbooks.', Icon: IconShield },
     { href: '/settings/honeytokens', label: 'Honeytokens', description: 'Mint canary API keys, plant them as bait, and get a forensic incident the first time an attacker uses one. Owner only.', Icon: IconShield },

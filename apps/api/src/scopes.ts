@@ -265,6 +265,14 @@ export const Scopes = {
   SubProcessorsRead: 'sub-processors:read',
   SubProcessorsManage: 'sub-processors:admin',
 
+  // Data Processing Agreement (DPA) acceptance registry. Read is
+  // intentionally broad (admin+) so any compliance reviewer can pull
+  // the on-file signatory and version. Manage is owner-only with MFA
+  // step-up at the route because recording an acceptance is a binding
+  // legal act that produces a signed receipt.
+  DpaRead: 'dpa:read',
+  DpaManage: 'dpa:admin',
+
   // Workspace data residency policy. Read is admin+ so a compliance
   // operator can quote the configured allow-list and current server
   // region in a DPA; Manage is owner-only with MFA step-up because

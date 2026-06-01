@@ -26,6 +26,39 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
   open http://localhost:7412/settings/whoami
   ```
 
+- Data Processing Agreement (DPA) acceptance ledger: enterprise procurement and the buyer's legal team cannot countersign a master services agreement without a Data Processing Agreement that names a specific document version and a signatory of record at the vendor. Hand-signed PDFs in someone's inbox are not auditable; ClawMind ships the canonical DPA text in the codebase under `apps/api/src/services/dpa.ts`, exposes the published versions at the unauthenticated `GET /v1/dpa/versions` (and the full body at `GET /v1/dpa/versions/:id`) so a buyer can diff exact bytes before they sign, and surfaces a public `GET /v1/dpa/status` that procurement reviewers can hit before they have workspace credentials to confirm a DPA is on file and which version. The owner records acceptance through `POST /v1/dpa/accept` with `{ versionId?, signatoryName, signatoryTitle, signatoryEmail, notes? }`; the route is owner-only with MFA step-up at the API and supports `?dry_run=true`. Each acceptance captures the actor user id, the source IP, and the timestamp, embeds the SHA-256 fingerprint of the exact DPA bytes that were accepted so a later text edit cannot silently mutate prior acceptance, and HMAC-SHA256 signs the canonical receipt with a per-install secret persisted next to the ledger (the same scheme the erasure certificates use). Admins read the ledger at `GET /v1/dpa/acceptances`, fetch an exportable portable receipt at `GET /v1/dpa/acceptances/:id/receipt` (returned as an `attachment` JSON download so the buyer's legal team can archive it alongside the countersigned MSA), and re-verify a row server-side via `POST /v1/dpa/acceptances/:id/verify`. Every acceptance writes a structured row to the hash-chained audit log including the version fingerprint, the signatory identity, and the source IP. The `/settings/dpa` console renders the on-file status, the published version history with full body diff, the binding sign form, and the admin ledger with inline verify and one-click receipt download. The regression test suite proves the shipped version fingerprints are stable, validates the binding inputs (required fields, email format, unknown version id), records a real acceptance and proves the signature reverifies, and pins that tampering with the on-disk signature or swapping the signatory email after the fact causes signature verification to fail.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # 1. Public discovery. No auth. Procurement reviewers run this before they have credentials.
+  curl -sS http://localhost:7410/v1/dpa/versions | jq
+  curl -sS http://localhost:7410/v1/dpa/status | jq
+
+  # 2. Pull the full canonical DPA body for the published version.
+  VID=$(curl -sS http://localhost:7410/v1/dpa/versions | jq -r '.versions[0].id')
+  curl -sS http://localhost:7410/v1/dpa/versions/$VID | jq
+
+  # 3. Owner records acceptance. Owner role + MFA step-up required.
+  curl -sS -X POST -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"signatoryName":"Jane Doe","signatoryTitle":"General Counsel","signatoryEmail":"jane@buyer.example"}' \
+    http://localhost:7410/v1/dpa/accept | jq
+
+  # 4. Admin downloads the signed receipt for the buyer's legal archive.
+  AID=$(curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:7410/v1/dpa/acceptances | jq -r '.acceptances[0].id')
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:7410/v1/dpa/acceptances/$AID/receipt -o dpa-receipt.json
+
+  # 5. Re-verify the receipt signature server-side.
+  curl -sS -X POST -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:7410/v1/dpa/acceptances/$AID/verify | jq
+
+  # Web console.
+  open http://localhost:7412/settings/dpa
+  ```
+
 - Erasure certificates (GDPR Article 17 destruction receipts): every fulfilled DSR erasure request mints a signed, externally-verifiable destruction receipt at `GET /v1/erasure-certificates/:id`. Procurement reviewers at regulated buyers explicitly ask whether the platform can issue a machine-verifiable Article 17 attestation; until now ClawMind tracked the workflow internally but produced no portable artefact. The certificate records the DSR id, workspace id, fulfilling admin, fulfilled-at and issued-at timestamps, the admin scope note describing what was destroyed, a SHA-256 content fingerprint, and an HMAC-SHA256 signature over the canonical payload using a per-workspace secret persisted next to the certificate store. The subject email is never stored in plaintext; only the SHA-256 fingerprint of the lowercased address lands on disk, so the public projection cannot be used to harvest the email of a deletion requester. A subject proves ownership by replaying their email through `POST /v1/erasure-certificates/:id/verify`, which constant-time-compares against the stored fingerprint and returns `{ verified, signatureValid, subjectMatches, revokedAt }`. Storage is append-only: revocation writes a `revokedAt` / `revokedBy` / `revokedReason` triple alongside the original record but never alters the signed payload, and a regression test pins that the signature still verifies after revocation. Issuance is idempotent per DSR id so retrying a fulfilment never produces a duplicate receipt; the admin list at `GET /v1/erasure-certificates` is gated by the new `erasure-certificates:read` scope and admin+ role, and the `/settings/erasure-certificates` console renders every receipt with an inline signature recheck and a one-click JSON download. The full test suite proves tamper detection across every signed field, signature mismatch on a swapped on-disk row, constant-time email matching across case folding, and that the public projection never carries the subject email.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
@@ -686,6 +719,43 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 - Idempotency-Key on every mutating endpoint: callers can pass an opaque `Idempotency-Key` header on any `POST`, `PUT`, `PATCH`, or `DELETE` and ClawMind guarantees the request runs at most once. A retry with the same key and the same body replays the original response byte-for-byte (with `Idempotency-Replay: true` set so client code can tell) instead of double-creating a conversation, double-charging a quota slot, or double-revoking a key. A retry with the same key but a different body returns `409 idempotency_key_reused` so a coding bug surfaces immediately instead of silently mutating state. Keys are scoped per actor (cookie session user id or API key id) so two tenants reusing the same key string never collide, anonymous callers are rejected with `401 idempotency_requires_auth` so the on-disk registry cannot be filled by drive-by traffic, only `2xx` responses are cached so a transient `500` is retried for real, and entries expire after 24 hours. Implemented as a Fastify plugin that runs after auth, persisted to `idempotency.json` with the same atomic-rewrite pattern as the rest of the on-disk state.
 - File watcher for incremental reindex
 - Local MLX embeddings with automatic fallback to an OpenAI-compatible endpoint
+
+## Try it: Data Processing Agreement acceptance
+
+Prove to a buyer's legal team that a versioned DPA is on file and walk away with a portable signed receipt.
+
+```bash
+# 1. Public: confirm a DPA version is published (no auth, no creds).
+curl -sS http://localhost:7410/v1/dpa/versions | jq '.versions[0] | {id,label,effective,fingerprint,bodyBytes}'
+
+# 2. Public: read the exact canonical body so you can diff what you are accepting.
+curl -sS http://localhost:7410/v1/dpa/versions/2025-01-15 | jq -r .body | head -20
+
+# 3. Public: status badge for procurement (is anything on file yet?).
+curl -sS http://localhost:7410/v1/dpa/status | jq
+
+# 4. Owner + MFA: record the binding acceptance. Returns a signed receipt.
+curl -sS -X POST http://localhost:7410/v1/dpa/accept \
+  -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  -H 'content-type: application/json' \
+  -d '{
+    "signatoryName": "Alice Example",
+    "signatoryTitle": "Chief Information Security Officer",
+    "signatoryEmail": "alice@acme.example",
+    "notes": "MSA section 12 reference"
+  }' | jq '.acceptance | {id,versionLabel,versionFingerprint,signatoryName,acceptedAt,signature}'
+
+# 5. Admin: download a portable receipt for the buyer's legal team.
+curl -sS -OJ -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  http://localhost:7410/v1/dpa/acceptances/$ACCEPTANCE_ID/receipt
+
+# 6. Admin: re-verify the signature server-side.
+curl -sS -X POST -H "Authorization: Bearer $CLAWMIND_API_KEY" \
+  http://localhost:7410/v1/dpa/acceptances/$ACCEPTANCE_ID/verify | jq
+
+# Web console.
+open http://localhost:7412/settings/dpa
+```
 
 ## Try it: idempotent retries
 

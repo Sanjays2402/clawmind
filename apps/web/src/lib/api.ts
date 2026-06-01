@@ -2391,6 +2391,50 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  // Data Processing Agreement (DPA) acceptance. GET /dpa/versions and
+  // /dpa/status are public so procurement reviewers can confirm a DPA
+  // is on file before they have workspace credentials. The acceptance
+  // ledger (signatory PII, IP) is admin-only.
+  dpaVersions: () =>
+    j<{ versions: DpaVersionMeta[] }>('/v1/dpa/versions'),
+  dpaVersion: (id: string) =>
+    j<DpaVersionFull>(`/v1/dpa/versions/${encodeURIComponent(id)}`),
+  dpaStatus: () =>
+    j<{
+      latestVersion: DpaVersionMeta;
+      accepted: {
+        versionId: string;
+        versionLabel: string;
+        versionFingerprint: string;
+        acceptedAt: number;
+      } | null;
+      upToDate: boolean;
+    }>('/v1/dpa/status'),
+  dpaAcceptances: () =>
+    j<{ acceptances: DpaAcceptance[] }>('/v1/dpa/acceptances'),
+  dpaReceipt: (id: string) =>
+    j<{
+      receipt: Omit<DpaAcceptance, 'signature' | 'algo'>;
+      canonical: string;
+      algo: 'hmac-sha256';
+      signature: string;
+    }>(`/v1/dpa/acceptances/${encodeURIComponent(id)}/receipt`),
+  dpaVerify: (id: string) =>
+    j<{ ok: boolean }>(`/v1/dpa/acceptances/${encodeURIComponent(id)}/verify`, {
+      method: 'POST',
+    }),
+  dpaAccept: (body: {
+    versionId?: string;
+    signatoryName: string;
+    signatoryTitle: string;
+    signatoryEmail: string;
+    notes?: string | null;
+  }) =>
+    j<{ acceptance: DpaAcceptance }>('/v1/dpa/accept', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
   // Record of Processing Activities (GDPR Art. 30). GET /v1/ropa is
   // public so customer DPAs can cite the URL; the admin view
   // surfaces operator-only notes for the operator console.
@@ -3045,6 +3089,36 @@ export interface SubProcessorRegistry {
   entries: SubProcessor[];
   updatedAt: number;
   updatedBy: string | null;
+}
+
+export interface DpaVersionMeta {
+  id: string;
+  label: string;
+  effective: string;
+  fingerprint: string;
+  changelog: string;
+  bodyBytes: number;
+}
+
+export interface DpaVersionFull extends DpaVersionMeta {
+  body: string;
+}
+
+export interface DpaAcceptance {
+  id: string;
+  workspaceId: string;
+  versionId: string;
+  versionLabel: string;
+  versionFingerprint: string;
+  signatoryName: string;
+  signatoryTitle: string;
+  signatoryEmail: string;
+  notes: string | null;
+  acceptedByUserId: string;
+  acceptedAt: number;
+  acceptedFromIp: string;
+  signature: string;
+  algo: 'hmac-sha256';
 }
 
 export type RopaLegalBasis =
