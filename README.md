@@ -10,6 +10,29 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Honeytoken (canary) API keys: mint a key that is never handed to a real caller, plant the secret somewhere an attacker is likely to find it (committed config, CI variable, wrapped device image), and the first request that presents it is rejected as a 401 invalid-api-key while a forensic incident is written with the source IP, route, method, user agent, request id, and timestamp. Canaries never grant access (they are flagged `isCanary` at storage so the auth layer rips the request before any tenant data is touched) and are deliberately hidden from the regular `GET /v1/keys` list so an operator cannot accidentally hand a trap to a developer and burn it. The 401 response shape is identical to the unknown-secret case so an attacker sees no signal that they tripped a trap, but the incident is written synchronously and an `api_key.honeytoken.tripped` audit row is emitted, so any SIEM drain or webhook subscriber picks it up in real time. Owners manage canaries from `/settings/honeytokens`: mint with an optional planter note, see armed vs tripped vs revoked, drill into the per-incident log, and clear after triage. Issuance and revocation require owner role plus MFA step-up; the incident log is admin+. Incidents are ring-buffered at 500 so a flood of probes cannot grow the file unbounded. A regression test pins that canary keys verify positively at the secret layer (so the auth plugin sees them and can record the trip), that canary keys are hidden from `listKeys`, that incidents are stored newest-first, that user-agent strings are truncated to 256 chars, that the ring buffer drops the oldest entries on overflow, and that `clearIncidents` returns the removed count.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # Owner mints a canary. Owner role + MFA required. Secret returned once.
+  curl -sS -X POST -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"label":"legacy-mobile-build","note":"embedded in the 2021 Android wrapper"}' \
+    http://localhost:7410/v1/keys/canary
+
+  # Simulate an attacker presenting the canary. Returns 401, writes an incident.
+  curl -sS -H "Authorization: Bearer cm_<the-canary-secret>" \
+    http://localhost:7410/v1/ask
+
+  # Read the forensic incident log. Admin+.
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:7410/v1/keys/canary/incidents | jq
+
+  # Web UI for armed traps and the incident log.
+  open http://localhost:7412/settings/honeytokens
+  ```
+
 - Recovery contacts registry (SOC2 CC7.4 / ISO 22301 BCP): every workspace publishes a named escalation list at `GET /v1/recovery-contacts` so a buyer's incident-response runbook always has a routable answer to "who do we call if the workspace owner is unreachable?". Owners manage entries from `/settings/recovery-contacts`: name, role (DPO, Security Lead, on-call SRE, ...), email, optional phone, priority (lower is escalated first), an explicit `publicListed` flag, and operator-only notes that never leave the box. The unauthenticated public projection only surfaces entries marked `publicListed: true` and currently `active`, sorted by priority then name, with operator metadata (notes, id, disclosedAt, updatedBy) stripped, so an org can keep an internal escalation tier private without losing the public surface. Mutations are owner-only with MFA step-up at the route, dry-run via `?dry_run=true`, and every add / update / retire / restore writes a structured row to the hash-chained audit log with a per-field before/after diff (notes excluded so an after-hours Signal number cannot leak through the audit trail). Duplicate active emails are rejected at validation time so a buyer's runbook never resolves to two distinct people behind the same address; retired entries free their email for reuse and remain on the operator view as historical disclosure. A regression test pins the publicListed gate (private entries never surface), the retired-entry gate (a retired public entry disappears from the public view), the priority-then-name sort, the duplicate-email rejection, and the retired-then-restored transition kinds.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):

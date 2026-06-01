@@ -2413,6 +2413,53 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  // Honeytoken (canary) API keys. Mint with `note` describing where the
+  // secret was planted. The first request that presents the secret is
+  // rejected as a 401 invalid-api-key (no signal to the attacker) and
+  // logged as an incident with full forensic context.
+  honeytokenList: () =>
+    j<{
+      items: Array<{
+        id: string;
+        label: string;
+        canaryNote: string | null;
+        createdAt: number;
+        revokedAt: number | null;
+        isCanary: boolean;
+        tripCount: number;
+      }>;
+      totalIncidents: number;
+    }>('/v1/keys/canary'),
+  honeytokenIssue: (body: { label: string; note?: string | null }) =>
+    j<{
+      key: { id: string; label: string; canaryNote: string | null; createdAt: number };
+      secret: string;
+    }>('/v1/keys/canary', { method: 'POST', body: JSON.stringify(body) }),
+  honeytokenRevoke: (id: string) =>
+    j<{ ok: true }>(`/v1/keys/canary/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  honeytokenIncidents: (opts: { keyId?: string; limit?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.keyId) qs.set('keyId', opts.keyId);
+    if (opts.limit) qs.set('limit', String(opts.limit));
+    const q = qs.toString();
+    return j<{
+      items: Array<{
+        id: string;
+        keyId: string;
+        keyLabel: string;
+        note: string | null;
+        ip: string | null;
+        userAgent: string | null;
+        route: string | null;
+        method: string | null;
+        requestId: string | null;
+        tippedAt: number;
+      }>;
+    }>(`/v1/keys/canary/incidents${q ? `?${q}` : ''}`);
+  },
+  honeytokenIncidentsClear: () =>
+    j<{ ok: true; removed: number }>('/v1/keys/canary/incidents', { method: 'DELETE' }),
+
   // Data Subject Request queue. POST /v1/dsr/submit is intentionally
   // public (no auth) so non-members can exercise GDPR/CCPA rights; the
   // verifyToken is returned exactly once and must be sent back through

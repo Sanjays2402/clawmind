@@ -81,6 +81,13 @@ export interface ApiKeyRecord {
   // all. Use this on keys that are deliberately embedded in a browser bundle
   // so a stolen credential cannot be replayed from a third-party page.
   allowedOrigins?: string[] | null;
+  // Honeytoken (canary) flag. A canary key is intentionally never handed
+  // to a real caller. When verifySecret hits a record with isCanary=true
+  // the auth layer rejects the request as if the key were unknown AND
+  // records a forensic incident. canaryNote is an operator memo about
+  // where the secret was planted (e.g. "committed to legacy repo").
+  isCanary?: boolean;
+  canaryNote?: string | null;
 }
 
 export const MAX_KEY_IP_RULES = 64;
@@ -383,7 +390,10 @@ export async function issueKey(dataDir: string, input: IssueInput): Promise<Issu
 
 export async function listKeys(dataDir: string, userId: string): Promise<ApiKeyRecord[]> {
   const all = await loadKeys(dataDir);
-  return all.filter((k) => k.userId === userId);
+  // Hide canary keys from the normal list so an operator cannot
+  // accidentally treat a trap as a real credential. They are surfaced
+  // separately by listCanaryKeys.
+  return all.filter((k) => k.userId === userId && k.isCanary !== true);
 }
 
 // Internal: revoke every active key matching the predicate. Used by the
@@ -531,6 +541,65 @@ export function redact(rec: ApiKeyRecord) {
     rateLimit: rec.rateLimit ?? null,
     allowedIps: rec.allowedIps ?? null,
     allowedOrigins: rec.allowedOrigins ?? null,
+    isCanary: rec.isCanary === true,
+    canaryNote: rec.canaryNote ?? null,
   };
+}
+
+export interface IssueCanaryInput {
+  userId: string;
+  label: string;
+  note?: string | null;
+  now?: number;
+}
+
+/**
+ * Mint a honeytoken (canary) key. Identical wire format to a real key so
+ * an attacker who finds it cannot distinguish it by shape, but flagged
+ * isCanary=true in storage so the auth layer never grants access and
+ * records an incident on first use.
+ */
+export async function issueCanaryKey(
+  dataDir: string,
+  input: IssueCanaryInput,
+): Promise<IssuedKey> {
+  const now = input.now ?? Date.now();
+  const secret = KEY_PREFIX + randomBytes(32).toString('hex');
+  const record: ApiKeyRecord = {
+    id: nanoid(10),
+    userId: input.userId,
+    label: input.label,
+    role: 'reader',
+    hash: hashSecret(secret),
+    scopes: [],
+    createdAt: now,
+    expiresAt: null,
+    lastUsedAt: null,
+    revokedAt: null,
+    isCanary: true,
+    canaryNote: input.note ?? null,
+  };
+  const all = await loadKeys(dataDir);
+  all.push(record);
+  await saveKeys(dataDir, all);
+  return { record, secret };
+}
+
+/** List all canary keys for a user, regardless of revocation state. */
+export async function listCanaryKeys(
+  dataDir: string,
+  userId: string,
+): Promise<ApiKeyRecord[]> {
+  const all = await loadKeys(dataDir);
+  return all.filter((k) => k.userId === userId && k.isCanary === true);
+}
+
+/** Look up a key record without filtering by owner. Internal use only. */
+export async function findKeyById(
+  dataDir: string,
+  id: string,
+): Promise<ApiKeyRecord | null> {
+  const all = await loadKeys(dataDir);
+  return all.find((k) => k.id === id) ?? null;
 }
 

@@ -1,6 +1,7 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { verifySecret, hasScope, ipAllowedByKey, originAllowedByKey } from '../services/api-keys.js';
+import { recordIncident as recordHoneytokenIncident } from '../services/api-key-honeytokens.js';
 import { recordUsage, normaliseUa } from '../services/api-key-usage.js';
 import { consume as consumeKeyBucket } from '../services/api-key-rate-limit.js';
 import {
@@ -161,6 +162,41 @@ const plugin: FastifyPluginAsync = async (app) => {
         bruteforceRecordSuccess(req.ip);
       }
       if (result.ok) {
+        // Honeytoken trip. The key was minted as a canary, never given
+        // to a real caller, and exists purely to detect that an
+        // attacker has obtained workspace credentials. We rip the
+        // request here, record the incident with full forensic
+        // context, and emit an audit event. The 401 response shape is
+        // deliberately identical to the unknown-secret case so the
+        // attacker cannot distinguish a trap from a stale guess.
+        if (result.record.isCanary === true) {
+          const ua = req.headers['user-agent'];
+          const uaStr = Array.isArray(ua) ? ua[0] : ua;
+          await recordHoneytokenIncident(app.clawmind.dataDir, {
+            keyId: result.record.id,
+            keyLabel: result.record.label,
+            note: result.record.canaryNote ?? null,
+            ip: req.ip ?? null,
+            userAgent: uaStr ?? null,
+            route: req.url,
+            method: req.method,
+            requestId: req.id,
+          }).catch(() => undefined);
+          await app.clawmind.audit.write({
+            actor: 'system',
+            action: 'api_key.honeytoken.tripped',
+            resource: result.record.id,
+            meta: {
+              ip: req.ip,
+              route: req.url,
+              method: req.method,
+              userAgent: uaStr ?? null,
+              label: result.record.label,
+              requestId: req.id,
+            },
+          }).catch(() => undefined);
+          return reply.code(401).send({ error: 'invalid api key' });
+        }
         // Workspace forced-rotation enforcement. When the owner has set
         // forcedRotationDays > 0, any key whose age (since creation or
         // last rotation) exceeds that cap is rejected here, before the

@@ -12,6 +12,7 @@ import { conversationRoutes } from './conversations.js';
 import { feedbackRoutes } from './feedback.js';
 import { digestRoutes } from './digests.js';
 import { keyRoutes } from './keys.js';
+import { honeytokenRoutes } from './keys-honeytoken.js';
 import { maintenanceRoutes } from './maintenance.js';
 import { pinsRoutes } from './pins.js';
 import { mutesRoutes } from './mutes.js';
@@ -93,6 +94,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(feedbackRoutes, { prefix: '/v1' });
   await app.register(digestRoutes, { prefix: '/v1' });
   await app.register(keyRoutes, { prefix: '/v1' });
+  await app.register(honeytokenRoutes, { prefix: '/v1' });
   await app.register(maintenanceRoutes, { prefix: '/v1' });
   await app.register(pinsRoutes, { prefix: '/v1' });
   await app.register(mutesRoutes, { prefix: '/v1' });
