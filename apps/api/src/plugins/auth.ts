@@ -16,6 +16,8 @@ import { detectAndRecord as detectSignInAnomaly, resolveCountry as resolveSignIn
 import { getRecord as getGeofenceRecord, evaluate as evaluateGeofence } from '../services/sign-in-geofence.js';
 import { getPolicyCached as getSessionPolicyCached, evaluateSession as evaluateSessionPolicy } from '../services/session-policy.js';
 import { getPolicyCached as getApiKeyPolicyCached, evaluateRotation as evaluateApiKeyRotation } from '../services/api-key-policy.js';
+import { getPolicyCached as getApiKeyExpiryPolicyCached, classifyKey as classifyKeyExpiry } from '../services/api-key-expiry.js';
+import { touchExpiryWarning } from '../services/api-keys.js';
 import { getStatus as getMfaStatus } from '../services/mfa.js';
 import { verifyCookie as verifyTrustedDeviceCookie, TRUSTED_DEVICE_COOKIE } from '../services/mfa-trusted-devices.js';
 import {
@@ -316,6 +318,47 @@ const plugin: FastifyPluginAsync = async (app) => {
               windowMs: snap.windowMs,
               resetAt: new Date(snap.resetMs).toISOString(),
             });
+          }
+        }
+        // Upcoming-expiry warning. When the workspace policy is enabled
+        // and this key is inside the warning window, advertise the
+        // remaining lifetime so SDKs can rotate before the credential
+        // dies. Standard RFC 7234 Warning header plus two custom
+        // headers for machine consumption. First crossing into the
+        // window writes one audit entry; subsequent requests are silent
+        // until expiresAt changes (handled by touchExpiryWarning).
+        if (result.record.expiresAt) {
+          try {
+            const expiryPolicy = await getApiKeyExpiryPolicyCached(app.clawmind.dataDir);
+            const cls = classifyKeyExpiry(expiryPolicy, result.record, Date.now());
+            if (cls.status === 'expiring' && cls.expiresAt !== null && cls.daysRemaining !== null) {
+              const days = cls.daysRemaining;
+              reply.header('X-ClawMind-Api-Key-Expires-At', new Date(cls.expiresAt).toISOString());
+              reply.header('X-ClawMind-Api-Key-Expires-In-Days', String(days));
+              const unit = days === 1 ? 'day' : 'days';
+              reply.header('Warning', `299 - "API key expires in ${days} ${unit}"`);
+              const wrote = await touchExpiryWarning(
+                app.clawmind.dataDir,
+                result.record.id,
+                cls.expiresAt,
+              );
+              if (wrote) {
+                void app.clawmind.audit.write({
+                  actor: result.record.userId,
+                  action: 'api-key.expiry_warned',
+                  resource: result.record.id,
+                  meta: {
+                    daysRemaining: days,
+                    expiresAt: new Date(cls.expiresAt).toISOString(),
+                    warnDays: expiryPolicy.warnDays,
+                    route: req.url,
+                  },
+                }).catch(() => undefined);
+              }
+            }
+          } catch {
+            // Expiry warnings are best-effort. A disk hiccup must not
+            // block an otherwise valid authenticated request.
           }
         }
         return;

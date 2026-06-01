@@ -88,6 +88,12 @@ export interface ApiKeyRecord {
   // where the secret was planted (e.g. "committed to legacy repo").
   isCanary?: boolean;
   canaryNote?: string | null;
+  // Anchor used by the api-key-expiry policy to emit at most one
+  // `api-key.expiry_warned` audit entry per key per warning crossing.
+  // Set to expiresAt at the moment of warning so a subsequent extension
+  // of the TTL (rotation) naturally clears the dedupe and a future
+  // warning fires again.
+  lastExpiryWarnedForExpiresAt?: number | null;
 }
 
 export const MAX_KEY_IP_RULES = 64;
@@ -601,5 +607,30 @@ export async function findKeyById(
 ): Promise<ApiKeyRecord | null> {
   const all = await loadKeys(dataDir);
   return all.find((k) => k.id === id) ?? null;
+}
+
+/**
+ * Stamp the expiry-warning anchor on a key. Used by the auth layer to
+ * dedupe `api-key.expiry_warned` audit entries: the first request that
+ * crosses into the warning window writes one entry, subsequent requests
+ * find a matching anchor and stay silent until the TTL changes.
+ *
+ * Returns true when the file was written (anchor changed), false when
+ * the anchor already matched. Callers should only audit when this
+ * returns true.
+ */
+export async function touchExpiryWarning(
+  dataDir: string,
+  id: string,
+  expiresAt: number,
+): Promise<boolean> {
+  const all = await loadKeys(dataDir);
+  const idx = all.findIndex((k) => k.id === id);
+  if (idx === -1) return false;
+  const cur = all[idx]!;
+  if (cur.lastExpiryWarnedForExpiresAt === expiresAt) return false;
+  all[idx] = { ...cur, lastExpiryWarnedForExpiresAt: expiresAt };
+  await saveKeys(dataDir, all);
+  return true;
 }
 

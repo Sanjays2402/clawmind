@@ -611,6 +611,27 @@ export interface ApiKeyInactivityAtRisk {
   willRevokeAt: number | null;
 }
 
+export interface ApiKeyExpiryPolicy {
+  workspaceId: string;
+  warnDays: number;
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export interface ApiKeyExpiryLimits {
+  maxWarnDays: number;
+}
+
+export interface ApiKeyExpiryUpcoming {
+  id: string;
+  label: string;
+  userId: string;
+  role: 'owner' | 'reader';
+  expiresAt: number;
+  daysRemaining: number;
+  lastUsedAt: number | null;
+}
+
 export interface ApiKeyInactivitySweepResult {
   revokedIds: string[];
   scannedAt: number;
@@ -1601,6 +1622,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(input),
     }),
+
+  apiKeyExpiryGet: () =>
+    j<{
+      policy: ApiKeyExpiryPolicy;
+      limits: ApiKeyExpiryLimits;
+      counts: { activeKeys: number; keysWithTtl: number; keysExpiringSoon: number };
+    }>('/v1/api-key-expiry'),
+  apiKeyExpirySet: (input: { warnDays: number }) =>
+    j<{ policy: ApiKeyExpiryPolicy }>('/v1/api-key-expiry', {
+      method: 'PUT',
+      body: JSON.stringify(input),
+    }).then((r) => r.policy),
+  apiKeyExpiryUpcoming: () =>
+    j<{ policy: ApiKeyExpiryPolicy; upcoming: ApiKeyExpiryUpcoming[] }>(
+      '/v1/api-key-expiry/upcoming',
+    ),
 
   // Workspace data residency. GET returns the policy plus the current
   // server region so the admin page can show whether the connected

@@ -214,6 +214,15 @@ export const Scopes = {
   ApiKeyInactivityRead: 'api-key-inactivity:read',
   ApiKeyInactivityManage: 'api-key-inactivity:admin',
 
+  // Upcoming API-key expiry warning. Surfaces TTL-based expiry (a
+  // separate axis from inactivity) so customers can schedule rotations
+  // before keys lapse and break integrations. Read is admin+ so an
+  // auditor can pull the upcoming list; Manage is owner+MFA because
+  // shrinking the warning window changes what every authenticated
+  // request advertises in response headers.
+  ApiKeyExpiryRead: 'api-key-expiry:read',
+  ApiKeyExpiryManage: 'api-key-expiry:admin',
+
   // Tenant-wide GDPR / data-portability export. Per-user export already
   // lives under LifecycleManage; this is the owner-only "everything in
   // the workspace" path required by enterprise exit clauses. A narrow

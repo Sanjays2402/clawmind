@@ -10,6 +10,33 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- API key expiry warnings (SOC2 CC6.1 / ISO 27001 A.9.2.6): every workspace publishes a rotation window so customers integrating against the API see TTL based key expiry coming before it breaks production. The auth layer reads the workspace policy on every successful API key authentication and, when the key is inside the warning window, attaches `X-ClawMind-Api-Key-Expires-At` (ISO timestamp), `X-ClawMind-Api-Key-Expires-In-Days` (integer), and a standard RFC 7234 `Warning: 299 - "API key expires in N days"` header to the response so any SDK can detect the warning without parsing a custom field. The first request that crosses into the window writes exactly one `api-key.expiry_warned` audit row, dedup keyed on the key id and the current `expiresAt` so a rotation that extends the TTL naturally resets the anchor and a future warning fires again. Admins read the policy and the upcoming list at `GET /v1/api-key-expiry` and `GET /v1/api-key-expiry/upcoming`; owners with MFA step up change the window via `PUT /v1/api-key-expiry`, each mutation audited with a before/after diff. The `/settings/api-key-expiry` page surfaces counts (active keys, keys with a TTL, keys expiring soon) and a soonest first list of the upcoming expirations with urgency coloring (red within one day, amber within seven). A regression test pins that the policy defaults to 14 days, that out of range warn days values are rejected, that `classifyKey` returns `off` for never expiring or already revoked or already expired keys and `expiring` only inside the window, that `findUpcomingKeys` ignores keys without a TTL and sorts soonest first, and that `touchExpiryWarning` dedupes per (key, expiresAt) so the audit fires exactly once per crossing and resets when a rotation lifts the expiry.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # Owner sets a 14 day warning window. Owner role + MFA required.
+  curl -sS -X PUT -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"warnDays":14}' \
+    http://localhost:7410/v1/api-key-expiry
+
+  # Admin previews policy + counts.
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:7410/v1/api-key-expiry | jq
+
+  # Admin lists every key expiring inside the window, soonest first.
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:7410/v1/api-key-expiry/upcoming | jq
+
+  # Any request with a near expiry key returns Warning + expires-in-days headers.
+  curl -sSI -H "Authorization: Bearer cm_<a-key-expiring-soon>" \
+    http://localhost:7410/v1/health | grep -i 'warning\|expires'
+
+  # Web UI for the policy + upcoming list.
+  open http://localhost:7412/settings/api-key-expiry
+  ```
+
 - Honeytoken (canary) API keys: mint a key that is never handed to a real caller, plant the secret somewhere an attacker is likely to find it (committed config, CI variable, wrapped device image), and the first request that presents it is rejected as a 401 invalid-api-key while a forensic incident is written with the source IP, route, method, user agent, request id, and timestamp. Canaries never grant access (they are flagged `isCanary` at storage so the auth layer rips the request before any tenant data is touched) and are deliberately hidden from the regular `GET /v1/keys` list so an operator cannot accidentally hand a trap to a developer and burn it. The 401 response shape is identical to the unknown-secret case so an attacker sees no signal that they tripped a trap, but the incident is written synchronously and an `api_key.honeytoken.tripped` audit row is emitted, so any SIEM drain or webhook subscriber picks it up in real time. Owners manage canaries from `/settings/honeytokens`: mint with an optional planter note, see armed vs tripped vs revoked, drill into the per-incident log, and clear after triage. Issuance and revocation require owner role plus MFA step-up; the incident log is admin+. Incidents are ring-buffered at 500 so a flood of probes cannot grow the file unbounded. A regression test pins that canary keys verify positively at the secret layer (so the auth plugin sees them and can record the trip), that canary keys are hidden from `listKeys`, that incidents are stored newest-first, that user-agent strings are truncated to 256 chars, that the ring buffer drops the oldest entries on overflow, and that `clearIncidents` returns the removed count.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
