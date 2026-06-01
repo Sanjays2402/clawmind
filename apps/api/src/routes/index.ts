@@ -77,6 +77,7 @@ import { loginBannerRoutes } from './login-banner.js';
 import { acceptableUseRoutes } from './acceptable-use.js';
 import { auditDrainsRoutes } from './audit-drains.js';
 import { classificationRoutes } from './classification.js';
+import { recoveryContactsRoutes } from './recovery-contacts.js';
 
 export async function registerRoutes(app: FastifyInstance) {
   await app.register(healthRoutes);
@@ -158,6 +159,7 @@ export async function registerRoutes(app: FastifyInstance) {
   await app.register(acceptableUseRoutes, { prefix: '/v1' });
   await app.register(auditDrainsRoutes, { prefix: '/v1' });
   await app.register(classificationRoutes, { prefix: '/v1' });
+  await app.register(recoveryContactsRoutes, { prefix: '/v1' });
   // RFC 9116 lives at the well-known root, not under /v1.
   await app.register(securityTxtRoutes);
 }

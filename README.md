@@ -10,6 +10,31 @@ ClawMind indexes a directory tree (default: `~/.openclaw/workspace`) into a hybr
 
 ## Features
 
+- Recovery contacts registry (SOC2 CC7.4 / ISO 22301 BCP): every workspace publishes a named escalation list at `GET /v1/recovery-contacts` so a buyer's incident-response runbook always has a routable answer to "who do we call if the workspace owner is unreachable?". Owners manage entries from `/settings/recovery-contacts`: name, role (DPO, Security Lead, on-call SRE, ...), email, optional phone, priority (lower is escalated first), an explicit `publicListed` flag, and operator-only notes that never leave the box. The unauthenticated public projection only surfaces entries marked `publicListed: true` and currently `active`, sorted by priority then name, with operator metadata (notes, id, disclosedAt, updatedBy) stripped, so an org can keep an internal escalation tier private without losing the public surface. Mutations are owner-only with MFA step-up at the route, dry-run via `?dry_run=true`, and every add / update / retire / restore writes a structured row to the hash-chained audit log with a per-field before/after diff (notes excluded so an after-hours Signal number cannot leak through the audit trail). Duplicate active emails are rejected at validation time so a buyer's runbook never resolves to two distinct people behind the same address; retired entries free their email for reuse and remain on the operator view as historical disclosure. A regression test pins the publicListed gate (private entries never surface), the retired-entry gate (a retired public entry disappears from the public view), the priority-then-name sort, the duplicate-email rejection, and the retired-then-restored transition kinds.
+
+  Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):
+
+  ```bash
+  # Public projection. No auth. Buyer's IR runbook cites this URL.
+  curl -sS http://localhost:7410/v1/recovery-contacts | jq
+
+  # Owner adds a DPO and publishes them. Owner role + MFA required.
+  curl -sS -X POST -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"name":"Alice Chen","role":"DPO","email":"dpo@example.com","priority":1,"publicListed":true}' \
+    http://localhost:7410/v1/recovery-contacts
+
+  # Owner sets the public-page intro + a fallback mailbox.
+  curl -sS -X PUT -H "content-type: application/json" \
+    -H "Authorization: Bearer $CLAWMIND_OWNER_KEY" \
+    -d '{"intro":"Escalation list for BCP events.","fallbackEmail":"security@example.com"}' \
+    http://localhost:7410/v1/recovery-contacts/settings
+
+  # Admin sees the operator view (private notes, retired entries, updatedBy).
+  curl -sS -H "Authorization: Bearer $CLAWMIND_ADMIN_KEY" \
+    http://localhost:7410/v1/recovery-contacts/admin | jq
+  ```
+
 - Data classification with share-time enforcement (SOC2 CC6.7 / ISO 27001 A.8.2): every cited source path can carry exactly one sensitivity label from a fixed four-level scale (`public`, `internal`, `confidential`, `restricted`) and the workspace owner sets `allowPublicShareUpTo` to cap which labels are permitted in a public `/s/<id>` link. Unlabelled paths fall back to the workspace `defaultLabel` (initially `internal`) so existing content is not silently downgraded the moment the policy is enabled, and an owner can flip the default to `confidential` to quarantine new documents from share-by-default until they are reviewed. The gate lives in `POST /v1/share` after the share-policy check: the route walks every source path in the body, looks up its effective label, and refuses the mint with `403 classification policy denied` the first time a label exceeds the cap. The 403 body and the audit row both name the offending path and label, so a security operator can answer "which document blocked the share" without grepping the source list. Owners manage policy and labels from `/settings/classification`: a single page covers the cap, the default, and a per-path label list with inline relabel and clear. Policy and label mutations require owner role plus MFA step-up and write before/after diffs to the hash-chained audit log; reads are admin+. A regression test pins the four-level rank order, proves an unlabelled path is blocked when the default exceeds the cap, proves an explicit `public` label permits the share, and proves the first violation in a multi-source citation is the one reported back.
 
   Try it locally (API on `http://localhost:7410`, web on `http://localhost:7412`):

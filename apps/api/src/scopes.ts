@@ -396,6 +396,17 @@ export const Scopes = {
   // previous policy would have blocked.
   ClassificationRead: 'classification:read',
   ClassificationManage: 'classification:admin',
+
+  // Recovery contacts (SOC2 CC7.4 / BCP escalation list). Read is
+  // admin+ so a compliance operator can pull the operator view
+  // including private notes and updatedBy without being able to
+  // change who appears on the buyer's incident-response runbook.
+  // Manage is owner-only with MFA step-up at the route because
+  // edits land on a public, internet-facing list that procurement
+  // and IR teams cite by URL; a silent change can break a buyer's
+  // playbook the next time they need it.
+  RecoveryContactsRead: 'recovery-contacts:read',
+  RecoveryContactsManage: 'recovery-contacts:admin',
 } as const;
 
 export type ScopeName = (typeof Scopes)[keyof typeof Scopes];

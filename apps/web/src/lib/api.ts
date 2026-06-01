@@ -2354,6 +2354,65 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  // Recovery contacts. GET /v1/recovery-contacts is public (no auth)
+  // so a buyer's incident-response runbook can cite a stable URL; the
+  // admin view surfaces internal notes and updatedBy for owners.
+  recoveryContactsPublic: () =>
+    j<{
+      intro: string;
+      fallbackEmail: string | null;
+      updatedAt: number;
+      entries: Array<{
+        name: string;
+        role: string;
+        email: string;
+        phone: string | null;
+        priority: number;
+      }>;
+    }>('/v1/recovery-contacts'),
+  recoveryContactsAdmin: () =>
+    j<RecoveryContactRegistry>('/v1/recovery-contacts/admin'),
+  recoveryContactsCreate: (body: {
+    name: string;
+    role: string;
+    email: string;
+    phone?: string | null;
+    priority?: number;
+    publicListed?: boolean;
+    notes?: string | null;
+  }) =>
+    j<{ entry: RecoveryContact; registry: RecoveryContactRegistry }>(
+      '/v1/recovery-contacts',
+      { method: 'POST', body: JSON.stringify(body) },
+    ),
+  recoveryContactsUpdate: (
+    id: string,
+    body: Partial<{
+      name: string;
+      role: string;
+      email: string;
+      phone: string | null;
+      priority: number;
+      publicListed: boolean;
+      notes: string | null;
+      status: 'active' | 'retired';
+    }>,
+  ) =>
+    j<{ entry: RecoveryContact; registry: RecoveryContactRegistry }>(
+      `/v1/recovery-contacts/${encodeURIComponent(id)}`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    ),
+  recoveryContactsRetire: (id: string) =>
+    j<{ entry: RecoveryContact; registry: RecoveryContactRegistry }>(
+      `/v1/recovery-contacts/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    ),
+  recoveryContactsSettings: (body: { intro?: string; fallbackEmail?: string | null }) =>
+    j<RecoveryContactRegistry>('/v1/recovery-contacts/settings', {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
   // Data Subject Request queue. POST /v1/dsr/submit is intentionally
   // public (no auth) so non-members can exercise GDPR/CCPA rights; the
   // verifyToken is returned exactly once and must be sent back through
@@ -2690,6 +2749,28 @@ export interface SubProcessorRegistry {
   intro: string;
   contactEmail: string | null;
   entries: SubProcessor[];
+  updatedAt: number;
+  updatedBy: string | null;
+}
+
+export interface RecoveryContact {
+  id: string;
+  name: string;
+  role: string;
+  email: string;
+  phone: string | null;
+  priority: number;
+  publicListed: boolean;
+  status: 'active' | 'retired';
+  disclosedAt: number;
+  updatedAt: number;
+  notes: string | null;
+}
+
+export interface RecoveryContactRegistry {
+  intro: string;
+  fallbackEmail: string | null;
+  entries: RecoveryContact[];
   updatedAt: number;
   updatedBy: string | null;
 }
