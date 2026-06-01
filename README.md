@@ -2274,6 +2274,52 @@ On-call:
   shipped as a built-in alert because it depends on whether you ship the
   audit log to a sidecar; add it as an extra rule in your own overlay.
 
+## Try it: GDPR Article 17 erasure certificates
+
+When a workspace fulfils a Data Subject erasure request, ClawMind mints
+a signed destruction receipt the subject (and their auditor or
+regulator) can verify offline. The plaintext email never lands on disk;
+the certificate stores a sha256 fingerprint and the holder proves
+identity by replaying the email through a constant-time check.
+
+```
+# Subject submits an erasure request (public, no account required).
+curl -s -X POST http://localhost:7411/v1/dsr/submit \
+  -H 'content-type: application/json' \
+  -d '{"subjectEmail":"jane@example.com","kind":"erasure","details":"please delete my data"}'
+
+# Admin fulfils the request; this mints the certificate automatically.
+# Response includes certificateId alongside the updated DSR row.
+curl -s -X PATCH http://localhost:7411/v1/dsr/$DSR_ID \
+  -H 'authorization: Bearer $TOKEN' \
+  -H 'content-type: application/json' \
+  -d '{"status":"fulfilled","note":"all corpus + history rows destroyed"}'
+
+# Subject pulls the receipt with only the id (public, no auth).
+curl -s http://localhost:7411/v1/erasure-certificates/by-dsr/$DSR_ID
+
+# Subject proves ownership by replaying the email. Constant-time check;
+# the address is never persisted or echoed in access logs.
+curl -s -X POST http://localhost:7411/v1/erasure-certificates/$CERT_ID/verify \
+  -H 'content-type: application/json' \
+  -d '{"subjectEmail":"jane@example.com"}'
+```
+
+The receipt is HMAC-SHA256 signed with a per-workspace secret kept next
+to the certificate file, and the content fingerprint is a sha256 over
+the canonical JSON payload so procurement teams can pin a stable
+identifier in their vendor record. Storage is append-only: a certificate
+cannot be amended or deleted, only revoked (revocation writes a note
+alongside the bit-for-bit original).
+
+UI:
+
+- Public viewer + verifier at `/privacy/certificate` (no workspace
+  chrome, safe to link from a privacy policy or DPA addendum).
+- Admin triage list at `/settings/erasure-certificates` (owner or admin
+  with `erasure-certificates:read`), with offline signature recheck per
+  row so a tampered file is visible at a glance.
+
 ## License
 
 MIT. See `LICENSE`.
