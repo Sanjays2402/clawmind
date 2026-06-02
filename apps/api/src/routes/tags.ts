@@ -70,6 +70,45 @@ export const tagsRoutes: FastifyPluginAsyncZod = async (app) => {
     });
   }
 
+  // Per-tag export. Lets an operator download or share the source list
+  // for one label as a self-contained file without exporting the whole
+  // tag map. Reuses the bulk formatters so the JSON envelope and Markdown
+  // layout match /tags/export.<fmt>. Unknown or invalid tags surface as
+  // 404 so the response shape is unambiguous for downstream tooling.
+  for (const fmt of ['json', 'csv', 'md'] as const) {
+    app.get<{ Params: { tag: string } }>(`/tags/:tag/export.${fmt}`, {
+      schema: { params: z.object({ tag: z.string().min(1).max(64) }) },
+      preHandler: [app.requireAuth, app.requireScope(Scopes.TagsRead)],
+      handler: async (req, reply) => {
+        const t = normalizeTag(req.params.tag);
+        if (!t) return reply.badRequest('invalid tag');
+        const map = await loadTags(app.clawmind.dataDir);
+        const paths = pathsByTag(map)[t];
+        if (!paths) return reply.notFound('tag not found');
+        const rows = [{ tag: t, paths: [...paths].sort() }];
+        const stamp = new Date().toISOString().slice(0, 10);
+        const safeTag = t.replace(/[^A-Za-z0-9_.-]+/g, '_').slice(0, 64) || 'tag';
+        const filename = `clawmind-tag-${stamp}-${safeTag}.${fmt}`;
+        if (fmt === 'json') {
+          return reply
+            .header('content-type', 'application/json; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(tagsToJson(rows));
+        }
+        if (fmt === 'csv') {
+          return reply
+            .header('content-type', 'text/csv; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(tagsToCsv(rows));
+        }
+        return reply
+          .header('content-type', 'text/markdown; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .send(tagsToMarkdown(rows));
+      },
+    });
+  }
+
   app.get<{ Params: { tag: string } }>('/tags/:tag', {
     schema: { params: z.object({ tag: z.string().min(1) }) },
     preHandler: [app.requireAuth, app.requireScope(Scopes.TagsRead)],
