@@ -143,4 +143,45 @@ describe('impossible-travel detection', () => {
     await acknowledge(dir, { id: list.records[0]!.id, actor: 'alice', scope: 'self', userId: 'alice' });
     expect(await countOpen(dir, 'alice')).toBe(0);
   });
+
+  it('listAll q filter matches actor, ip, and country across current and previous endpoints', async () => {
+    // Alice trips one anomaly US->JP.
+    await detectAndRecord(dir, { actor: 'alice', ip: '1.1.1.1', country: 'US', at: now, method: 'github' });
+    await detectAndRecord(dir, { actor: 'alice', ip: '2.2.2.2', country: 'JP', at: now + 60_000, method: 'github' });
+    // Bob trips one anomaly BR->AU.
+    await detectAndRecord(dir, { actor: 'bob', ip: '3.3.3.3', country: 'BR', at: now, method: 'oidc' });
+    await detectAndRecord(dir, { actor: 'bob', ip: '4.4.4.4', country: 'AU', at: now + 90_000, method: 'oidc' });
+
+    const all = await listAll(dir);
+    expect(all.records).toHaveLength(2);
+
+    // Match by actor substring.
+    const byActor = await listAll(dir, { q: 'ali' });
+    expect(byActor.records.map((r) => r.actor)).toEqual(['alice']);
+
+    // Match by current ip.
+    const byCurrentIp = await listAll(dir, { q: '4.4.4' });
+    expect(byCurrentIp.records.map((r) => r.actor)).toEqual(['bob']);
+
+    // Match by previous ip (US row's previous endpoint).
+    const byPreviousIp = await listAll(dir, { q: '1.1.1.1' });
+    expect(byPreviousIp.records.map((r) => r.actor)).toEqual(['alice']);
+
+    // Match by current country, case-insensitive.
+    const byCountry = await listAll(dir, { q: 'jp' });
+    expect(byCountry.records.map((r) => r.actor)).toEqual(['alice']);
+
+    // Match by previous country.
+    const byPreviousCountry = await listAll(dir, { q: 'br' });
+    expect(byPreviousCountry.records.map((r) => r.actor)).toEqual(['bob']);
+
+    // No match returns empty.
+    const none = await listAll(dir, { q: 'nope-zzz' });
+    expect(none.records).toHaveLength(0);
+
+    // Whitespace-only q is ignored (route normalises via zod trim/min, but
+    // service tolerates it too).
+    const blank = await listAll(dir, { q: '   ' });
+    expect(blank.records).toHaveLength(2);
+  });
 });

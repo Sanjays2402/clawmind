@@ -315,11 +315,21 @@ export async function listForUser(
 
 export async function listAll(
   dataDir: string,
-  filters: ListFilters & { actor?: string } = {},
+  filters: ListFilters & { actor?: string; q?: string } = {},
 ): Promise<ListResult> {
   const file = await readFile_(dataDir);
   let rows = file.records;
   if (filters.actor) rows = rows.filter((r) => r.actor === filters.actor);
+  const q = filters.q?.trim().toLowerCase();
+  if (q) {
+    rows = rows.filter((r) =>
+      r.actor.toLowerCase().includes(q) ||
+      r.current.ip.toLowerCase().includes(q) ||
+      r.previous.ip.toLowerCase().includes(q) ||
+      r.current.country.toLowerCase().includes(q) ||
+      r.previous.country.toLowerCase().includes(q),
+    );
+  }
   const filtered = applyFilters(rows, filters);
   const limit = Math.min(MAX_LIMIT, Math.max(1, filters.limit ?? DEFAULT_LIMIT));
   return paginate(filtered, filters.cursor, limit);

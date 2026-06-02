@@ -60,6 +60,7 @@ const SelfFilters = z.object({
 
 const AllFilters = SelfFilters.extend({
   actor: z.string().trim().min(1).max(200).optional(),
+  q: z.string().trim().min(1).max(200).optional(),
 });
 
 const Params = z.object({ id: z.string().min(1).max(80) });
