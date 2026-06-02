@@ -327,3 +327,15 @@ export function publicList(incidents: Incident[]): Record<string, unknown> {
     generatedAt: Date.now(),
   };
 }
+
+// Case-insensitive substring filter over title, summary, and any
+// affectedComponents entry. Lets a procurement reviewer pull, e.g.,
+// every public incident touching the 'api' component with a single URL.
+export function filterIncidents(incidents: Incident[], q: string | undefined): Incident[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return incidents;
+  return incidents.filter((i) => {
+    const hay = `${i.title}\n${i.summary ?? ''}\n${i.affectedComponents.join('\n')}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}

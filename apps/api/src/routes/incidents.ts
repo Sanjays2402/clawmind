@@ -8,6 +8,7 @@ import {
   deleteIncident,
   publicView,
   publicList,
+  filterIncidents,
   IncidentValidationError,
   INCIDENT_LIMITS,
 } from '../services/incidents.js';
@@ -60,11 +61,24 @@ export const incidentsRoutes: FastifyPluginAsyncZod = async (app) => {
   // Public list. This is the URL procurement reviewers and a buyer's
   // vendor-review tool will hit; if it 401s, the conversation ends
   // before it starts.
-  app.get('/incidents', {
-    handler: async (_req, reply) => {
+  //
+  // Optional `q` filters entries by a case-insensitive substring of
+  // the incident title, summary, or any affectedComponents entry so a
+  // buyer's on-call can pull "every incident touching api" or grep the
+  // disclosure log for a keyword without scraping the full timeline.
+  // Mirrors the q filter on /sub-processors, /recovery-contacts,
+  // /pins, /mutes, and /aliases.
+  app.get<{ Querystring: { q?: string } }>('/incidents', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
+    handler: async (req, reply) => {
       const incidents = await listIncidents(app.clawmind.dataDir);
+      const filtered = filterIncidents(incidents, req.query.q);
       reply.header('cache-control', 'public, max-age=300');
-      return publicList(incidents);
+      return publicList(filtered);
     },
   });
 

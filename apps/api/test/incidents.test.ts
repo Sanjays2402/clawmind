@@ -10,6 +10,7 @@ import {
   getIncident,
   publicView,
   publicList,
+  filterIncidents,
   validateInput,
   IncidentValidationError,
 } from '../src/services/incidents.js';
@@ -213,5 +214,77 @@ describe('public projection', () => {
     const out = publicList([]) as Record<string, unknown>;
     expect(out.incidents).toEqual([]);
     expect(typeof out.generatedAt).toBe('number');
+  });
+});
+
+describe('filterIncidents', () => {
+  const base = {
+    summary: '',
+    resolvedAt: null,
+    customerDataImpacted: false,
+    updates: [],
+    privateNotes: '',
+    createdAt: 1000,
+    updatedAt: 1000,
+    updatedBy: 'u',
+  } as const;
+  const incidents = [
+    {
+      id: 'inc_a',
+      title: 'API 5xx burst',
+      severity: 'high' as const,
+      status: 'monitoring' as const,
+      startedAt: 1000,
+      affectedComponents: ['api', 'rag'],
+      ...base,
+      summary: 'Elevated 5xx rate on /v1/ask.',
+    },
+    {
+      id: 'inc_b',
+      title: 'Web UI blank page',
+      severity: 'medium' as const,
+      status: 'resolved' as const,
+      startedAt: 2000,
+      resolvedAt: 3000,
+      affectedComponents: ['web'],
+      ...base,
+      summary: 'Bad build pushed to web app.',
+    },
+    {
+      id: 'inc_c',
+      title: 'Embed worker stall',
+      severity: 'low' as const,
+      status: 'resolved' as const,
+      startedAt: 4000,
+      resolvedAt: 5000,
+      affectedComponents: ['ingest'],
+      ...base,
+      summary: '',
+    },
+  ];
+
+  it('returns the input when q is empty or whitespace', () => {
+    expect(filterIncidents(incidents, undefined)).toBe(incidents);
+    expect(filterIncidents(incidents, '')).toBe(incidents);
+    expect(filterIncidents(incidents, '   ')).toBe(incidents);
+  });
+
+  it('matches a substring of the title case-insensitively', () => {
+    const out = filterIncidents(incidents, 'web ui');
+    expect(out.map((i) => i.id)).toEqual(['inc_b']);
+  });
+
+  it('matches a substring of the summary', () => {
+    const out = filterIncidents(incidents, 'v1/ask');
+    expect(out.map((i) => i.id)).toEqual(['inc_a']);
+  });
+
+  it('matches a substring of any affectedComponents entry', () => {
+    const out = filterIncidents(incidents, 'ingest');
+    expect(out.map((i) => i.id)).toEqual(['inc_c']);
+  });
+
+  it('returns an empty list when nothing matches', () => {
+    expect(filterIncidents(incidents, 'nope-zzz')).toEqual([]);
   });
 });
