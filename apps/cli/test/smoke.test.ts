@@ -7,4 +7,9 @@ describe('cli commands', () => {
     expect(askCommand().name()).toBe('ask');
     expect(searchCommand().name()).toBe('search');
   });
+
+  it('ask exposes --json for scripting', () => {
+    const flags = askCommand().options.map((o) => o.long);
+    expect(flags).toContain('--json');
+  });
 });

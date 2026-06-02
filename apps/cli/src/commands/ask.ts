@@ -10,7 +10,8 @@ export function askCommand() {
     .argument('<question...>', 'your question')
     .option('-k, --k <n>', 'top k chunks', '8')
     .option('-n, --namespaces <list>', 'comma-separated namespaces')
-    .action(async (question: string[], opts: { k: string; namespaces?: string }) => {
+    .option('--json', 'emit answer, citations, and metadata as JSON for scripting')
+    .action(async (question: string[], opts: { k: string; namespaces?: string; json?: boolean }) => {
       const rt = await buildRuntime();
       const q = QuerySchema.parse({
         q: question.join(' '),
@@ -21,10 +22,17 @@ export function askCommand() {
       let printedSources = false;
       let answer = '';
       const sources: { path: string; startLine: number; endLine: number }[] = [];
+      let latencyMs = 0;
+      let model = '';
+      let errored = false;
       for await (const evt of askStream(deps, q)) {
         if (evt.type === 'sources') {
           for (const s of evt.value) sources.push(s);
         } else if (evt.type === 'token') {
+          if (opts.json) {
+            answer += evt.value;
+            continue;
+          }
           if (!printedSources) {
             process.stdout.write(kleur.gray(`\nsources: ${sources.length}\n`));
             printedSources = true;
@@ -32,11 +40,45 @@ export function askCommand() {
           process.stdout.write(evt.value);
           answer += evt.value;
         } else if (evt.type === 'error') {
+          if (opts.json) {
+            process.stdout.write(
+              JSON.stringify({ question: q.q, error: evt.value.message }, null, 2) + '\n',
+            );
+            process.exit(1);
+          }
           process.stderr.write(kleur.red(`\n${evt.value.message}\n`));
+          errored = true;
           process.exit(1);
         } else if (evt.type === 'done') {
-          process.stdout.write(kleur.gray(`\n\n(${evt.value.latencyMs}ms via ${evt.value.model})\n`));
+          latencyMs = evt.value.latencyMs;
+          model = evt.value.model;
+          if (!opts.json) {
+            process.stdout.write(kleur.gray(`\n\n(${latencyMs}ms via ${model})\n`));
+          }
         }
+      }
+      if (errored) return;
+      if (opts.json) {
+        process.stdout.write(
+          JSON.stringify(
+            {
+              question: q.q,
+              answer,
+              citations: sources.map((s, i) => ({
+                index: i + 1,
+                path: s.path,
+                startLine: s.startLine,
+                endLine: s.endLine,
+              })),
+              count: sources.length,
+              latencyMs,
+              model,
+            },
+            null,
+            2,
+          ) + '\n',
+        );
+        return;
       }
       if (sources.length) {
         process.stdout.write('\n' + kleur.bold('citations:') + '\n');
