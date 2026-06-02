@@ -5,6 +5,7 @@ import {
   MAX_DOMAIN_LEN,
   MAX_POLICIES,
   listPolicies,
+  filterPolicies,
   replacePolicies,
   type AutoJoinRole,
 } from '../services/domain-policies.js';
@@ -40,13 +41,22 @@ const PolicyResponse = z.object({
 });
 
 export const domainPoliciesRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/domain-policies', {
+  // Optional `q` filters by a case-insensitive substring of the policy's
+  // domain or assigned role. Mirrors the same filter on /mutes, /pins,
+  // /query-blocklist, and /keys so an admin scanning a long auto-join
+  // table (multi-tenant orgs, partner domains, contractor allowlists)
+  // can search from the same UI box (e.g. every "acme" domain, or every
+  // policy that assigns the "viewer" role).
+  app.get<{ Querystring: { q?: string } }>('/domain-policies', {
     preHandler: [
       app.requireAuth,
       app.requireMinRole('admin'),
       app.requireScope(Scopes.DomainPoliciesRead),
     ],
     schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
       response: {
         200: z.object({
           policies: z.array(PolicyResponse),
@@ -55,8 +65,8 @@ export const domainPoliciesRoutes: FastifyPluginAsyncZod = async (app) => {
         }),
       },
     },
-    handler: async () => ({
-      policies: await listPolicies(app.clawmind.dataDir),
+    handler: async (req) => ({
+      policies: filterPolicies(await listPolicies(app.clawmind.dataDir), req.query.q),
       assignableRoles: [...AUTO_JOIN_ROLES],
       maxPolicies: MAX_POLICIES,
     }),

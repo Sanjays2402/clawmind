@@ -14,6 +14,7 @@ import {
   isSsoRequiredForEmail,
   domainOfEmail,
   normalizeDomain,
+  filterPolicies,
 } from '../src/services/domain-policies.js';
 import { recordSeenAndBootstrap } from '../src/services/members.js';
 import { Scopes } from '../src/scopes.js';
@@ -253,5 +254,60 @@ describe('domain-policies routes', () => {
     expect(res.statusCode).toBe(403);
     expect(await listPolicies(dir)).toHaveLength(0);
     await app.close();
+  });
+
+  it('filters GET results by a q substring matching domain or role', async () => {
+    await replacePolicies(dir, [
+      { domain: 'acme.com', role: 'member' },
+      { domain: 'partners.io', role: 'viewer' },
+      { domain: 'acme-eu.com', role: 'viewer' },
+    ]);
+    const { app } = buildApp({ user: { id: 'a1', role: 'admin', scopes: [Scopes.DomainPoliciesRead] } });
+
+    // Domain substring, case-insensitive.
+    const byDomain = await app.inject({ method: 'GET', url: '/v1/domain-policies?q=ACME' });
+    expect(byDomain.statusCode).toBe(200);
+    const a = JSON.parse(byDomain.payload).policies as Array<{ domain: string }>;
+    expect(a.map((p) => p.domain).sort()).toEqual(['acme-eu.com', 'acme.com']);
+
+    // Role substring matches both viewer rows but not the member row.
+    const byRole = await app.inject({ method: 'GET', url: '/v1/domain-policies?q=viewer' });
+    const b = JSON.parse(byRole.payload).policies as Array<{ domain: string; role: string }>;
+    expect(b.map((p) => p.domain).sort()).toEqual(['acme-eu.com', 'partners.io']);
+
+    // No match returns an empty list, not an error.
+    const miss = await app.inject({ method: 'GET', url: '/v1/domain-policies?q=zzz-nope' });
+    expect(miss.statusCode).toBe(200);
+    expect(JSON.parse(miss.payload).policies).toEqual([]);
+
+    await app.close();
+  });
+});
+
+describe('filterPolicies', () => {
+  it('returns the input when q is empty or whitespace', async () => {
+    await replacePolicies(dir, [{ domain: 'acme.com', role: 'member' }]);
+    const all = await listPolicies(dir);
+    expect(filterPolicies(all, undefined)).toBe(all);
+    expect(filterPolicies(all, '')).toBe(all);
+    expect(filterPolicies(all, '   ')).toBe(all);
+  });
+
+  it('matches a domain substring case-insensitively', async () => {
+    await replacePolicies(dir, [
+      { domain: 'acme.com', role: 'member' },
+      { domain: 'partners.io', role: 'viewer' },
+    ]);
+    const all = await listPolicies(dir);
+    expect(filterPolicies(all, 'ACME').map((p) => p.domain)).toEqual(['acme.com']);
+  });
+
+  it('matches a role substring', async () => {
+    await replacePolicies(dir, [
+      { domain: 'acme.com', role: 'member' },
+      { domain: 'partners.io', role: 'viewer' },
+    ]);
+    const all = await listPolicies(dir);
+    expect(filterPolicies(all, 'view').map((p) => p.domain)).toEqual(['partners.io']);
   });
 });

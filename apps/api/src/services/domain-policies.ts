@@ -122,6 +122,27 @@ export async function listPolicies(dataDir: string): Promise<DomainPolicy[]> {
   return [...file.policies].sort((a, b) => a.domain.localeCompare(b.domain));
 }
 
+/**
+ * Filter a list of domain policies by a case-insensitive substring that
+ * matches the policy's domain or its assigned role. Empty/whitespace `q`
+ * returns the input unchanged. Mirrors the `q` filter on /mutes, /pins,
+ * /query-blocklist, and /keys so an admin scanning a long auto-join table
+ * (multi-tenant orgs, partner domains, contractor allowlists) can search
+ * from the same UI box (e.g. every "acme" domain, or every policy that
+ * assigns the "viewer" role).
+ */
+export function filterPolicies(
+  policies: DomainPolicy[],
+  q: string | undefined,
+): DomainPolicy[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return policies;
+  return policies.filter((p) => {
+    const hay = `${p.domain}\n${p.role}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}
+
 export type ReplaceInput = ReadonlyArray<{
   domain: string;
   role: AutoJoinRole;
