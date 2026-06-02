@@ -180,9 +180,21 @@ export async function getPolicy(
 export async function getState(
   dataDir: string,
   workspaceId: string = DEFAULT_WORKSPACE,
+  opts?: { q?: string },
 ): Promise<{ policy: VendorAccessPolicy; current: VendorAccessGrant | null; history: VendorAccessGrant[] }> {
   const f = await loadFile(dataDir, workspaceId);
-  return { policy: f.policy, current: f.current, history: f.history };
+  let history = f.history;
+  const q = opts?.q?.trim().toLowerCase();
+  if (q) {
+    history = history.filter((g) => {
+      if (g.id.toLowerCase().includes(q)) return true;
+      if (g.grantedBy.toLowerCase().includes(q)) return true;
+      if (g.reason && g.reason.toLowerCase().includes(q)) return true;
+      if (g.ticket && g.ticket.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }
+  return { policy: f.policy, current: f.current, history };
 }
 
 export interface PolicyInput {

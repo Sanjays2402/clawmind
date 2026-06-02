@@ -27,6 +27,12 @@ import { Scopes } from '../scopes.js';
 // so a procurement reviewer can prove who opened the lockbox, when,
 // for how long, and against which incident ticket.
 
+const StateQuery = z
+  .object({
+    q: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict();
+
 const PolicyBody = z
   .object({
     enabled: z.boolean().optional(),
@@ -60,13 +66,15 @@ function sanitizeGrant(g: VendorAccessGrant | null) {
 
 export const vendorAccessRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/workspace/vendor-access', {
+    schema: { querystring: StateQuery },
     preHandler: [
       app.requireAuth,
       app.requireMinRole('admin'),
       app.requireScope(Scopes.VendorAccessRead),
     ],
-    handler: async () => {
-      const state = await getState(app.clawmind.dataDir);
+    handler: async (req) => {
+      const { q } = req.query as z.infer<typeof StateQuery>;
+      const state = await getState(app.clawmind.dataDir, undefined, { q });
       return {
         policy: state.policy,
         current: sanitizeGrant(state.current),
