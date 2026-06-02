@@ -78,6 +78,7 @@ const VerifyParam = z.object({
 
 const ListQuery = z.object({
   status: z.enum(['unverified', 'pending', 'acknowledged', 'fulfilled', 'rejected']).optional(),
+  q: z.string().trim().min(1).max(200).optional(),
 });
 
 function handleValidation(err: unknown, reply: import('fastify').FastifyReply) {
@@ -174,8 +175,11 @@ export const dsrRoutes: FastifyPluginAsyncZod = async (app) => {
       app.requireScope(Scopes.DsrRead),
     ],
     handler: async (req) => {
-      const { status } = req.query as z.infer<typeof ListQuery>;
-      const rows = await listRequests(app.clawmind.dataDir, { status: status as DsrStatus | undefined });
+      const { status, q } = req.query as z.infer<typeof ListQuery>;
+      const rows = await listRequests(app.clawmind.dataDir, {
+        status: status as DsrStatus | undefined,
+        q,
+      });
       return { requests: rows };
     },
   });

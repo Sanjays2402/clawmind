@@ -252,12 +252,22 @@ export async function verifyRequest(
 
 export async function listRequests(
   dataDir: string,
-  opts?: { status?: DsrStatus; workspaceId?: string },
+  opts?: { status?: DsrStatus; workspaceId?: string; q?: string },
 ): Promise<DsrRecord[]> {
   const file = await readFile_(dataDir);
   let rows = file.records;
   if (opts?.workspaceId) rows = rows.filter((r) => r.workspaceId === opts.workspaceId);
   if (opts?.status) rows = rows.filter((r) => r.status === opts.status);
+  const q = opts?.q?.trim().toLowerCase();
+  if (q) {
+    rows = rows.filter((r) => {
+      if (r.id.toLowerCase().includes(q)) return true;
+      if (r.subjectEmail.toLowerCase().includes(q)) return true;
+      if (r.details && r.details.toLowerCase().includes(q)) return true;
+      if (r.workspaceId && r.workspaceId.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }
   return rows;
 }
 

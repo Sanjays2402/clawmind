@@ -164,4 +164,37 @@ describe('dsr queue lifecycle', () => {
     expect(fetched?.kind).toBe('portability');
     expect(await getRequest(dir, 'dsr_does_not_exist')).toBeNull();
   });
+
+  it('filters list by q substring across id, subjectEmail, details, and workspaceId', async () => {
+    await createRequest(dir, {
+      subjectEmail: 'alice@acme.example',
+      kind: 'access',
+      details: 'export of marketing CRM rows',
+      workspaceId: 'tenant-acme',
+    });
+    await createRequest(dir, {
+      subjectEmail: 'bob@globex.example',
+      kind: 'erasure',
+      details: 'delete legacy support tickets',
+      workspaceId: 'tenant-globex',
+    });
+
+    const byEmail = await listRequests(dir, { q: 'alice' });
+    expect(byEmail).toHaveLength(1);
+    expect(byEmail[0]!.subjectEmail).toBe('alice@acme.example');
+
+    const byDetails = await listRequests(dir, { q: 'SUPPORT' });
+    expect(byDetails).toHaveLength(1);
+    expect(byDetails[0]!.subjectEmail).toBe('bob@globex.example');
+
+    const byWorkspace = await listRequests(dir, { q: 'globex' });
+    expect(byWorkspace).toHaveLength(1);
+    expect(byWorkspace[0]!.workspaceId).toBe('tenant-globex');
+
+    const blank = await listRequests(dir, { q: '   ' });
+    expect(blank).toHaveLength(2);
+
+    const none = await listRequests(dir, { q: 'no-such-token' });
+    expect(none).toHaveLength(0);
+  });
 });
