@@ -108,3 +108,14 @@ export function applyBoosts<T extends ScoredItem>(items: T[], map: FeedbackMap):
 }
 
 export const FEEDBACK_BOUNDS = { MAX_BOOST, MIN_BOOST, PER_VOTE };
+
+// Case-insensitive substring filter on the source path. Returns the input
+// unchanged when q is empty/whitespace so callers can pass through query
+// parameters without re-checking. Used by GET /feedback and GET
+// /feedback/export.<fmt> so the on-screen list and the downloaded file
+// agree on which entries are in scope.
+export function filterFeedback(entries: FeedbackEntry[], q?: string): FeedbackEntry[] {
+  const needle = (q ?? '').trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((e) => e.path.toLowerCase().includes(needle));
+}

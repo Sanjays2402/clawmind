@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  loadFeedback, recordVote, clearVote, boostFor, applyBoosts, FEEDBACK_BOUNDS, getFeedback,
+  loadFeedback, recordVote, clearVote, boostFor, applyBoosts, FEEDBACK_BOUNDS, getFeedback, filterFeedback,
 } from '../src/services/feedback.js';
 
 let dir: string;
@@ -102,5 +102,33 @@ describe('applyBoosts', () => {
   it('returns input unchanged when map is empty', () => {
     const items = [{ path: '/a.md', score: 1 }];
     expect(applyBoosts(items, {})).toBe(items);
+  });
+});
+
+describe('filterFeedback', () => {
+  const entries = [
+    { path: 'memory/2026-06-01.md', ups: 1, downs: 0, updatedAt: 0, byUser: {} },
+    { path: 'docs/ReadMe.md', ups: 0, downs: 0, updatedAt: 0, byUser: {} },
+    { path: 'projects/clawmind/spec.md', ups: 0, downs: 0, updatedAt: 0, byUser: {} },
+  ];
+
+  it('returns input unchanged when q is empty or whitespace', () => {
+    expect(filterFeedback(entries)).toBe(entries);
+    expect(filterFeedback(entries, '')).toBe(entries);
+    expect(filterFeedback(entries, '   ')).toBe(entries);
+  });
+
+  it('matches case-insensitive substrings on the path', () => {
+    expect(filterFeedback(entries, 'readme').map((e) => e.path)).toEqual(['docs/ReadMe.md']);
+    expect(filterFeedback(entries, 'CLAWMIND').map((e) => e.path)).toEqual(['projects/clawmind/spec.md']);
+  });
+
+  it('returns an empty list when nothing matches', () => {
+    expect(filterFeedback(entries, 'no-such-thing')).toEqual([]);
+  });
+
+  it('matches multiple entries by shared prefix', () => {
+    const out = filterFeedback(entries, '.md');
+    expect(out).toHaveLength(3);
   });
 });

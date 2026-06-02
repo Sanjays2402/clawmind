@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { loadFeedback, recordVote, clearVote, boostFor, getFeedback } from '../services/feedback.js';
+import { loadFeedback, recordVote, clearVote, boostFor, getFeedback, filterFeedback } from '../services/feedback.js';
 import { feedbackToCsv, feedbackToJson, feedbackToMarkdown } from '../services/feedback-export.js';
 import { Scopes } from '../scopes.js';
 
@@ -13,12 +13,21 @@ import { Scopes } from '../scopes.js';
 //   GET    /v1/feedback        list current entries (admin/debug)
 
 export const feedbackRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/feedback', {
+  // Optional ?q= substring filter on the source path. Case-insensitive,
+  // matches the bulk-export filter below so the on-screen list and the
+  // downloaded file always agree on which entries are in scope.
+  app.get<{ Querystring: { q?: string } }>('/feedback', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
-    handler: async () => {
+    handler: async (req) => {
       const map = await loadFeedback(app.clawmind.dataDir);
+      const entries = filterFeedback(Object.values(map), (req.query as { q?: string }).q);
       return {
-        items: Object.values(map).map((e) => ({
+        items: entries.map((e) => ({
           path: e.path,
           ups: e.ups,
           downs: e.downs,
@@ -35,11 +44,17 @@ export const feedbackRoutes: FastifyPluginAsyncZod = async (app) => {
   // by most-recently-updated first to match the on-screen list, and the
   // JSON envelope is versioned so downstream tooling can detect breaks.
   for (const fmt of ['json', 'csv', 'md'] as const) {
-    app.get(`/feedback/export.${fmt}`, {
+    app.get<{ Querystring: { q?: string } }>(`/feedback/export.${fmt}`, {
+      schema: {
+        querystring: z.object({
+          q: z.string().trim().min(1).max(200).optional(),
+        }),
+      },
       preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
-      handler: async (_req, reply) => {
+      handler: async (req, reply) => {
         const map = await loadFeedback(app.clawmind.dataDir);
-        const items = Object.values(map).sort((a, b) => b.updatedAt - a.updatedAt);
+        const items = filterFeedback(Object.values(map), (req.query as { q?: string }).q)
+          .sort((a, b) => b.updatedAt - a.updatedAt);
         const stamp = new Date().toISOString().slice(0, 10);
         const filename = `clawmind-feedback-${stamp}.${fmt}`;
         if (fmt === 'json') {
