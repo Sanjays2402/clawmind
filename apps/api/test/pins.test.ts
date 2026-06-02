@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  addPin, removePin, loadPins, pinBoostFor, PIN_BOOST, updatePinNote,
+  addPin, removePin, loadPins, pinBoostFor, PIN_BOOST, updatePinNote, getPin,
 } from '../src/services/pins.js';
 
 let dir: string;
@@ -68,6 +68,20 @@ describe('pins service', () => {
 
   it('updatePinNote returns null for unknown path', async () => {
     expect(await updatePinNote(dir, '/missing.md', 'x')).toBeNull();
+  });
+
+  it('getPin returns the entry for a pinned path', async () => {
+    const entry = await addPin(dir, 'u1', '/a.md', 'core');
+    expect(await getPin(dir, '/a.md')).toEqual(entry);
+  });
+
+  it('getPin returns null for an unpinned path', async () => {
+    await addPin(dir, 'u1', '/a.md');
+    expect(await getPin(dir, '/b.md')).toBeNull();
+  });
+
+  it('getPin returns null on an empty store', async () => {
+    expect(await getPin(dir, '/anything.md')).toBeNull();
   });
 });
 

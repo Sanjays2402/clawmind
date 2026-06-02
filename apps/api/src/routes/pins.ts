@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { addPin, loadPins, removePin, updatePinNote } from '../services/pins.js';
+import { addPin, getPin, loadPins, removePin, updatePinNote } from '../services/pins.js';
 import { pinsToCsv, pinsToJson, pinsToMarkdown } from '../services/pins-export.js';
 import { Scopes } from '../scopes.js';
 
@@ -51,6 +51,56 @@ export const pinsRoutes: FastifyPluginAsyncZod = async (app) => {
           .header('content-type', 'text/markdown; charset=utf-8')
           .header('content-disposition', `attachment; filename="${filename}"`)
           .send(pinsToMarkdown(items));
+      },
+    });
+  }
+
+  // Single-entry fetch by path. Pins are keyed by arbitrary workspace
+  // paths (slashes, dots, spaces), so the path comes through as a query
+  // parameter instead of a URL segment. Returns 404 when the path is not
+  // currently pinned so callers can distinguish "never pinned" from
+  // "empty note".
+  app.get('/pins/entry', {
+    schema: { querystring: z.object({ path: z.string().min(1).max(1024) }) },
+    preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
+    handler: async (req, reply) => {
+      const entry = await getPin(app.clawmind.dataDir, req.query.path);
+      if (!entry) return reply.notFound('pin not found');
+      return { item: entry };
+    },
+  });
+
+  // Per-entry export. Lets a curator download or share one pinned
+  // source as a self-contained file without exporting the entire pin
+  // list. Reuses the same formatters as the bulk /pins/export.<fmt>
+  // endpoints so the JSON envelope and Markdown layout match. Path is
+  // a query parameter to avoid clashing with the bulk export route.
+  for (const fmt of ['json', 'csv', 'md'] as const) {
+    app.get(`/pins/entry/export.${fmt}`, {
+      schema: { querystring: z.object({ path: z.string().min(1).max(1024) }) },
+      preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
+      handler: async (req, reply) => {
+        const entry = await getPin(app.clawmind.dataDir, req.query.path);
+        if (!entry) return reply.notFound('pin not found');
+        const stamp = new Date(entry.pinnedAt).toISOString().slice(0, 10);
+        const safePath = entry.path.replace(/[^A-Za-z0-9_.-]+/g, '_').slice(0, 64) || 'entry';
+        const filename = `clawmind-pin-${stamp}-${safePath}.${fmt}`;
+        if (fmt === 'json') {
+          return reply
+            .header('content-type', 'application/json; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(pinsToJson([entry]));
+        }
+        if (fmt === 'csv') {
+          return reply
+            .header('content-type', 'text/csv; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(pinsToCsv([entry]));
+        }
+        return reply
+          .header('content-type', 'text/markdown; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .send(pinsToMarkdown([entry]));
       },
     });
   }

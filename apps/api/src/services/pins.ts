@@ -23,6 +23,20 @@ export const PIN_BOOST = 1.75;
 
 function file(dataDir: string) { return join(dataDir, 'pins.json'); }
 
+/**
+ * Fetch a single pin by its path, or null if the path is not currently
+ * pinned. Used for single-entry GET and per-entry export so callers can
+ * deep-link or share one pinned source without paging through the whole
+ * list.
+ */
+export async function getPin(
+  dataDir: string,
+  path: string,
+): Promise<PinEntry | null> {
+  const map = await loadPins(dataDir);
+  return map[path] ?? null;
+}
+
 export async function loadPins(dataDir: string): Promise<PinMap> {
   try {
     const raw = await readFile(file(dataDir), 'utf8');
