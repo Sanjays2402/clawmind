@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { addMute, loadMutes, removeMute } from '../services/mutes.js';
+import { addMute, filterMutes, loadMutes, removeMute } from '../services/mutes.js';
 import { Scopes } from '../scopes.js';
 
 // Mute a source path so retrieval pushes it to the back of the line. Mutes
@@ -14,11 +14,20 @@ import { Scopes } from '../scopes.js';
 //   DELETE /v1/mutes         { path } remove a mute
 
 export const mutesRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/mutes', {
+  // Optional `q` filters by a case-insensitive substring of the muted
+  // path or reason. Mirrors the same filter on /pins so the curation
+  // search box in the web UI works for both pinned and muted sources.
+  app.get<{ Querystring: { q?: string } }>('/mutes', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
-    handler: async () => {
+    handler: async (req) => {
       const map = await loadMutes(app.clawmind.dataDir);
-      const items = Object.values(map).sort((a, b) => b.mutedAt - a.mutedAt);
+      const all = Object.values(map).sort((a, b) => b.mutedAt - a.mutedAt);
+      const items = filterMutes(all, req.query.q);
       return { items, count: items.length };
     },
   });

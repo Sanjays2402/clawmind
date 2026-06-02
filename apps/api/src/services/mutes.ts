@@ -64,6 +64,24 @@ export async function addMute(
   return entry;
 }
 
+/**
+ * Filter a list of mute entries by a case-insensitive substring that
+ * matches the mute's path or its reason. Empty/whitespace `q` returns the
+ * input unchanged. Mirrors `filterPins` so the same curation search box in
+ * the web UI works across pins and mutes.
+ */
+export function filterMutes(
+  entries: MuteEntry[],
+  q: string | undefined,
+): MuteEntry[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((e) => {
+    const hay = `${e.path}\n${e.reason ?? ''}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}
+
 export async function removeMute(dataDir: string, path: string): Promise<boolean> {
   const map = await loadMutes(dataDir);
   if (!(path in map)) return false;

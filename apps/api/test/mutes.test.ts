@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  addMute, removeMute, loadMutes, isMuted, mutePenaltyFor, MUTE_PENALTY,
+  addMute, removeMute, loadMutes, filterMutes, isMuted, mutePenaltyFor, MUTE_PENALTY,
 } from '../src/services/mutes.js';
 
 let dir: string;
@@ -80,5 +80,38 @@ describe('mutePenaltyFor', () => {
     expect(mutePenaltyFor(map, '/x.md')).toBe(MUTE_PENALTY);
     expect(MUTE_PENALTY).toBeGreaterThan(0);
     expect(MUTE_PENALTY).toBeLessThan(1);
+  });
+});
+
+describe('filterMutes', () => {
+  const entries = [
+    { path: '/logs/noisy.md', reason: 'too verbose', mutedAt: 1, mutedBy: 'u' },
+    { path: '/notes/scratch.md', reason: 'outdated', mutedAt: 2, mutedBy: 'u' },
+    { path: '/docs/api.md', mutedAt: 3, mutedBy: 'u' },
+  ];
+
+  it('returns the input when q is empty or whitespace', () => {
+    expect(filterMutes(entries, undefined)).toBe(entries);
+    expect(filterMutes(entries, '')).toBe(entries);
+    expect(filterMutes(entries, '   ')).toBe(entries);
+  });
+
+  it('matches a substring of the path case-insensitively', () => {
+    const out = filterMutes(entries, 'LOGS');
+    expect(out.map((e) => e.path)).toEqual(['/logs/noisy.md']);
+  });
+
+  it('matches a substring of the reason', () => {
+    const out = filterMutes(entries, 'outdated');
+    expect(out.map((e) => e.path)).toEqual(['/notes/scratch.md']);
+  });
+
+  it('returns an empty list when nothing matches', () => {
+    expect(filterMutes(entries, 'zzz-no-hit')).toEqual([]);
+  });
+
+  it('does not throw when the entry has no reason', () => {
+    const out = filterMutes(entries, 'api');
+    expect(out.map((e) => e.path)).toEqual(['/docs/api.md']);
   });
 });
