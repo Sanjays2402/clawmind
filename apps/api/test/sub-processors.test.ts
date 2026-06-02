@@ -9,6 +9,7 @@ import {
   retireEntry,
   updateSettings,
   publicView,
+  filterEntries,
   validateCreate,
   SubProcessorValidationError,
 } from '../src/services/sub-processors.js';
@@ -131,5 +132,38 @@ describe('sub-processor registry CRUD', () => {
     await expect(updateSettings(dir, 'u', { contactEmail: 'nope' })).rejects.toThrow(
       SubProcessorValidationError,
     );
+  });
+});
+
+describe('filterEntries', () => {
+  const entries = [
+    { name: 'Acme Hosting Inc.', purpose: 'Object storage', region: 'US' },
+    { name: 'Bravo Email', purpose: 'Transactional email delivery', region: 'EU' },
+    { name: 'Charlie Analytics', purpose: 'Product analytics', region: 'EU' },
+  ];
+
+  it('returns the input when q is empty or whitespace', () => {
+    expect(filterEntries(entries, undefined)).toBe(entries);
+    expect(filterEntries(entries, '')).toBe(entries);
+    expect(filterEntries(entries, '   ')).toBe(entries);
+  });
+
+  it('matches a substring of the legal name case-insensitively', () => {
+    const out = filterEntries(entries, 'acme');
+    expect(out.map((e) => e.name)).toEqual(['Acme Hosting Inc.']);
+  });
+
+  it('matches a substring of the purpose', () => {
+    const out = filterEntries(entries, 'analytics');
+    expect(out.map((e) => e.name)).toEqual(['Charlie Analytics']);
+  });
+
+  it('matches a substring of the region', () => {
+    const out = filterEntries(entries, 'eu');
+    expect(out.map((e) => e.name)).toEqual(['Bravo Email', 'Charlie Analytics']);
+  });
+
+  it('returns an empty list when nothing matches', () => {
+    expect(filterEntries(entries, 'zzz-no-hit')).toEqual([]);
   });
 });

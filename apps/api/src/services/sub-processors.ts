@@ -403,4 +403,24 @@ export function publicView(reg: SubProcessorRegistry): {
   };
 }
 
+/**
+ * Filter a list of sub-processor entries by a case-insensitive
+ * substring that matches the legal name, purpose, or region. Empty
+ * or whitespace `q` returns the input unchanged. Mirrors `filterPins`,
+ * `filterMutes`, and `filterAliases` so the same curation search box
+ * in the web UI works on the public sub-processor list page that
+ * customers' DPAs cite by URL.
+ */
+export function filterEntries<T extends { name: string; purpose: string; region: string }>(
+  entries: T[],
+  q: string | undefined,
+): T[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((e) => {
+    const hay = `${e.name}\n${e.purpose}\n${e.region}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}
+
 export const SUB_PROCESSOR_LIMITS = FIELD_LIMITS;

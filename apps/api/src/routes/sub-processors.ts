@@ -8,6 +8,7 @@ import {
   updateSettings,
   validateCreate,
   publicView,
+  filterEntries,
   SubProcessorValidationError,
   SUB_PROCESSOR_LIMITS,
   type ChangeEvent,
@@ -142,10 +143,23 @@ export const subProcessorsRoutes: FastifyPluginAsyncZod = async (app) => {
   // Public list. No auth, no scope, no rate-limit branch (the global
   // limiter already covers it). This is the URL the customer's DPA
   // references; if it 401s, the DPA itself is unsignable.
-  app.get('/sub-processors', {
-    handler: async () => {
+  //
+  // Optional `q` filters entries by a case-insensitive substring of
+  // the legal name, purpose, or region so the customer's DPO can pull
+  // "every sub-processor in the EU" or "every analytics vendor" with
+  // a single URL. Mirrors the same filter on /pins, /mutes, and
+  // /aliases.
+  app.get<{ Querystring: { q?: string } }>('/sub-processors', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
+    handler: async (req) => {
       const reg = await getRegistry(app.clawmind.dataDir);
-      return publicView(reg);
+      const view = publicView(reg);
+      const entries = filterEntries(view.entries, req.query.q);
+      return { ...view, entries };
     },
   });
 
