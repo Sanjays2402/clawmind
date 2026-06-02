@@ -37,6 +37,25 @@ export async function getPin(
   return map[path] ?? null;
 }
 
+/**
+ * Filter a list of pin entries by a case-insensitive substring that
+ * matches the pin's path or its note. Empty/whitespace `q` returns the
+ * input unchanged. Used by the list and export routes so the same
+ * curation filter applies whether the caller is browsing pins in the UI
+ * or downloading them.
+ */
+export function filterPins(
+  entries: PinEntry[],
+  q: string | undefined,
+): PinEntry[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((e) => {
+    const hay = `${e.path}\n${e.note ?? ''}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}
+
 export async function loadPins(dataDir: string): Promise<PinMap> {
   try {
     const raw = await readFile(file(dataDir), 'utf8');

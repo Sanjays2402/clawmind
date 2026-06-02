@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { addPin, getPin, loadPins, removePin, updatePinNote } from '../services/pins.js';
+import { addPin, filterPins, getPin, loadPins, removePin, updatePinNote } from '../services/pins.js';
 import { pinsToCsv, pinsToJson, pinsToMarkdown } from '../services/pins-export.js';
 import { Scopes } from '../scopes.js';
 
@@ -13,11 +13,20 @@ import { Scopes } from '../scopes.js';
 //   DELETE /v1/pins         { path } remove a pin
 
 export const pinsRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/pins', {
+  // Optional `q` filters by a case-insensitive substring of the pin
+  // path or note. Mirrors the saved-search list filter so the same
+  // curation search box in the web UI works across pinned sources too.
+  app.get<{ Querystring: { q?: string } }>('/pins', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
-    handler: async () => {
+    handler: async (req) => {
       const map = await loadPins(app.clawmind.dataDir);
-      const items = Object.values(map).sort((a, b) => b.pinnedAt - a.pinnedAt);
+      const all = Object.values(map).sort((a, b) => b.pinnedAt - a.pinnedAt);
+      const items = filterPins(all, (req.query as { q?: string }).q);
       return { items, count: items.length };
     },
   });
@@ -28,11 +37,17 @@ export const pinsRoutes: FastifyPluginAsyncZod = async (app) => {
   // gets a stable, versioned JSON envelope. Pins are workspace-wide so
   // SourcesRead is enough (matches the GET /pins read path).
   for (const fmt of ['json', 'csv', 'md'] as const) {
-    app.get(`/pins/export.${fmt}`, {
+    app.get<{ Querystring: { q?: string } }>(`/pins/export.${fmt}`, {
+      schema: {
+        querystring: z.object({
+          q: z.string().trim().min(1).max(200).optional(),
+        }),
+      },
       preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
-      handler: async (_req, reply) => {
+      handler: async (req, reply) => {
         const map = await loadPins(app.clawmind.dataDir);
-        const items = Object.values(map).sort((a, b) => b.pinnedAt - a.pinnedAt);
+        const all = Object.values(map).sort((a, b) => b.pinnedAt - a.pinnedAt);
+        const items = filterPins(all, (req.query as { q?: string }).q);
         const stamp = new Date().toISOString().slice(0, 10);
         const filename = `clawmind-pins-${stamp}.${fmt}`;
         if (fmt === 'json') {

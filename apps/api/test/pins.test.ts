@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  addPin, removePin, loadPins, pinBoostFor, PIN_BOOST, updatePinNote, getPin,
+  addPin, removePin, loadPins, pinBoostFor, PIN_BOOST, updatePinNote, getPin, filterPins,
 } from '../src/services/pins.js';
 
 let dir: string;
@@ -82,6 +82,38 @@ describe('pins service', () => {
 
   it('getPin returns null on an empty store', async () => {
     expect(await getPin(dir, '/anything.md')).toBeNull();
+  });
+});
+
+describe('filterPins', () => {
+  const entries = [
+    { path: '/notes/spec.md', note: 'core spec', pinnedAt: 3, pinnedBy: 'u1' },
+    { path: '/code/server.ts', note: 'API entrypoint', pinnedAt: 2, pinnedBy: 'u1' },
+    { path: '/notes/todo.md', pinnedAt: 1, pinnedBy: 'u1' },
+  ];
+
+  it('returns the input unchanged for empty or whitespace q', () => {
+    expect(filterPins(entries, undefined)).toEqual(entries);
+    expect(filterPins(entries, '')).toEqual(entries);
+    expect(filterPins(entries, '   ')).toEqual(entries);
+  });
+
+  it('matches a substring of the path case-insensitively', () => {
+    const got = filterPins(entries, 'NOTES');
+    expect(got.map((e) => e.path)).toEqual(['/notes/spec.md', '/notes/todo.md']);
+  });
+
+  it('matches a substring of the note', () => {
+    const got = filterPins(entries, 'entrypoint');
+    expect(got.map((e) => e.path)).toEqual(['/code/server.ts']);
+  });
+
+  it('returns an empty list when nothing matches', () => {
+    expect(filterPins(entries, 'zzz-no-hit')).toEqual([]);
+  });
+
+  it('does not crash on entries with no note', () => {
+    expect(filterPins(entries, 'todo').map((e) => e.path)).toEqual(['/notes/todo.md']);
   });
 });
 
