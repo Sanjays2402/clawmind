@@ -11,9 +11,10 @@ export function relatedCommand() {
     .argument('<path>', 'indexed source path to find neighbours for')
     .option('-k, --k <n>', 'how many related sources to return', (v) => parseInt(v, 10), 8)
     .option('-n, --namespaces <list>', 'comma-separated namespaces to restrict to')
+    .option('--json', 'emit results as JSON for scripting')
     .description('Find sources semantically similar to a given indexed path');
 
-  cmd.action(async (path: string, opts: { k: number; namespaces?: string }) => {
+  cmd.action(async (path: string, opts: { k: number; namespaces?: string; json?: boolean }) => {
     const env = loadEnv();
     const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
     const url = new URL(`${base}/v1/related`);
@@ -32,6 +33,10 @@ export function relatedCommand() {
       items: { path: string; namespace: string; score: number; hits: number; excerpt: string }[];
       count: number;
     };
+    if (opts.json) {
+      process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+      return;
+    }
     if (out.count === 0) {
       process.stdout.write(kleur.gray(`no related sources found (searched against ${out.sourceChunkCount} chunks)\n`));
       return;
