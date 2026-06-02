@@ -94,6 +94,26 @@ export async function listMembers(dataDir: string): Promise<MemberRecord[]> {
   return [...file.members].sort((a, b) => ROLE_RANK[b.role] - ROLE_RANK[a.role] || a.userId.localeCompare(b.userId));
 }
 
+/**
+ * Filter a list of member records by a case-insensitive substring that
+ * matches the member's userId, email, or label. Empty/whitespace `q`
+ * returns the input unchanged. Mirrors the `q` filter on /keys, /mutes,
+ * /pins, and /query-blocklist so an admin scrolling a long Members
+ * page can search by what they remember (a partial email, a userId
+ * prefix from an audit row, or a free-form label).
+ */
+export function filterMembers(
+  members: MemberRecord[],
+  q: string | undefined,
+): MemberRecord[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return members;
+  return members.filter((m) => {
+    const hay = `${m.userId}\n${m.email ?? ''}\n${m.label ?? ''}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}
+
 export async function getMember(dataDir: string, userId: string): Promise<MemberRecord | null> {
   const file = await readRegistry(dataDir);
   return file.members.find((m) => m.userId === userId) ?? null;

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import {
   MEMBER_ROLES,
+  filterMembers,
   inviteMember,
   listMembers,
   removeMember,
@@ -47,10 +48,21 @@ function actorRole(role: string): MemberRole {
 }
 
 export const memberRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/members', {
+  // Optional `q` filters by a case-insensitive substring of the member's
+  // userId, email, or label. Mirrors the same filter on /keys, /mutes,
+  // /pins, and /query-blocklist so an admin staring at a long Members
+  // page can search by what they remember (a partial email, a userId
+  // prefix copied from an audit row, or a free-form label).
+  app.get<{ Querystring: { q?: string } }>('/members', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [app.requireAuth, app.requireMinRole('admin'), app.requireScope(Scopes.MembersRead)],
-    handler: async () => {
-      const members = await listMembers(app.clawmind.dataDir);
+    handler: async (req) => {
+      const all = await listMembers(app.clawmind.dataDir);
+      const members = filterMembers(all, req.query.q);
       return { members };
     },
   });

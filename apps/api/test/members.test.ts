@@ -175,4 +175,32 @@ describe('members routes', () => {
     expect(after.find((m) => m.userId === 'm1')).toBeTruthy();
     await app.close();
   });
+
+  it('filters list by case-insensitive q over userId, email, and label', async () => {
+    await inviteMember(dir, { userId: 'o1', role: 'owner', invitedBy: 'bootstrap' });
+    await inviteMember(dir, { userId: 'alice', role: 'admin', email: 'alice@example.com', label: 'CI deploy', invitedBy: 'o1' });
+    await inviteMember(dir, { userId: 'bob', role: 'member', email: 'bob@other.com', label: 'reviewer', invitedBy: 'o1' });
+    const { app } = buildApp({ user: { id: 'o1', role: 'owner', scopes: [Scopes.MembersRead] } });
+
+    const byEmail = await app.inject({ method: 'GET', url: '/v1/members?q=EXAMPLE' });
+    expect(byEmail.statusCode).toBe(200);
+    expect(JSON.parse(byEmail.payload).members.map((m: { userId: string }) => m.userId)).toEqual(['alice']);
+
+    const byUserId = await app.inject({ method: 'GET', url: '/v1/members?q=bo' });
+    expect(JSON.parse(byUserId.payload).members.map((m: { userId: string }) => m.userId)).toEqual(['bob']);
+
+    const byLabel = await app.inject({ method: 'GET', url: '/v1/members?q=ci%20deploy' });
+    expect(JSON.parse(byLabel.payload).members.map((m: { userId: string }) => m.userId)).toEqual(['alice']);
+
+    const noMatch = await app.inject({ method: 'GET', url: '/v1/members?q=zzz' });
+    expect(JSON.parse(noMatch.payload).members).toEqual([]);
+
+    const empty = await app.inject({ method: 'GET', url: '/v1/members?q=' });
+    expect(empty.statusCode).toBe(400);
+
+    const all = await app.inject({ method: 'GET', url: '/v1/members' });
+    expect(JSON.parse(all.payload).members).toHaveLength(3);
+
+    await app.close();
+  });
 });
