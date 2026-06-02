@@ -526,6 +526,23 @@ export function publicView(entry: BreachEntry): BreachPublic {
   };
 }
 
+/**
+ * Case-insensitive substring filter over reference, title, summary,
+ * dataCategories, and dataSubjects. Lets a DPO pull, e.g., every
+ * breach touching "backups" or grep the register for a ticket id with
+ * a single URL. Mirrors the q filter on /incidents, /sub-processors,
+ * /recovery-contacts, /pins, /mutes, and /aliases.
+ */
+export function filterRegister(reg: BreachRegister, q: string | undefined): BreachRegister {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return reg;
+  const entries = reg.entries.filter((e) => {
+    const hay = `${e.reference}\n${e.title}\n${e.summary}\n${e.dataCategories}\n${e.dataSubjects}`.toLowerCase();
+    return hay.includes(needle);
+  });
+  return { ...reg, entries };
+}
+
 export interface PublicRegister {
   entries: BreachPublic[];
   updatedAt: number;

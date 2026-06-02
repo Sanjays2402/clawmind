@@ -9,6 +9,7 @@ import {
   deleteBreach,
   publicList,
   publicView,
+  filterRegister,
   toCsv,
   validateCreate,
   BreachValidationError,
@@ -206,5 +207,63 @@ describe('breach register CRUD and projections', () => {
     expect(lines[0]).toContain('reference,title,summary,severity');
     expect(lines.length).toBe(2);
     expect(lines[1]).toContain('"one, two, three"');
+  });
+
+  it('filterRegister returns the register unchanged when q is empty or whitespace', async () => {
+    await createBreach(dir, 'owner_1', baseInput(), T0);
+    const reg = await getRegister(dir);
+    expect(filterRegister(reg, undefined).entries.length).toBe(1);
+    expect(filterRegister(reg, '   ').entries.length).toBe(1);
+    expect(filterRegister(reg, '').entries.length).toBe(1);
+  });
+
+  it('filterRegister matches a case-insensitive substring across reference, title, summary, dataCategories, and dataSubjects', async () => {
+    await createBreach(dir, 'owner_1', baseInput(), T0); // BR-2026-001, support bucket
+    await createBreach(
+      dir,
+      'owner_1',
+      {
+        ...baseInput(),
+        reference: 'BR-2026-002',
+        title: 'Vendor backup snapshot retained past contract end',
+        summary: 'Offsite backup vendor kept a snapshot 11 days past the agreed deletion date.',
+        dataCategories: 'workspace exports',
+        dataSubjects: 'workspace owners',
+        discoveredAt: T0 + 24 * 3600_000,
+        occurredAt: T0 + 24 * 3600_000 - 3600_000,
+        containedAt: T0 + 24 * 3600_000 + 1800_000,
+        authorityNotifiedAt: T0 + 24 * 3600_000 + 3600_000,
+        subjectNotifiedAt: T0 + 25 * 3600_000,
+      },
+      T0 + 24 * 3600_000,
+    );
+    const reg = await getRegister(dir);
+
+    // by reference
+    expect(filterRegister(reg, 'BR-2026-002').entries.map((e) => e.reference)).toEqual(['BR-2026-002']);
+    // by title, case-insensitive
+    expect(filterRegister(reg, 'BACKUP').entries.map((e) => e.reference)).toEqual(['BR-2026-002']);
+    // by summary substring
+    expect(filterRegister(reg, 'bucket').entries.map((e) => e.reference)).toEqual(['BR-2026-001']);
+    // by dataSubjects
+    expect(filterRegister(reg, 'workspace owners').entries.map((e) => e.reference)).toEqual(['BR-2026-002']);
+    // no match
+    expect(filterRegister(reg, 'nothing-here').entries.length).toBe(0);
+    // shared substring matches both
+    expect(filterRegister(reg, 'br-2026').entries.length).toBe(2);
+  });
+
+  it('filterRegister preserves updatedAt and updatedBy so counters reflect the filtered slice only', async () => {
+    await createBreach(dir, 'owner_1', baseInput(), T0);
+    const reg = await getRegister(dir);
+    const filtered = filterRegister(reg, 'nothing-here');
+    expect(filtered.entries.length).toBe(0);
+    expect(filtered.updatedAt).toBe(reg.updatedAt);
+    expect(filtered.updatedBy).toBe(reg.updatedBy);
+    // publicList over the filtered slice reports the filtered counts
+    const list = publicList(filtered);
+    expect(list.totalCount).toBe(0);
+    expect(list.openCount).toBe(0);
+    expect(list.overdueCount).toBe(0);
   });
 });

@@ -7,6 +7,7 @@ import {
   deleteBreach,
   publicView,
   publicList,
+  filterRegister,
   toCsv,
   validateCreate,
   BreachValidationError,
@@ -78,22 +79,34 @@ function mapValidation(err: unknown, reply: any): boolean {
 }
 
 export const breachRegisterRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/breach-register', {
-    handler: async (_req, reply) => {
+  // Optional `q` filters entries by a case-insensitive substring of
+  // reference, title, summary, dataCategories, or dataSubjects so a
+  // DPO can pull "every breach touching backups" or grep for a ticket
+  // id without scraping the full register. Mirrors the q filter on
+  // /incidents, /sub-processors, /recovery-contacts, /pins, /mutes,
+  // and /aliases.
+  const QSchema = z.object({
+    q: z.string().trim().min(1).max(200).optional(),
+  });
+
+  app.get<{ Querystring: { q?: string } }>('/breach-register', {
+    schema: { querystring: QSchema },
+    handler: async (req, reply) => {
       const reg = await getRegister(app.clawmind.dataDir);
       reply.header('cache-control', 'public, max-age=300');
-      return publicList(reg);
+      return publicList(filterRegister(reg, req.query.q));
     },
   });
 
-  app.get('/breach-register.csv', {
-    handler: async (_req, reply) => {
+  app.get<{ Querystring: { q?: string } }>('/breach-register.csv', {
+    schema: { querystring: QSchema },
+    handler: async (req, reply) => {
       const reg = await getRegister(app.clawmind.dataDir);
       reply
         .header('content-type', 'text/csv; charset=utf-8')
         .header('content-disposition', 'attachment; filename="breach-register.csv"')
         .header('cache-control', 'public, max-age=300')
-        .send(toCsv(reg));
+        .send(toCsv(filterRegister(reg, req.query.q)));
     },
   });
 
