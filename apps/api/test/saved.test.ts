@@ -75,4 +75,35 @@ describe('saved searches service', () => {
     expect(await getSaved(dir, 'u2', a.id)).toBeNull();
     expect(await getSaved(dir, 'u1', 'nope')).toBeNull();
   });
+
+  it('listSaved filters by tag (case-insensitive, normalized)', async () => {
+    const a = await addSaved(dir, 'u1', { title: 'A', query: 'q', tags: ['ops', 'work'] });
+    await addSaved(dir, 'u1', { title: 'B', query: 'q', tags: ['research'] });
+    await addSaved(dir, 'u1', { title: 'C', query: 'q' });
+    const ops = await listSaved(dir, 'u1', { tag: 'OPS' });
+    expect(ops.map((i) => i.id)).toEqual([a.id]);
+    const none = await listSaved(dir, 'u1', { tag: 'missing' });
+    expect(none).toEqual([]);
+  });
+
+  it('listSaved filters by q against title and query (case-insensitive)', async () => {
+    const a = await addSaved(dir, 'u1', { title: 'Ingest activity', query: 'errors today' });
+    const b = await addSaved(dir, 'u1', { title: 'Other', query: 'INGEST failures' });
+    await addSaved(dir, 'u1', { title: 'Unrelated', query: 'misc' });
+    const hits = await listSaved(dir, 'u1', { q: 'ingest' });
+    expect(hits.map((i) => i.id).sort()).toEqual([a.id, b.id].sort());
+  });
+
+  it('listSaved combines tag and q filters with AND semantics', async () => {
+    const a = await addSaved(dir, 'u1', { title: 'Ingest', query: 'errors', tags: ['ops'] });
+    await addSaved(dir, 'u1', { title: 'Ingest', query: 'errors', tags: ['research'] });
+    const hits = await listSaved(dir, 'u1', { tag: 'ops', q: 'ingest' });
+    expect(hits.map((i) => i.id)).toEqual([a.id]);
+  });
+
+  it('listSaved filters stay scoped to the calling user', async () => {
+    await addSaved(dir, 'u2', { title: 'Ingest', query: 'q', tags: ['ops'] });
+    expect(await listSaved(dir, 'u1', { tag: 'ops' })).toEqual([]);
+    expect(await listSaved(dir, 'u1', { q: 'Ingest' })).toEqual([]);
+  });
 });

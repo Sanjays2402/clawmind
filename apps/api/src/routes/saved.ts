@@ -7,9 +7,20 @@ import { Scopes } from '../scopes.js';
 const tagsSchema = z.array(z.string()).max(16);
 
 export const savedRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/saved', {
+  app.get<{ Querystring: { tag?: string; q?: string } }>('/saved', {
+    schema: {
+      querystring: z.object({
+        tag: z.string().trim().min(1).max(32).optional(),
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [app.requireAuth, app.requireScope(Scopes.SavedRead)],
-    handler: async (req) => ({ items: await listSaved(app.clawmind.dataDir, req.user!.id) }),
+    handler: async (req) => ({
+      items: await listSaved(app.clawmind.dataDir, req.user!.id, {
+        tag: (req.query as { tag?: string; q?: string }).tag,
+        q: (req.query as { tag?: string; q?: string }).q,
+      }),
+    }),
   });
 
   app.post('/saved', {
@@ -35,10 +46,17 @@ export const savedRoutes: FastifyPluginAsyncZod = async (app) => {
   // of rendering it. Items are returned in the same order as GET /saved
   // (newest first), and tags are preserved across all three formats.
   for (const fmt of ['json', 'csv', 'md'] as const) {
-    app.get(`/saved/export.${fmt}`, {
+    app.get<{ Querystring: { tag?: string; q?: string } }>(`/saved/export.${fmt}`, {
+      schema: {
+        querystring: z.object({
+          tag: z.string().trim().min(1).max(32).optional(),
+          q: z.string().trim().min(1).max(200).optional(),
+        }),
+      },
       preHandler: [app.requireAuth, app.requireScope(Scopes.SavedRead)],
       handler: async (req, reply) => {
-        const items = (await listSaved(app.clawmind.dataDir, req.user!.id))
+        const qs = req.query as { tag?: string; q?: string };
+        const items = (await listSaved(app.clawmind.dataDir, req.user!.id, { tag: qs.tag, q: qs.q }))
           .slice()
           .sort((a, b) => b.updatedAt - a.updatedAt);
         const stamp = new Date().toISOString().slice(0, 10);

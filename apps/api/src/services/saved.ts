@@ -55,8 +55,29 @@ async function writeAll(dataDir: string, items: SavedItem[]) {
   await writeFile(f, JSON.stringify(items, null, 2));
 }
 
-export async function listSaved(dataDir: string, userId: string) {
-  return (await readAll(dataDir)).filter((i) => i.userId === userId);
+export interface ListSavedFilter {
+  /** Restrict to entries tagged with this normalized tag (case-insensitive). */
+  tag?: string;
+  /** Case-insensitive substring match against title and query. */
+  q?: string;
+}
+
+export async function listSaved(
+  dataDir: string,
+  userId: string,
+  filter: ListSavedFilter = {},
+) {
+  const owned = (await readAll(dataDir)).filter((i) => i.userId === userId);
+  const tag = filter.tag?.trim().toLowerCase();
+  const needle = filter.q?.trim().toLowerCase();
+  return owned.filter((i) => {
+    if (tag && !i.tags.includes(tag)) return false;
+    if (needle) {
+      const hay = `${i.title}\n${i.query}`.toLowerCase();
+      if (!hay.includes(needle)) return false;
+    }
+    return true;
+  });
 }
 
 export async function getSaved(
