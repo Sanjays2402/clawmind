@@ -36,6 +36,10 @@ const ListDeliveriesQuery = z.object({
   limit: z.coerce.number().int().min(1).max(1000).optional(),
 });
 
+const ListWebhooksQuery = z.object({
+  q: z.string().trim().min(1).max(200).optional(),
+});
+
 // Webhooks let customers receive a real outbound POST when something happens
 // inside ClawMind, instead of polling /v1/history. The full lifecycle lives
 // here: register, list, update (pause/resume), delete, test fire, and read
@@ -47,9 +51,12 @@ export const webhookRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   app.get('/webhooks', {
+    schema: { querystring: ListWebhooksQuery },
     preHandler: [app.requireAuth, app.requireScope(Scopes.WebhooksRead)],
     handler: async (req) => {
-      const items = await listForUser(app.clawmind.dataDir, req.user!.id);
+      const items = await listForUser(app.clawmind.dataDir, req.user!.id, {
+        q: (req.query as z.infer<typeof ListWebhooksQuery>).q,
+      });
       return { items: items.map(redact) };
     },
   });

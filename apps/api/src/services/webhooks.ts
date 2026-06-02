@@ -184,9 +184,23 @@ async function saveAll(dataDir: string, list: WebhookRecord[]) {
   await writeFile(f, JSON.stringify(list, null, 2));
 }
 
-export async function listForUser(dataDir: string, userId: string): Promise<WebhookRecord[]> {
+export async function listForUser(
+  dataDir: string,
+  userId: string,
+  opts: { q?: string } = {},
+): Promise<WebhookRecord[]> {
   const all = await loadAll(dataDir);
-  return all.filter((w) => w.userId === userId).sort((a, b) => b.createdAt - a.createdAt);
+  let mine = all.filter((w) => w.userId === userId);
+  if (opts.q) {
+    const needle = opts.q.trim().toLowerCase();
+    if (needle.length > 0) {
+      mine = mine.filter((w) => {
+        if (w.url.toLowerCase().includes(needle)) return true;
+        return w.events.some((e) => e.toLowerCase().includes(needle));
+      });
+    }
+  }
+  return mine.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function createWebhook(

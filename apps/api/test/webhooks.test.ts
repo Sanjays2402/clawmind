@@ -251,4 +251,23 @@ describe('webhooks service', () => {
     expect(stillMine.secret).toEqual(wh.secret);
     expect(stillMine.previousSecret).toBeUndefined();
   });
+
+  it('filters list by q substring across url and events (case-insensitive)', async () => {
+    await createWebhook(dir, 'u1', 'https://example.com/alerts', ['ask.completed']);
+    await createWebhook(dir, 'u1', 'https://hooks.slack.com/x', ['audit.event']);
+    await createWebhook(dir, 'u1', 'https://example.com/billing', ['ingest.completed']);
+    // url match
+    const slack = await listForUser(dir, 'u1', { q: 'SLACK' });
+    expect(slack.map((w) => w.url)).toEqual(['https://hooks.slack.com/x']);
+    // event match
+    const auditOnly = await listForUser(dir, 'u1', { q: 'audit' });
+    expect(auditOnly.map((w) => w.url)).toEqual(['https://hooks.slack.com/x']);
+    // partial url
+    const billing = await listForUser(dir, 'u1', { q: 'bill' });
+    expect(billing.map((w) => w.url)).toEqual(['https://example.com/billing']);
+    // no match
+    expect(await listForUser(dir, 'u1', { q: 'nope' })).toEqual([]);
+    // cross-user isolation still applies under q
+    expect(await listForUser(dir, 'u2', { q: 'slack' })).toEqual([]);
+  });
 });
