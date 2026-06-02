@@ -22,6 +22,8 @@ export interface HistoryQuery {
   q?: string;
   /** Keep only items that cite at least one source in any of these namespaces. */
   namespaces?: string[];
+  /** Case-insensitive substring match against any cited source `path`. */
+  path?: string;
 }
 
 function file(dataDir: string) { return join(dataDir, 'history.jsonl'); }
@@ -58,6 +60,16 @@ export function matchesHistoryFilter(item: HistoryItem, filter: HistoryQuery): b
     const want = new Set(filter.namespaces);
     const ok = (item.sources as Array<{ namespace?: string }> | undefined)?.some((s) =>
       s && typeof s.namespace === 'string' && want.has(s.namespace),
+    );
+    if (!ok) return false;
+  }
+  if (filter.path) {
+    const needle = filter.path.toLowerCase();
+    const ok = (item.sources as Array<{ path?: string; displayPath?: string }> | undefined)?.some(
+      (s) =>
+        !!s &&
+        ((typeof s.path === 'string' && s.path.toLowerCase().includes(needle)) ||
+          (typeof s.displayPath === 'string' && s.displayPath.toLowerCase().includes(needle))),
     );
     if (!ok) return false;
   }

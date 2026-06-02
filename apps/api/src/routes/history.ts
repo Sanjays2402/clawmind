@@ -30,6 +30,9 @@ const ListQuery = z.object({
   namespaces: z.string().optional(),
   // Comma-separated list of tags; items must carry ALL listed tags.
   tags: z.string().optional(),
+  // Case-insensitive substring match against any cited source path.
+  // Lets a user pull every question that cited a given file or folder.
+  path: z.string().min(1).max(400).optional(),
 });
 
 const TagsBody = z.object({
@@ -48,6 +51,7 @@ const ExportQuery = z.object({
   until: z.coerce.number().int().nonnegative().optional(),
   q: z.string().min(1).max(200).optional(),
   namespaces: z.string().optional(),
+  path: z.string().min(1).max(400).optional(),
 });
 
 const PruneQuery = z.object({
@@ -65,8 +69,9 @@ export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
       const ns = namespaces
         ? namespaces.split(',').map((s) => s.trim()).filter(Boolean)
         : undefined;
+      const path = (req.query as { path?: string }).path;
       const items = await listHistory(app.clawmind.dataDir, req.user!.id, {
-        limit, since, until, q, namespaces: ns,
+        limit, since, until, q, namespaces: ns, path,
       });
       const tagMap = await loadHistoryTags(app.clawmind.dataDir);
       const titleMap = await loadHistoryTitles(app.clawmind.dataDir);
@@ -185,8 +190,9 @@ export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
         const ns = namespaces
           ? namespaces.split(',').map((s) => s.trim()).filter(Boolean)
           : undefined;
+        const path = (req.query as { path?: string }).path;
         const items = await listHistory(app.clawmind.dataDir, req.user!.id, {
-          limit: limit ?? 1000, since, until, q, namespaces: ns,
+          limit: limit ?? 1000, since, until, q, namespaces: ns, path,
         });
         const stamp = new Date().toISOString().slice(0, 10);
         const filename = `clawmind-history-${stamp}.${fmt}`;

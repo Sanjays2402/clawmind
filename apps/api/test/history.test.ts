@@ -54,6 +54,32 @@ describe('matchesHistoryFilter', () => {
     expect(matchesHistoryFilter(i, { namespaces: ['code'] })).toBe(false);
     expect(matchesHistoryFilter(i, { namespaces: ['code', 'memory'] })).toBe(true);
   });
+
+  it('filters by case-insensitive substring on cited source path', () => {
+    const i = item({
+      sources: [
+        { path: '/Users/x/notes/Recipes.md', namespace: 'memory' },
+        { path: '/Users/x/projects/server.ts', namespace: 'projects' },
+      ],
+    });
+    expect(matchesHistoryFilter(i, { path: 'recipes' })).toBe(true);
+    expect(matchesHistoryFilter(i, { path: 'server.ts' })).toBe(true);
+    expect(matchesHistoryFilter(i, { path: 'projects/' })).toBe(true);
+    expect(matchesHistoryFilter(i, { path: 'missing-file' })).toBe(false);
+  });
+
+  it('also matches the source displayPath when set by alias rewriting', () => {
+    const i = item({
+      sources: [{ path: '/abs/long/path/file.md', displayPath: '@notes/file.md' }],
+    });
+    expect(matchesHistoryFilter(i, { path: '@notes/' })).toBe(true);
+    expect(matchesHistoryFilter(i, { path: '/abs/' })).toBe(true);
+  });
+
+  it('returns false when the item has no sources and a path filter is set', () => {
+    const i = item({ sources: [] });
+    expect(matchesHistoryFilter(i, { path: 'anything' })).toBe(false);
+  });
 });
 
 describe('listHistory', () => {
