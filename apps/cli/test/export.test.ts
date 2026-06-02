@@ -37,6 +37,38 @@ describe('export cli', () => {
     expect(captured.join('')).toContain(`-> ${out}`);
   });
 
+  it('hits the json endpoint when --format json is passed', async () => {
+    let seenUrl = '';
+    globalThis.fetch = (async (u: string) => {
+      seenUrl = String(u);
+      return new Response('{"id":"abc"}', { status: 200 });
+    }) as never;
+    await exportCommand().parseAsync(['node', 'cli', 'abc', '-f', 'json', '--api', 'http://x']);
+    expect(seenUrl).toBe('http://x/v1/conversations/abc/export.json');
+    expect(captured.join('')).toContain('"id":"abc"');
+  });
+
+  it('hits the csv endpoint when --format csv is passed', async () => {
+    let seenUrl = '';
+    globalThis.fetch = (async (u: string) => {
+      seenUrl = String(u);
+      return new Response('role,content\nuser,hi\n', { status: 200 });
+    }) as never;
+    const out = join(dir, 'conv.csv');
+    await exportCommand().parseAsync(['node', 'cli', 'abc', '-f', 'csv', '-o', out, '--api', 'http://x']);
+    expect(seenUrl).toBe('http://x/v1/conversations/abc/export.csv');
+    expect(readFileSync(out, 'utf8')).toContain('role,content');
+  });
+
+  it('rejects unknown formats before calling the api', async () => {
+    let called = false;
+    globalThis.fetch = (async () => { called = true; return new Response('', { status: 200 }); }) as never;
+    await expect(
+      exportCommand().exitOverride().parseAsync(['node', 'cli', 'abc', '-f', 'pdf', '--api', 'http://x']),
+    ).rejects.toThrow();
+    expect(called).toBe(false);
+  });
+
   it('reports failure with exit code on non-2xx', async () => {
     globalThis.fetch = (async () => new Response('not found', { status: 404, statusText: 'Not Found' })) as never;
     const stderr: string[] = [];
