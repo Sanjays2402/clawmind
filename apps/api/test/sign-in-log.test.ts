@@ -64,6 +64,18 @@ describe('sign-in activity log', () => {
     expect(ghOnly.records).toHaveLength(2);
   });
 
+  it('filters by source ip on listAll for incident scoping', async () => {
+    await recordSignIn(dir, { actor: 'alice', method: 'oidc', outcome: 'success', ip: '1.1.1.1' });
+    await recordSignIn(dir, { actor: 'bob', method: 'oidc', outcome: 'failure', ip: '9.9.9.9', reason: 'bad' });
+    await recordSignIn(dir, { actor: 'anonymous', method: 'oidc', outcome: 'failure', ip: '9.9.9.9', reason: 'probe' });
+    const hits = await listAll(dir, { ip: '9.9.9.9' });
+    expect(hits.records).toHaveLength(2);
+    expect(hits.records.every((r) => r.ip === '9.9.9.9')).toBe(true);
+    expect(hits.total).toBe(2);
+    const miss = await listAll(dir, { ip: '8.8.8.8' });
+    expect(miss.records).toHaveLength(0);
+  });
+
   it('paginates newest-first with a stable cursor', async () => {
     for (let i = 0; i < 5; i += 1) {
       await recordSignIn(dir, { actor: 'alice', method: 'oidc', outcome: 'success', ip: `1.0.0.${i}` });
