@@ -17,6 +17,11 @@ import {
   membershipForUser,
 } from '../services/collections.js';
 import { listSaved } from '../services/saved.js';
+import {
+  collectionToCsv,
+  collectionToJson,
+  collectionToMarkdown,
+} from '../services/collections-export.js';
 import { Scopes } from '../scopes.js';
 
 const COLOR = z.enum(['slate', 'violet', 'emerald', 'amber', 'rose', 'sky']);
@@ -86,6 +91,61 @@ export const collectionsRoutes: FastifyPluginAsyncZod = async (app) => {
       }
     },
   });
+
+  // Per-collection export. Downloads the collection together with the
+  // hydrated saved-search rows it owns so a user can hand off a whole
+  // "Onboarding playbooks" folder as one file. Mirrors the JSON envelope
+  // and CSV columns used by /saved/export.<fmt> so downstream tooling only
+  // needs to learn one shape. 404s for collections the caller does not own
+  // so ownership is never leaked.
+  for (const fmt of ['json', 'csv', 'md'] as const) {
+    app.get<{ Params: { id: string } }>(`/collections/:id/export.${fmt}`, {
+      schema: { params: z.object({ id: z.string().min(1).max(200) }) },
+      preHandler: [app.requireAuth, app.requireScope(Scopes.CollectionsRead)],
+      handler: async (req, reply) => {
+        const collection = await getCollection(
+          app.clawmind.dataDir,
+          req.user!.id,
+          req.params.id,
+        );
+        if (!collection) return reply.code(404).send({ error: 'not found' });
+        const memberIds = await listMembers(
+          app.clawmind.dataDir,
+          req.user!.id,
+          collection.id,
+        );
+        const allSaved = await listSaved(app.clawmind.dataDir, req.user!.id);
+        const byId = new Map(allSaved.map((s) => [s.id, s] as const));
+        const items = memberIds
+          .map((id) => byId.get(id))
+          .filter((v): v is NonNullable<typeof v> => Boolean(v))
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        const stamp = new Date(collection.updatedAt).toISOString().slice(0, 10);
+        const safeName = (collection.name || 'collection')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 64) || 'collection';
+        const filename = `clawmind-collection-${stamp}-${safeName}.${fmt}`;
+        if (fmt === 'json') {
+          return reply
+            .header('content-type', 'application/json; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(collectionToJson(collection, items));
+        }
+        if (fmt === 'csv') {
+          return reply
+            .header('content-type', 'text/csv; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(collectionToCsv(collection, items));
+        }
+        return reply
+          .header('content-type', 'text/markdown; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .send(collectionToMarkdown(collection, items));
+      },
+    });
+  }
 
   app.get<{ Params: { id: string } }>('/collections/:id', {
     schema: { params: z.object({ id: z.string().min(1) }) },
