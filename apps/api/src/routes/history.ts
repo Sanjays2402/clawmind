@@ -52,6 +52,10 @@ const ExportQuery = z.object({
   q: z.string().min(1).max(200).optional(),
   namespaces: z.string().optional(),
   path: z.string().min(1).max(400).optional(),
+  // Comma-separated tag list. Items must carry ALL listed tags. Mirrors
+  // the GET /history `tags` filter so a download matches what the UI
+  // is showing when the user has narrowed to a tag.
+  tags: z.string().optional(),
 });
 
 const PruneQuery = z.object({
@@ -191,9 +195,22 @@ export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
           ? namespaces.split(',').map((s) => s.trim()).filter(Boolean)
           : undefined;
         const path = (req.query as { path?: string }).path;
-        const items = await listHistory(app.clawmind.dataDir, req.user!.id, {
+        const rawItems = await listHistory(app.clawmind.dataDir, req.user!.id, {
           limit: limit ?? 1000, since, until, q, namespaces: ns, path,
         });
+        const wantTags = new Set(
+          normalizeHistoryTags(
+            (req.query as { tags?: string }).tags?.split(',').map((s) => s.trim()) ?? [],
+          ),
+        );
+        let items = rawItems;
+        if (wantTags.size > 0) {
+          const tagMap = await loadHistoryTags(app.clawmind.dataDir);
+          items = rawItems.filter((it) => {
+            const itemTags = historyTagsFor(tagMap, req.user!.id, it.id);
+            return Array.from(wantTags).every((t) => itemTags.includes(t));
+          });
+        }
         const stamp = new Date().toISOString().slice(0, 10);
         const filename = `clawmind-history-${stamp}.${fmt}`;
         if (fmt === 'json') {
