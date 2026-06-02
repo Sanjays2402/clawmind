@@ -44,11 +44,18 @@ export function pinsCommand() {
 
   cmd.command('list')
     .description('List currently pinned sources, newest first')
-    .action(async () => {
-      const out = (await apiFetch('GET', '/v1/pins')) as {
+    .option('-q, --q <text>', 'case-insensitive substring filter across path and note')
+    .option('--json', 'emit results as JSON for scripting')
+    .action(async (opts: { q?: string; json?: boolean }) => {
+      const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
+      const out = (await apiFetch('GET', `/v1/pins${qs}`)) as {
         items: { path: string; note?: string; pinnedAt: number; pinnedBy: string }[];
         count: number;
       };
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
       if (out.count === 0) { process.stdout.write(kleur.gray('no pinned sources\n')); return; }
       for (const it of out.items) {
         const head = kleur.bold(it.path);
