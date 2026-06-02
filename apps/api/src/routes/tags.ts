@@ -3,6 +3,9 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import {
   addTags, loadTags, normalizeTag, pathsByTag, removeTags, setTags, tagsFor,
 } from '../services/tags.js';
+import {
+  tagsToCsv, tagsToJson, tagsToMarkdown, tagsToRows,
+} from '../services/tags-export.js';
 import { Scopes } from '../scopes.js';
 
 // Tags are a workspace-wide labeling layer over source paths. They are
@@ -32,6 +35,40 @@ export const tagsRoutes: FastifyPluginAsyncZod = async (app) => {
       return { items, count: items.length };
     },
   });
+
+  // Bulk export of every tag with its source paths in the format hinted by
+  // the URL extension. Mirrors /feedback/export.<fmt> and /saved/export.<fmt>
+  // so the download buttons in the web UI behave consistently. Rows are
+  // sorted by source count (descending) so the broadest labels surface
+  // first, and the JSON envelope is versioned so downstream tooling can
+  // detect breaking changes.
+  for (const fmt of ['json', 'csv', 'md'] as const) {
+    app.get(`/tags/export.${fmt}`, {
+      preHandler: [app.requireAuth, app.requireScope(Scopes.TagsRead)],
+      handler: async (_req, reply) => {
+        const map = await loadTags(app.clawmind.dataDir);
+        const rows = tagsToRows(map);
+        const stamp = new Date().toISOString().slice(0, 10);
+        const filename = `clawmind-tags-${stamp}.${fmt}`;
+        if (fmt === 'json') {
+          return reply
+            .header('content-type', 'application/json; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(tagsToJson(rows));
+        }
+        if (fmt === 'csv') {
+          return reply
+            .header('content-type', 'text/csv; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(tagsToCsv(rows));
+        }
+        return reply
+          .header('content-type', 'text/markdown; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .send(tagsToMarkdown(rows));
+      },
+    });
+  }
 
   app.get<{ Params: { tag: string } }>('/tags/:tag', {
     schema: { params: z.object({ tag: z.string().min(1) }) },
