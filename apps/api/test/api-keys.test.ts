@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  issueKey, listKeys, revokeKey, rotateKey, verifySecret, loadKeys, hashSecret, redact, KEY_PREFIX,
+  issueKey, listKeys, filterKeys, revokeKey, rotateKey, verifySecret, loadKeys, hashSecret, redact, KEY_PREFIX,
   hasScope, isValidScope, WILDCARD_SCOPE,
 } from '../src/services/api-keys.js';
 
@@ -213,5 +213,35 @@ describe('api-key rotation', () => {
     const r = redact(all[0]!) as Record<string, unknown>;
     expect(r).not.toHaveProperty('previousHash');
     expect(r.previousHashExpiresAt).toBe(rotated!.previousExpiresAt);
+  });
+});
+
+describe('filterKeys', () => {
+  it('returns the input when q is empty or whitespace', async () => {
+    const { record: a } = await issueKey(dir, { userId: 'u1', label: 'ci-deploy' });
+    const { record: b } = await issueKey(dir, { userId: 'u1', label: 'laptop-cli' });
+    const all = [a, b];
+    expect(filterKeys(all, undefined)).toBe(all);
+    expect(filterKeys(all, '')).toBe(all);
+    expect(filterKeys(all, '   ')).toBe(all);
+  });
+
+  it('matches a substring of the label case-insensitively', async () => {
+    const { record: a } = await issueKey(dir, { userId: 'u1', label: 'CI-deploy' });
+    const { record: b } = await issueKey(dir, { userId: 'u1', label: 'laptop-cli' });
+    const out = filterKeys([a, b], 'deploy');
+    expect(out.map((k) => k.id)).toEqual([a.id]);
+  });
+
+  it('matches a substring of the key id', async () => {
+    const { record: a } = await issueKey(dir, { userId: 'u1', label: 'one' });
+    const { record: b } = await issueKey(dir, { userId: 'u1', label: 'two' });
+    const out = filterKeys([a, b], a.id.slice(0, 6));
+    expect(out.map((k) => k.id)).toEqual([a.id]);
+  });
+
+  it('returns an empty list when nothing matches', async () => {
+    const { record: a } = await issueKey(dir, { userId: 'u1', label: 'cli' });
+    expect(filterKeys([a], 'zzz-no-hit')).toEqual([]);
   });
 });

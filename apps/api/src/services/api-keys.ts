@@ -756,6 +756,26 @@ export async function listKeys(dataDir: string, userId: string): Promise<ApiKeyR
   return all.filter((k) => k.userId === userId && k.isCanary !== true);
 }
 
+/**
+ * Filter a list of API key records by a case-insensitive substring that
+ * matches the key's label or its id. Empty/whitespace `q` returns the
+ * input unchanged. Mirrors the `q` filter on /mutes, /pins, and
+ * /query-blocklist so an admin staring at a long key list in the UI can
+ * search by what they remember (a label like "ci-deploy" or a key id
+ * prefix from a CI log).
+ */
+export function filterKeys(
+  keys: ApiKeyRecord[],
+  q: string | undefined,
+): ApiKeyRecord[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return keys;
+  return keys.filter((k) => {
+    const hay = `${k.label}\n${k.id}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}
+
 // Internal: revoke every active key matching the predicate. Used by the
 // offboarding sweep so the members route can terminate a removed user's
 // credentials without exporting the raw saveKeys writer.

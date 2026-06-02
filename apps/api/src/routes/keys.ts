@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { issueKey, listKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS, setKeyAllowedIps, normaliseKeyIpRules, MAX_KEY_IP_RULES, setKeyAllowedOrigins, normaliseKeyOriginRules, MAX_KEY_ORIGIN_RULES, MAX_ORIGIN_LENGTH, setKeyAllowedHours, normaliseAllowedHours, MAX_KEY_HOURS_WINDOWS, MAX_KEY_TZ_LENGTH, setKeyAllowedMethods, normaliseKeyMethodRules, MAX_KEY_METHOD_RULES, VALID_HTTP_METHODS, setKeyNotBefore, normaliseNotBefore, MAX_NOT_BEFORE_AHEAD_MS } from '../services/api-keys.js';
+import { issueKey, listKeys, filterKeys, revokeKey, rotateKey, redact, SCOPE_RE, WILDCARD_SCOPE, loadKeys, setKeyRateLimit, MIN_RATE_MAX, MAX_RATE_MAX, MIN_RATE_WINDOW_MS, MAX_RATE_WINDOW_MS, setKeyAllowedIps, normaliseKeyIpRules, MAX_KEY_IP_RULES, setKeyAllowedOrigins, normaliseKeyOriginRules, MAX_KEY_ORIGIN_RULES, MAX_ORIGIN_LENGTH, setKeyAllowedHours, normaliseAllowedHours, MAX_KEY_HOURS_WINDOWS, MAX_KEY_TZ_LENGTH, setKeyAllowedMethods, normaliseKeyMethodRules, MAX_KEY_METHOD_RULES, VALID_HTTP_METHODS, setKeyNotBefore, normaliseNotBefore, MAX_NOT_BEFORE_AHEAD_MS } from '../services/api-keys.js';
 import { getUsageReport, purgeUsage } from '../services/api-key-usage.js';
 import { Scopes, KNOWN_SCOPES } from '../scopes.js';
 import { completeStep as completeOnboardingStep } from '../services/onboarding.js';
@@ -57,10 +57,21 @@ export const keyRoutes: FastifyPluginAsyncZod = async (app) => {
     handler: async () => ({ scopes: KNOWN_SCOPES, wildcard: WILDCARD_SCOPE }),
   });
 
-  app.get('/keys', {
+  // Optional `q` filters by a case-insensitive substring of the key's
+  // label or id. Mirrors the same filter on /mutes, /pins, and
+  // /query-blocklist so an admin with a long key list (CI tokens, per-host
+  // agents, scripts) can search from the API Keys page (e.g. every key
+  // labelled "ci-deploy", or a key id prefix copied from a webhook log).
+  app.get<{ Querystring: { q?: string } }>('/keys', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [app.requireAuth, app.requireScope(Scopes.KeysManage)],
     handler: async (req) => {
-      const keys = await listKeys(app.clawmind.dataDir, req.user!.id);
+      const all = await listKeys(app.clawmind.dataDir, req.user!.id);
+      const keys = filterKeys(all, req.query.q);
       const policy = await getApiKeyPolicy(app.clawmind.dataDir);
       const inactivity = await getInactivityPolicy(app.clawmind.dataDir);
       const now = Date.now();
