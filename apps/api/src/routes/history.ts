@@ -210,6 +210,45 @@ export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
     });
   }
 
+  // Per-entry export. Lets a caller download or share one answer as a
+  // self-contained file without re-fetching the whole history. The bulk
+  // /history/export.<fmt> endpoints reuse the same formatter so the JSON
+  // envelope and Markdown layout match what users already see for the
+  // full export. Other users' entries surface as 404 so ownership is
+  // never leaked.
+  for (const fmt of ['json', 'csv', 'md'] as const) {
+    app.get(`/history/:id/export.${fmt}`, {
+      schema: { params: z.object({ id: z.string().min(1).max(200) }) },
+      preHandler: [app.requireAuth, app.requireScope(Scopes.HistoryRead)],
+      handler: async (req, reply) => {
+        const { id } = req.params as { id: string };
+        const item = await getHistoryItem(app.clawmind.dataDir, req.user!.id, id);
+        if (!item) {
+          return reply.code(404).send({ error: 'history entry not found' });
+        }
+        const stamp = new Date(item.ts).toISOString().slice(0, 10);
+        const safeId = id.replace(/[^A-Za-z0-9_.-]+/g, '_').slice(0, 64) || 'entry';
+        const filename = `clawmind-history-${stamp}-${safeId}.${fmt}`;
+        if (fmt === 'json') {
+          return reply
+            .header('content-type', 'application/json; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(historyToJson([item]));
+        }
+        if (fmt === 'csv') {
+          return reply
+            .header('content-type', 'text/csv; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(historyToCsv([item]));
+        }
+        return reply
+          .header('content-type', 'text/markdown; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .send(historyToMarkdown([item]));
+      },
+    });
+  }
+
   // Fetch a single history entry owned by the caller. Lets the UI deep-
   // link to one answer (share, permalink, re-open) without paging through
   // the full list. Returns the same shape as items in GET /history,
