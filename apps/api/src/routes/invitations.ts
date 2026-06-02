@@ -37,6 +37,7 @@ const CreateSchema = z.object({
   dryRun: z.boolean().optional(),
 });
 
+const ListQuery = z.object({ q: z.string().trim().min(1).max(200).optional() });
 const PeekQuery = z.object({ token: z.string().min(16).max(512) });
 const AcceptBody = z.object({ token: z.string().min(16).max(512) });
 const DeleteQuery = z.object({ dry_run: z.enum(['true', 'false']).optional() });
@@ -49,9 +50,19 @@ function actorRole(role: string): MemberRole {
 
 export const invitationRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/invitations', {
+    schema: { querystring: ListQuery },
     preHandler: [app.requireAuth, app.requireMinRole('admin'), app.requireScope(Scopes.InvitationsRead)],
-    handler: async () => {
-      const invitations = await listInvitations(app.clawmind.dataDir);
+    handler: async (req) => {
+      const all = await listInvitations(app.clawmind.dataDir);
+      const q = (req.query as { q?: string }).q?.toLowerCase();
+      const invitations = q
+        ? all.filter((inv) => {
+            if (inv.email.toLowerCase().includes(q)) return true;
+            if (inv.id.toLowerCase().includes(q)) return true;
+            if (inv.label && inv.label.toLowerCase().includes(q)) return true;
+            return false;
+          })
+        : all;
       return { invitations, defaultTtlMs: DEFAULT_TTL_MS, maxTtlMs: MAX_TTL_MS };
     },
   });

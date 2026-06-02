@@ -180,4 +180,31 @@ describe('invitations routes', () => {
     expect(JSON.parse(list.payload).invitations).toHaveLength(0);
     await app.close();
   });
+
+  it('list filters invitations by q substring across email, id, and label', async () => {
+    const { app } = buildApp({ user: { id: 'o1', role: 'owner', scopes: [Scopes.InvitationsManage, Scopes.InvitationsRead] } });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/invitations',
+      payload: { email: 'alice@example.com', role: 'member', label: 'eng team' },
+    });
+    await app.inject({
+      method: 'POST',
+      url: '/v1/invitations',
+      payload: { email: 'bob@other.io', role: 'member', label: 'finance ops' },
+    });
+    const all = await app.inject({ method: 'GET', url: '/v1/invitations' });
+    expect(JSON.parse(all.payload).invitations).toHaveLength(2);
+    const byEmail = await app.inject({ method: 'GET', url: '/v1/invitations?q=other.io' });
+    const beList = JSON.parse(byEmail.payload).invitations;
+    expect(beList).toHaveLength(1);
+    expect(beList[0].email).toBe('bob@other.io');
+    const byLabel = await app.inject({ method: 'GET', url: '/v1/invitations?q=ENG' });
+    const blList = JSON.parse(byLabel.payload).invitations;
+    expect(blList).toHaveLength(1);
+    expect(blList[0].label).toBe('eng team');
+    const miss = await app.inject({ method: 'GET', url: '/v1/invitations?q=zzz-nope' });
+    expect(JSON.parse(miss.payload).invitations).toHaveLength(0);
+    await app.close();
+  });
 });
