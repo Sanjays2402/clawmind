@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { addPin, loadPins, removePin } from '../services/pins.js';
+import { pinsToCsv, pinsToJson, pinsToMarkdown } from '../services/pins-export.js';
 import { Scopes } from '../scopes.js';
 
 // Pin a source path so retrieval treats it as a strong prior. Pins are a
@@ -20,6 +21,39 @@ export const pinsRoutes: FastifyPluginAsyncZod = async (app) => {
       return { items, count: items.length };
     },
   });
+
+  // Export pinned sources in the format hinted by the URL extension.
+  // Mirrors /saved/export.<fmt> and /history/export.<fmt> so the same
+  // download UI works across curation artifacts and downstream tooling
+  // gets a stable, versioned JSON envelope. Pins are workspace-wide so
+  // SourcesRead is enough (matches the GET /pins read path).
+  for (const fmt of ['json', 'csv', 'md'] as const) {
+    app.get(`/pins/export.${fmt}`, {
+      preHandler: [app.requireAuth, app.requireScope(Scopes.SourcesRead)],
+      handler: async (_req, reply) => {
+        const map = await loadPins(app.clawmind.dataDir);
+        const items = Object.values(map).sort((a, b) => b.pinnedAt - a.pinnedAt);
+        const stamp = new Date().toISOString().slice(0, 10);
+        const filename = `clawmind-pins-${stamp}.${fmt}`;
+        if (fmt === 'json') {
+          return reply
+            .header('content-type', 'application/json; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(pinsToJson(items));
+        }
+        if (fmt === 'csv') {
+          return reply
+            .header('content-type', 'text/csv; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(pinsToCsv(items));
+        }
+        return reply
+          .header('content-type', 'text/markdown; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .send(pinsToMarkdown(items));
+      },
+    });
+  }
 
   app.post('/pins', {
     schema: {
