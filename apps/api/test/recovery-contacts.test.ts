@@ -9,6 +9,7 @@ import {
   retireEntry,
   updateSettings,
   publicView,
+  filterEntries,
   validateCreate,
   RecoveryContactValidationError,
 } from '../src/services/recovery-contacts.js';
@@ -181,5 +182,35 @@ describe('public view', () => {
     const reg = await getRegistry(dir);
     const names = publicView(reg).entries.map((e) => e.name);
     expect(names).toEqual(['Alice', 'Bob', 'Charlie']);
+  });
+});
+
+describe('filterEntries (recovery contacts)', () => {
+  const entries = [
+    { name: 'Alice Chen', role: 'DPO', email: 'alice@example.com' },
+    { name: 'Bob Singh', role: 'SRE on-call', email: 'bob@example.com' },
+    { name: 'Charlie Diaz', role: 'Security lead', email: 'charlie@vendor.io' },
+  ];
+
+  it('returns the input when q is empty or whitespace', () => {
+    expect(filterEntries(entries, undefined)).toBe(entries);
+    expect(filterEntries(entries, '')).toBe(entries);
+    expect(filterEntries(entries, '   ')).toBe(entries);
+  });
+
+  it('matches a substring of the name case-insensitively', () => {
+    expect(filterEntries(entries, 'alice').map((e) => e.name)).toEqual(['Alice Chen']);
+  });
+
+  it('matches a substring of the role', () => {
+    expect(filterEntries(entries, 'sre').map((e) => e.name)).toEqual(['Bob Singh']);
+  });
+
+  it('matches a substring of the email domain', () => {
+    expect(filterEntries(entries, 'vendor.io').map((e) => e.name)).toEqual(['Charlie Diaz']);
+  });
+
+  it('returns an empty list when nothing matches', () => {
+    expect(filterEntries(entries, 'zzz-no-hit')).toEqual([]);
   });
 });

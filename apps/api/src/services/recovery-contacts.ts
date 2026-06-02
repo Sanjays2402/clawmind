@@ -482,5 +482,25 @@ export function publicView(reg: RecoveryContactRegistry): {
   };
 }
 
+/**
+ * Filter a list of public recovery-contact entries by a case-
+ * insensitive substring that matches the contact's name, role, or
+ * email. Empty or whitespace `q` returns the input unchanged. Mirrors
+ * the `q` filter on /pins, /mutes, /aliases, and /sub-processors so
+ * the same curation search box in the web UI works on the public IR
+ * runbook page that a buyer's vendor-management tool cites by URL.
+ */
+export function filterEntries<T extends { name: string; role: string; email: string }>(
+  entries: T[],
+  q: string | undefined,
+): T[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((e) => {
+    const hay = `${e.name}\n${e.role}\n${e.email}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}
+
 export const RECOVERY_CONTACT_LIMITS = FIELD_LIMITS;
 export const RECOVERY_CONTACT_MAX_ENTRIES = MAX_ENTRIES;

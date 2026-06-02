@@ -8,6 +8,7 @@ import {
   updateSettings,
   validateCreate,
   publicView,
+  filterEntries,
   RecoveryContactValidationError,
   RECOVERY_CONTACT_LIMITS,
 } from '../services/recovery-contacts.js';
@@ -99,10 +100,23 @@ export const recoveryContactsRoutes: FastifyPluginAsyncZod = async (app) => {
   // cites. publicListed=false entries are filtered out by
   // publicView so the operator can keep internal escalation tiers
   // private without losing the public surface entirely.
-  app.get('/recovery-contacts', {
-    handler: async () => {
+  //
+  // Optional `q` filters entries by a case-insensitive substring of
+  // the contact's name, role, or email so a buyer's on-call can pull
+  // "every SRE" or "every contact at @example.com" with one URL the
+  // runbook already cites. Mirrors the q filter on /pins, /mutes,
+  // /aliases, and /sub-processors.
+  app.get<{ Querystring: { q?: string } }>('/recovery-contacts', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
+    handler: async (req) => {
       const reg = await getRegistry(app.clawmind.dataDir);
-      return publicView(reg);
+      const view = publicView(reg);
+      const entries = filterEntries(view.entries, req.query.q);
+      return { ...view, entries };
     },
   });
 
