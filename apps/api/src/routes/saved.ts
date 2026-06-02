@@ -63,6 +63,44 @@ export const savedRoutes: FastifyPluginAsyncZod = async (app) => {
     });
   }
 
+  // Per-entry export. Lets a caller download or share one saved search as
+  // a self-contained file without re-fetching the whole list. Reuses the
+  // same formatters as the bulk /saved/export.<fmt> endpoints so the JSON
+  // envelope and Markdown layout match. Other users' entries surface as
+  // 404 so ownership is never leaked.
+  for (const fmt of ['json', 'csv', 'md'] as const) {
+    app.get(`/saved/:id/export.${fmt}`, {
+      schema: { params: z.object({ id: z.string().min(1).max(200) }) },
+      preHandler: [app.requireAuth, app.requireScope(Scopes.SavedRead)],
+      handler: async (req, reply) => {
+        const { id } = req.params as { id: string };
+        const item = await getSaved(app.clawmind.dataDir, req.user!.id, id);
+        if (!item) {
+          return reply.code(404).send({ error: 'saved search not found' });
+        }
+        const stamp = new Date(item.updatedAt).toISOString().slice(0, 10);
+        const safeId = id.replace(/[^A-Za-z0-9_.-]+/g, '_').slice(0, 64) || 'entry';
+        const filename = `clawmind-saved-${stamp}-${safeId}.${fmt}`;
+        if (fmt === 'json') {
+          return reply
+            .header('content-type', 'application/json; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(savedToJson([item]));
+        }
+        if (fmt === 'csv') {
+          return reply
+            .header('content-type', 'text/csv; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(savedToCsv([item]));
+        }
+        return reply
+          .header('content-type', 'text/markdown; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .send(savedToMarkdown([item]));
+      },
+    });
+  }
+
   app.get('/saved/:id', {
     schema: { params: z.object({ id: z.string().min(1) }) },
     preHandler: [app.requireAuth, app.requireScope(Scopes.SavedRead)],
