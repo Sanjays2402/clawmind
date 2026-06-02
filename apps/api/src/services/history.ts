@@ -88,6 +88,23 @@ export async function listHistory(
 }
 
 /**
+ * Fetch a single history entry owned by `userId`. Returns null if no
+ * matching entry exists for that user, including when the id belongs to
+ * another user (mismatches must not leak ownership).
+ */
+export async function getHistoryItem(
+  dataDir: string,
+  userId: string,
+  id: string,
+): Promise<HistoryItem | null> {
+  const items = await readAll(dataDir);
+  for (const it of items) {
+    if (it.id === id && it.userId === userId) return it;
+  }
+  return null;
+}
+
+/**
  * Delete a single history entry owned by `userId`. Returns true if the entry
  * was found and removed, false if no matching entry exists for that user.
  * Other users' entries are never touched, even if the id collides.

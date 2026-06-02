@@ -7,6 +7,7 @@ import {
   listHistory,
   pruneHistory,
   deleteHistoryItem,
+  getHistoryItem,
   matchesHistoryFilter,
   type HistoryItem,
 } from '../src/services/history.js';
@@ -173,3 +174,24 @@ describe('deleteHistoryItem', () => {
   });
 });
 
+describe('getHistoryItem', () => {
+  it('returns the matching entry owned by the user', async () => {
+    await recordHistory(dir, item({ id: 'a', ts: 100, query: 'hi' }));
+    await recordHistory(dir, item({ id: 'b', ts: 200, query: 'bye' }));
+    const got = await getHistoryItem(dir, 'u1', 'b');
+    expect(got?.id).toBe('b');
+    expect(got?.query).toBe('bye');
+  });
+
+  it('returns null when the id is unknown', async () => {
+    await recordHistory(dir, item({ id: 'a' }));
+    expect(await getHistoryItem(dir, 'u1', 'missing')).toBeNull();
+  });
+
+  it("returns null when the id belongs to another user", async () => {
+    await recordHistory(dir, item({ id: 'shared', userId: 'u2' }));
+    expect(await getHistoryItem(dir, 'u1', 'shared')).toBeNull();
+    const theirs = await getHistoryItem(dir, 'u2', 'shared');
+    expect(theirs?.id).toBe('shared');
+  });
+});

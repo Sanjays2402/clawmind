@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { listHistory, pruneHistory, previewPruneHistory, deleteHistoryItem } from '../services/history.js';
+import { listHistory, pruneHistory, previewPruneHistory, deleteHistoryItem, getHistoryItem } from '../services/history.js';
 import { historyToCsv, historyToJson, historyToMarkdown } from '../services/history-export.js';
 import {
   loadMap as loadHistoryTags,
@@ -209,6 +209,33 @@ export const historyRoutes: FastifyPluginAsyncZod = async (app) => {
       },
     });
   }
+
+  // Fetch a single history entry owned by the caller. Lets the UI deep-
+  // link to one answer (share, permalink, re-open) without paging through
+  // the full list. Returns the same shape as items in GET /history,
+  // including any custom title and tags. Other users' entries surface as
+  // 404 so ownership is never leaked.
+  app.get('/history/:id', {
+    schema: {
+      params: z.object({ id: z.string().min(1).max(200) }),
+    },
+    preHandler: [app.requireAuth, app.requireScope(Scopes.HistoryRead)],
+    handler: async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const item = await getHistoryItem(app.clawmind.dataDir, req.user!.id, id);
+      if (!item) {
+        return reply.code(404).send({ error: 'history entry not found' });
+      }
+      const tagMap = await loadHistoryTags(app.clawmind.dataDir);
+      const titleMap = await loadHistoryTitles(app.clawmind.dataDir);
+      const title = historyTitleFor(titleMap, req.user!.id, item.id);
+      return {
+        ...item,
+        tags: historyTagsFor(tagMap, req.user!.id, item.id),
+        ...(title ? { title } : {}),
+      };
+    },
+  });
 
   // Rename a single history entry. Send an empty string to clear the
   // custom title and fall back to the original query. The id must belong
