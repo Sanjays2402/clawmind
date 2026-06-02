@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  loadFeedback, recordVote, clearVote, boostFor, applyBoosts, FEEDBACK_BOUNDS,
+  loadFeedback, recordVote, clearVote, boostFor, applyBoosts, FEEDBACK_BOUNDS, getFeedback,
 } from '../src/services/feedback.js';
 
 let dir: string;
@@ -51,6 +51,22 @@ describe('feedback service', () => {
   it('clearVote no-ops on unknown path', async () => {
     await clearVote(dir, 'u1', '/missing.md');
     expect(await loadFeedback(dir)).toEqual({});
+  });
+
+  it('getFeedback returns the entry for a voted path', async () => {
+    await recordVote(dir, 'u1', '/a.md', 1);
+    const entry = await getFeedback(dir, '/a.md');
+    expect(entry?.path).toBe('/a.md');
+    expect(entry?.ups).toBe(1);
+  });
+
+  it('getFeedback returns null for an unvoted path', async () => {
+    await recordVote(dir, 'u1', '/a.md', 1);
+    expect(await getFeedback(dir, '/b.md')).toBeNull();
+  });
+
+  it('getFeedback returns null on an empty store', async () => {
+    expect(await getFeedback(dir, '/anything.md')).toBeNull();
   });
 });
 

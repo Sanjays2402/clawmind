@@ -24,6 +24,20 @@ const PER_VOTE = 0.05;
 
 function file(dataDir: string) { return join(dataDir, 'feedback.json'); }
 
+/**
+ * Fetch a single feedback entry by source path, or null if the path has
+ * no recorded votes. Used by the single-entry GET and per-entry export
+ * routes so a curator can deep-link or share votes for one source
+ * without paging the whole map.
+ */
+export async function getFeedback(
+  dataDir: string,
+  path: string,
+): Promise<FeedbackEntry | null> {
+  const map = await loadFeedback(dataDir);
+  return map[path] ?? null;
+}
+
 export async function loadFeedback(dataDir: string): Promise<FeedbackMap> {
   try {
     const raw = await readFile(file(dataDir), 'utf8');

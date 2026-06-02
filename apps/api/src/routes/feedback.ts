@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { loadFeedback, recordVote, clearVote, boostFor } from '../services/feedback.js';
+import { loadFeedback, recordVote, clearVote, boostFor, getFeedback } from '../services/feedback.js';
 import { feedbackToCsv, feedbackToJson, feedbackToMarkdown } from '../services/feedback-export.js';
 import { Scopes } from '../scopes.js';
 
@@ -58,6 +58,64 @@ export const feedbackRoutes: FastifyPluginAsyncZod = async (app) => {
           .header('content-type', 'text/markdown; charset=utf-8')
           .header('content-disposition', `attachment; filename="${filename}"`)
           .send(feedbackToMarkdown(items));
+      },
+    });
+  }
+
+  // Single-entry fetch by source path. Feedback is keyed by arbitrary
+  // workspace paths (slashes, dots, spaces), so the path comes through as
+  // a query parameter instead of a URL segment. Returns 404 when the path
+  // has no recorded votes so callers can distinguish "never voted" from
+  // "voted to zero".
+  app.get('/feedback/entry', {
+    schema: { querystring: z.object({ path: z.string().min(1).max(1024) }) },
+    preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
+    handler: async (req, reply) => {
+      const entry = await getFeedback(app.clawmind.dataDir, req.query.path);
+      if (!entry) return reply.notFound('feedback not found');
+      return {
+        item: {
+          path: entry.path,
+          ups: entry.ups,
+          downs: entry.downs,
+          boost: boostFor(entry),
+          updatedAt: entry.updatedAt,
+        },
+      };
+    },
+  });
+
+  // Per-entry export. Lets a curator download or share votes for one
+  // source as a self-contained file without exporting the entire feedback
+  // map. Reuses the same formatters as the bulk /feedback/export.<fmt>
+  // endpoints so the JSON envelope and Markdown layout match. Path is a
+  // query parameter to avoid clashing with the bulk export route.
+  for (const fmt of ['json', 'csv', 'md'] as const) {
+    app.get(`/feedback/entry/export.${fmt}`, {
+      schema: { querystring: z.object({ path: z.string().min(1).max(1024) }) },
+      preHandler: [app.requireAuth, app.requireScope(Scopes.Ask)],
+      handler: async (req, reply) => {
+        const entry = await getFeedback(app.clawmind.dataDir, req.query.path);
+        if (!entry) return reply.notFound('feedback not found');
+        const stamp = new Date(entry.updatedAt).toISOString().slice(0, 10);
+        const safePath = entry.path.replace(/[^A-Za-z0-9_.-]+/g, '_').slice(0, 64) || 'entry';
+        const filename = `clawmind-feedback-${stamp}-${safePath}.${fmt}`;
+        if (fmt === 'json') {
+          return reply
+            .header('content-type', 'application/json; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(feedbackToJson([entry]));
+        }
+        if (fmt === 'csv') {
+          return reply
+            .header('content-type', 'text/csv; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(feedbackToCsv([entry]));
+        }
+        return reply
+          .header('content-type', 'text/markdown; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .send(feedbackToMarkdown([entry]));
       },
     });
   }
