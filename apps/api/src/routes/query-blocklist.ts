@@ -2,6 +2,7 @@ import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { z } from 'zod';
 import {
   listRules,
+  filterRules,
   addRule,
   removeRule,
   BlocklistValidationError,
@@ -31,14 +32,25 @@ const AddBody = z
 const IdParams = z.object({ id: z.string().min(1).max(64) });
 
 export const queryBlocklistRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/query-blocklist', {
+  // Optional `q` filters by a case-insensitive substring of the rule's
+  // pattern or label. Mirrors the same filter on /mutes and /pins so a
+  // workspace with a long, prompt-injection-driven blocklist can be
+  // searched from the admin UI (e.g. all rules labelled
+  // "prompt-injection", or any pattern mentioning "ssn").
+  app.get<{ Querystring: { q?: string } }>('/query-blocklist', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [
       app.requireAuth,
       app.requireMinRole('admin'),
       app.requireScope(Scopes.QueryBlocklistRead),
     ],
-    handler: async () => {
-      const rules = await listRules(app.clawmind.dataDir);
+    handler: async (req) => {
+      const all = await listRules(app.clawmind.dataDir);
+      const rules = filterRules(all, req.query.q);
       return { rules };
     },
   });

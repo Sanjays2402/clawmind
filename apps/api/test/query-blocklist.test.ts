@@ -11,6 +11,7 @@ import {
   addRule,
   matchQuery,
   listRules,
+  filterRules,
 } from '../src/services/query-blocklist.js';
 
 let dir: string;
@@ -145,6 +146,90 @@ describe('POST /v1/query-blocklist permission gate', () => {
       payload: { pattern: 'p', mode: 'literal' },
     });
     expect(res.statusCode).toBe(403);
+    await app.close();
+  });
+});
+
+describe('filterRules', () => {
+  const rules = [
+    {
+      id: 'r1',
+      pattern: 'ignore previous instructions',
+      mode: 'literal' as const,
+      label: 'prompt-injection',
+      createdBy: 'u',
+      createdAt: 1,
+      updatedAt: 1,
+    },
+    {
+      id: 'r2',
+      pattern: '\\bSSN:?\\s*\\d{3}-\\d{2}-\\d{4}\\b',
+      mode: 'regex' as const,
+      label: 'PII egress',
+      createdBy: 'u',
+      createdAt: 2,
+      updatedAt: 2,
+    },
+    {
+      id: 'r3',
+      pattern: 'project-zeta',
+      mode: 'literal' as const,
+      label: null,
+      createdBy: 'u',
+      createdAt: 3,
+      updatedAt: 3,
+    },
+  ];
+
+  it('returns the input when q is empty or whitespace', () => {
+    expect(filterRules(rules, undefined)).toBe(rules);
+    expect(filterRules(rules, '')).toBe(rules);
+    expect(filterRules(rules, '   ')).toBe(rules);
+  });
+
+  it('matches a substring of the pattern case-insensitively', () => {
+    const out = filterRules(rules, 'PROJECT');
+    expect(out.map((r) => r.id)).toEqual(['r3']);
+  });
+
+  it('matches a substring of the label', () => {
+    const out = filterRules(rules, 'injection');
+    expect(out.map((r) => r.id)).toEqual(['r1']);
+  });
+
+  it('returns an empty list when nothing matches', () => {
+    expect(filterRules(rules, 'zzz-no-hit')).toEqual([]);
+  });
+
+  it('does not throw when the rule has a null label', () => {
+    const out = filterRules(rules, 'zeta');
+    expect(out.map((r) => r.id)).toEqual(['r3']);
+  });
+});
+
+describe('GET /v1/query-blocklist q filter', () => {
+  it('returns only rules whose pattern or label match q', async () => {
+    await addRule(dir, 'u', {
+      pattern: 'ignore previous instructions',
+      mode: 'literal',
+      label: 'prompt-injection',
+    });
+    await addRule(dir, 'u', {
+      pattern: 'project-zeta',
+      mode: 'literal',
+      label: 'restricted matter',
+    });
+    const { app } = buildApp({
+      user: { id: 'a', role: 'admin', scopes: ['*'], mfa: true },
+    });
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/query-blocklist?q=injection',
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { rules: { label: string | null }[] };
+    expect(body.rules).toHaveLength(1);
+    expect(body.rules[0].label).toBe('prompt-injection');
     await app.close();
   });
 });

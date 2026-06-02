@@ -152,6 +152,25 @@ export async function listRules(dataDir: string): Promise<BlocklistRule[]> {
   return all.rules.slice().sort((a, b) => a.createdAt - b.createdAt);
 }
 
+/**
+ * Filter a list of blocklist rules by a case-insensitive substring that
+ * matches the rule's pattern or its label. Empty/whitespace `q` returns the
+ * input unchanged. Mirrors `filterMutes` so the same admin search box can
+ * triage a long blocklist (e.g. find every rule labelled "prompt-injection"
+ * or every rule whose pattern mentions "ssn").
+ */
+export function filterRules(
+  rules: BlocklistRule[],
+  q: string | undefined,
+): BlocklistRule[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return rules;
+  return rules.filter((r) => {
+    const hay = `${r.pattern}\n${r.label ?? ''}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}
+
 export interface AddRuleInput {
   pattern: string;
   mode?: BlocklistMode;
