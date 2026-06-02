@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { listSaved, addSaved, removeSaved, updateSaved } from '../services/saved.js';
+import { listSaved, addSaved, removeSaved, updateSaved, getSaved } from '../services/saved.js';
 import { Scopes } from '../scopes.js';
 
 const tagsSchema = z.array(z.string()).max(16);
@@ -21,6 +21,21 @@ export const savedRoutes: FastifyPluginAsyncZod = async (app) => {
     handler: async (req) => ({
       item: await addSaved(app.clawmind.dataDir, req.user!.id, req.body as { title: string; query: string; tags?: string[] }),
     }),
+  });
+
+  // Fetch a single saved search owned by the caller. Lets the UI deep-
+  // link to one entry (permalink, share with a teammate by id, re-open in
+  // a new tab) without re-fetching the full list. Other users' entries
+  // surface as 404 so ownership is never leaked.
+  app.get('/saved/:id', {
+    schema: { params: z.object({ id: z.string().min(1) }) },
+    preHandler: [app.requireAuth, app.requireScope(Scopes.SavedRead)],
+    handler: async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const item = await getSaved(app.clawmind.dataDir, req.user!.id, id);
+      if (!item) return reply.code(404).send({ error: 'saved search not found' });
+      return { item };
+    },
   });
 
   app.patch('/saved/:id', {

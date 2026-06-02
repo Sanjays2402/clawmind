@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { addSaved, listSaved, updateSaved, removeSaved } from '../src/services/saved.js';
+import { addSaved, listSaved, updateSaved, removeSaved, getSaved } from '../src/services/saved.js';
 
 let dir: string;
 beforeEach(() => {
@@ -65,5 +65,14 @@ describe('saved searches service', () => {
     expect(await listSaved(dir, 'u1')).toHaveLength(1);
     await removeSaved(dir, 'u1', a.id);
     expect(await listSaved(dir, 'u1')).toHaveLength(0);
+  });
+
+  it('getSaved returns the entry only for its owner', async () => {
+    const a = await addSaved(dir, 'u1', { title: 't', query: 'q', tags: ['x'] });
+    const found = await getSaved(dir, 'u1', a.id);
+    expect(found?.id).toBe(a.id);
+    expect(found?.tags).toEqual(['x']);
+    expect(await getSaved(dir, 'u2', a.id)).toBeNull();
+    expect(await getSaved(dir, 'u1', 'nope')).toBeNull();
   });
 });

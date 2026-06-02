@@ -59,6 +59,15 @@ export async function listSaved(dataDir: string, userId: string) {
   return (await readAll(dataDir)).filter((i) => i.userId === userId);
 }
 
+export async function getSaved(
+  dataDir: string,
+  userId: string,
+  id: string,
+): Promise<SavedItem | null> {
+  const items = await readAll(dataDir);
+  return items.find((i) => i.id === id && i.userId === userId) ?? null;
+}
+
 export async function addSaved(
   dataDir: string,
   userId: string,
