@@ -25,7 +25,8 @@
 // Two read APIs:
 //   listForUser(userId)  scoped to the calling user; cross-tenant safe.
 //   listAll(filters)     admin+ surface; supports outcome / method /
-//                        actor / ip / since filters and stable pagination.
+//                        actor / ip / reason / since filters and stable
+//                        pagination.
 
 import { readFile, writeFile, mkdir, rename } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
@@ -124,6 +125,7 @@ export interface ListFilters {
   method?: string;
   actor?: string;
   ip?: string;
+  reason?: string;
   sinceMs?: number;
   limit?: number;
   cursor?: string;
@@ -150,6 +152,10 @@ function applyFilters(records: SignInRecord[], filters: ListFilters): SignInReco
   if (filters.method) rows = rows.filter((r) => r.method === filters.method);
   if (filters.actor) rows = rows.filter((r) => r.actor === filters.actor);
   if (filters.ip) rows = rows.filter((r) => r.ip === filters.ip);
+  if (filters.reason) {
+    const needle = filters.reason.toLowerCase();
+    rows = rows.filter((r) => (r.reason ?? '').toLowerCase().includes(needle));
+  }
   if (filters.sinceMs) {
     const since = filters.sinceMs;
     rows = rows.filter((r) => r.at >= since);

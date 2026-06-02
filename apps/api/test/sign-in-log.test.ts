@@ -76,6 +76,22 @@ describe('sign-in activity log', () => {
     expect(miss.records).toHaveLength(0);
   });
 
+  it('filters by reason substring (case-insensitive) on listAll for failure triage', async () => {
+    await recordSignIn(dir, { actor: 'alice', method: 'oidc', outcome: 'success', ip: '1.1.1.1' });
+    await recordSignIn(dir, { actor: 'bob', method: 'oidc', outcome: 'failure', ip: '2.2.2.2', reason: 'Bad password' });
+    await recordSignIn(dir, { actor: 'eve', method: 'oidc', outcome: 'failure', ip: '3.3.3.3', reason: 'bad token' });
+    await recordSignIn(dir, { actor: 'mallory', method: 'oidc', outcome: 'failure', ip: '4.4.4.4', reason: 'not allowed' });
+    const bad = await listAll(dir, { reason: 'bad' });
+    expect(bad.records).toHaveLength(2);
+    expect(bad.records.every((r) => (r.reason ?? '').toLowerCase().includes('bad'))).toBe(true);
+    expect(bad.total).toBe(2);
+    const allowed = await listAll(dir, { reason: 'NOT ALLOWED' });
+    expect(allowed.records).toHaveLength(1);
+    expect(allowed.records[0]!.actor).toBe('mallory');
+    const miss = await listAll(dir, { reason: 'nope' });
+    expect(miss.records).toHaveLength(0);
+  });
+
   it('paginates newest-first with a stable cursor', async () => {
     for (let i = 0; i < 5; i += 1) {
       await recordSignIn(dir, { actor: 'alice', method: 'oidc', outcome: 'success', ip: `1.0.0.${i}` });

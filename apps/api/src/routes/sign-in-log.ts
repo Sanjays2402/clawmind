@@ -40,6 +40,7 @@ const Filters = z.object({
 const AllFilters = Filters.extend({
   actor: z.string().trim().min(1).max(200).optional(),
   ip: z.string().trim().min(1).max(200).optional(),
+  reason: z.string().trim().min(1).max(200).optional(),
 });
 
 export const signInLogRoutes: FastifyPluginAsyncZod = async (app) => {
