@@ -51,16 +51,28 @@ const PatchBody = z
   });
 
 const IdParam = z.object({ id: z.string().min(1).max(64) });
+const ListQuery = z.object({ q: z.string().trim().min(1).max(200).optional() });
 
 export const auditDrainsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/audit/drains', {
+    schema: { querystring: ListQuery },
     preHandler: [
       app.requireAuth,
       app.requireMinRole('admin'),
       app.requireScope(Scopes.AuditDrainsRead),
     ],
-    handler: async () => {
-      const drains = await listDrains(app.clawmind.dataDir);
+    handler: async (req) => {
+      const all = await listDrains(app.clawmind.dataDir);
+      const q = (req.query as { q?: string }).q?.toLowerCase();
+      const drains = q
+        ? all.filter((d) => {
+            if (d.id.toLowerCase().includes(q)) return true;
+            if (d.kind.toLowerCase().includes(q)) return true;
+            if (d.url.toLowerCase().includes(q)) return true;
+            if (safeHost(d.url).toLowerCase().includes(q)) return true;
+            return false;
+          })
+        : all;
       return { total: drains.length, drains };
     },
   });

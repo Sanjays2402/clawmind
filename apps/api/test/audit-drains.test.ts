@@ -299,4 +299,38 @@ describe('audit-drains routes', () => {
     await app.close();
     if (prev !== undefined) process.env.CLAWMIND_ALLOW_LOOPBACK_DRAINS = prev;
   });
+
+  it('list filters drains by q substring across id, kind, and url host', async () => {
+    await createDrain(dir, 'owner-1', {
+      kind: 'splunk-hec',
+      url: 'https://splunk.example.com/services/collector',
+    });
+    await createDrain(dir, 'owner-1', {
+      kind: 'datadog',
+      url: 'https://http-intake.logs.datadoghq.com/api/v2/logs',
+    });
+    const { app } = buildApp({
+      user: {
+        id: 'a',
+        role: 'admin',
+        scopes: [Scopes.AuditDrainsRead],
+        mfaVerified: true,
+      },
+    });
+    const all = await app.inject({ method: 'GET', url: '/v1/audit/drains' });
+    expect(JSON.parse(all.payload).drains).toHaveLength(2);
+    const byKind = await app.inject({ method: 'GET', url: '/v1/audit/drains?q=DATADOG' });
+    const dList = JSON.parse(byKind.payload).drains;
+    expect(dList).toHaveLength(1);
+    expect(dList[0].kind).toBe('datadog');
+    const byHost = await app.inject({ method: 'GET', url: '/v1/audit/drains?q=splunk.example.com' });
+    const hList = JSON.parse(byHost.payload).drains;
+    expect(hList).toHaveLength(1);
+    expect(hList[0].kind).toBe('splunk-hec');
+    const byId = await app.inject({ method: 'GET', url: `/v1/audit/drains?q=${hList[0].id}` });
+    expect(JSON.parse(byId.payload).drains).toHaveLength(1);
+    const miss = await app.inject({ method: 'GET', url: '/v1/audit/drains?q=zzz-nope' });
+    expect(JSON.parse(miss.payload).drains).toHaveLength(0);
+    await app.close();
+  });
 });
