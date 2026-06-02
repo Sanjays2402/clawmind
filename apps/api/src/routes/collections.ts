@@ -99,8 +99,17 @@ export const collectionsRoutes: FastifyPluginAsyncZod = async (app) => {
   // needs to learn one shape. 404s for collections the caller does not own
   // so ownership is never leaked.
   for (const fmt of ['json', 'csv', 'md'] as const) {
-    app.get<{ Params: { id: string } }>(`/collections/:id/export.${fmt}`, {
-      schema: { params: z.object({ id: z.string().min(1).max(200) }) },
+    app.get<{ Params: { id: string }; Querystring: { q?: string } }>(`/collections/:id/export.${fmt}`, {
+      schema: {
+        params: z.object({ id: z.string().min(1).max(200) }),
+        // Optional case-insensitive substring filter on the saved-search
+        // title or query body. Mirrors the q filter on /saved so the
+        // curation search box in the collection detail page produces a
+        // download that matches what is on screen.
+        querystring: z.object({
+          q: z.string().trim().min(1).max(200).optional(),
+        }),
+      },
       preHandler: [app.requireAuth, app.requireScope(Scopes.CollectionsRead)],
       handler: async (req, reply) => {
         const collection = await getCollection(
@@ -116,9 +125,11 @@ export const collectionsRoutes: FastifyPluginAsyncZod = async (app) => {
         );
         const allSaved = await listSaved(app.clawmind.dataDir, req.user!.id);
         const byId = new Map(allSaved.map((s) => [s.id, s] as const));
+        const needle = (req.query.q ?? '').trim().toLowerCase();
         const items = memberIds
           .map((id) => byId.get(id))
           .filter((v): v is NonNullable<typeof v> => Boolean(v))
+          .filter((s) => !needle || `${s.title}\n${s.query}`.toLowerCase().includes(needle))
           .sort((a, b) => b.updatedAt - a.updatedAt);
         const stamp = new Date(collection.updatedAt).toISOString().slice(0, 10);
         const safeName = (collection.name || 'collection')
