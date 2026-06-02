@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import {
-  addAlias, loadAliases, removeAlias, ALIAS_NAME_RE,
+  addAlias, filterAliases, loadAliases, removeAlias, ALIAS_NAME_RE,
 } from '../services/aliases.js';
 import { Scopes } from '../scopes.js';
 
@@ -14,11 +14,21 @@ import { Scopes } from '../scopes.js';
 //   DELETE /v1/aliases         { name } remove
 
 export const aliasesRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/aliases', {
+  // Optional `q` filters by a case-insensitive substring of the alias
+  // name or its target path. Mirrors the same filter on /pins and
+  // /mutes so the curation search box in the web UI works across pins,
+  // mutes, and aliases.
+  app.get<{ Querystring: { q?: string } }>('/aliases', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [app.requireAuth, app.requireScope(Scopes.AliasesRead)],
-    handler: async () => {
+    handler: async (req) => {
       const map = await loadAliases(app.clawmind.dataDir);
-      const items = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+      const all = Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+      const items = filterAliases(all, req.query.q);
       return { items, count: items.length };
     },
   });

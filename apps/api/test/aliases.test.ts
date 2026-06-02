@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  addAlias, removeAlias, loadAliases,
+  addAlias, removeAlias, loadAliases, filterAliases,
   expandQueryAliases, shortenPath, ALIAS_NAME_RE,
 } from '../src/services/aliases.js';
 
@@ -108,5 +108,33 @@ describe('shortenPath', () => {
 
   it('does not match a sibling path that shares a prefix', () => {
     expect(shortenPath(map, '/ws/notes-archive/x.md')).toBeNull();
+  });
+});
+
+describe('filterAliases', () => {
+  const entries = [
+    { name: 'notes', path: '/ws/notes', createdAt: 1, createdBy: 'u' },
+    { name: 'daily', path: '/ws/notes/daily', createdAt: 2, createdBy: 'u' },
+    { name: 'projects', path: '/ws/code/projects', createdAt: 3, createdBy: 'u' },
+  ];
+
+  it('returns the input when q is empty or whitespace', () => {
+    expect(filterAliases(entries, undefined)).toBe(entries);
+    expect(filterAliases(entries, '')).toBe(entries);
+    expect(filterAliases(entries, '   ')).toBe(entries);
+  });
+
+  it('matches a substring of the alias name case-insensitively', () => {
+    const out = filterAliases(entries, 'DAILY');
+    expect(out.map((e) => e.name)).toEqual(['daily']);
+  });
+
+  it('matches a substring of the target path', () => {
+    const out = filterAliases(entries, '/code/');
+    expect(out.map((e) => e.name)).toEqual(['projects']);
+  });
+
+  it('returns an empty list when nothing matches', () => {
+    expect(filterAliases(entries, 'zzz-no-hit')).toEqual([]);
   });
 });

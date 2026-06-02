@@ -66,6 +66,25 @@ export async function addAlias(
   return entry;
 }
 
+/**
+ * Filter a list of alias entries by a case-insensitive substring that
+ * matches the alias name or its target path. Empty/whitespace `q`
+ * returns the input unchanged. Mirrors `filterMutes` and `filterPins`
+ * so the same curation search box in the web UI works across pins,
+ * mutes, and aliases.
+ */
+export function filterAliases(
+  entries: AliasEntry[],
+  q: string | undefined,
+): AliasEntry[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((e) => {
+    const hay = `${e.name}\n${e.path}`.toLowerCase();
+    return hay.includes(needle);
+  });
+}
+
 export async function removeAlias(dataDir: string, name: string): Promise<boolean> {
   const map = await loadAliases(dataDir);
   if (!(name in map)) return false;
