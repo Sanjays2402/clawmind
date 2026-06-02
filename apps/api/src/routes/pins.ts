@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
-import { addPin, loadPins, removePin } from '../services/pins.js';
+import { addPin, loadPins, removePin, updatePinNote } from '../services/pins.js';
 import { pinsToCsv, pinsToJson, pinsToMarkdown } from '../services/pins-export.js';
 import { Scopes } from '../scopes.js';
 
@@ -72,6 +72,32 @@ export const pinsRoutes: FastifyPluginAsyncZod = async (app) => {
       );
       await app.pins.reload();
       return entry;
+    },
+  });
+
+  // Update only the note on a pin without resetting `pinnedAt` or
+  // `pinnedBy`. POST /pins is an upsert that overwrites the entry, so re-
+  // POSTing to fix a typo in a note bumps the timestamp (re-sorts the
+  // list) and rewrites ownership. PATCH preserves both. Pass note as an
+  // empty string to clear the note. Returns 404 if the path is not
+  // currently pinned.
+  app.patch('/pins', {
+    schema: {
+      body: z.object({
+        path: z.string().min(1),
+        note: z.string().max(500),
+      }),
+    },
+    preHandler: [app.requireAuth, app.requireScope(Scopes.PinsWrite)],
+    handler: async (req, reply) => {
+      const updated = await updatePinNote(
+        app.clawmind.dataDir,
+        req.body.path,
+        req.body.note,
+      );
+      if (!updated) return reply.notFound('pin not found');
+      await app.pins.reload();
+      return updated;
     },
   });
 

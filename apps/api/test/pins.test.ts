@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  addPin, removePin, loadPins, pinBoostFor, PIN_BOOST,
+  addPin, removePin, loadPins, pinBoostFor, PIN_BOOST, updatePinNote,
 } from '../src/services/pins.js';
 
 let dir: string;
@@ -46,6 +46,28 @@ describe('pins service', () => {
     expect(await removePin(dir, '/a.md')).toBe(true);
     expect(await removePin(dir, '/a.md')).toBe(false);
     expect(await loadPins(dir)).toEqual({});
+  });
+
+  it('updatePinNote preserves pinnedAt and pinnedBy', async () => {
+    const original = await addPin(dir, 'u1', '/a.md', 'first note');
+    await new Promise((r) => setTimeout(r, 2));
+    const updated = await updatePinNote(dir, '/a.md', 'second note');
+    expect(updated).not.toBeNull();
+    expect(updated!.note).toBe('second note');
+    expect(updated!.pinnedAt).toBe(original.pinnedAt);
+    expect(updated!.pinnedBy).toBe('u1');
+    const map = await loadPins(dir);
+    expect(map['/a.md']).toEqual(updated);
+  });
+
+  it('updatePinNote with empty/whitespace clears the note', async () => {
+    await addPin(dir, 'u1', '/a.md', 'note');
+    const cleared = await updatePinNote(dir, '/a.md', '   ');
+    expect(cleared!.note).toBeUndefined();
+  });
+
+  it('updatePinNote returns null for unknown path', async () => {
+    expect(await updatePinNote(dir, '/missing.md', 'x')).toBeNull();
   });
 });
 

@@ -57,6 +57,32 @@ export async function addPin(
   return entry;
 }
 
+/**
+ * Update only the note on an existing pin, preserving the original
+ * `pinnedAt` and `pinnedBy`. Returns the updated entry, or `null` if the
+ * path is not currently pinned. Use this instead of re-POSTing the pin
+ * when the curator only wants to retitle the note: re-POST resets the
+ * pin timestamp and ownership, which reorders the list and rewrites the
+ * audit trail of who originally pinned it.
+ */
+export async function updatePinNote(
+  dataDir: string,
+  path: string,
+  note: string | undefined,
+): Promise<PinEntry | null> {
+  const map = await loadPins(dataDir);
+  const existing = map[path];
+  if (!existing) return null;
+  const trimmed = note?.trim();
+  const updated: PinEntry = {
+    ...existing,
+    note: trimmed ? trimmed : undefined,
+  };
+  map[path] = updated;
+  await save(dataDir, map);
+  return updated;
+}
+
 export async function removePin(dataDir: string, path: string): Promise<boolean> {
   const map = await loadPins(dataDir);
   if (!(path in map)) return false;
