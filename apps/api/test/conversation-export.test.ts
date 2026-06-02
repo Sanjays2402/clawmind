@@ -126,3 +126,74 @@ describe('conversationToCsv', () => {
     expect(csv.endsWith('\r\n')).toBe(true);
   });
 });
+
+import {
+  conversationsToJson,
+  conversationsToCsv,
+  conversationsToMarkdown,
+} from '../src/services/conversation-export.js';
+
+describe('conversationsToJson (bulk)', () => {
+  it('wraps every conversation in a versioned envelope', () => {
+    const a = conv({ id: 'a', title: 'A', turns: [{ id: 't1', role: 'user', content: 'hi', ts: 1 }] });
+    const b = conv({ id: 'b', title: 'B' });
+    const out = conversationsToJson([a, b]);
+    expect(out.version).toBe(1);
+    expect(out.count).toBe(2);
+    expect(out.conversations.map((c) => c.id)).toEqual(['a', 'b']);
+    expect(out.conversations[0].turns[0].content).toBe('hi');
+    expect(typeof out.exportedAt).toBe('number');
+  });
+
+  it('handles an empty list', () => {
+    const out = conversationsToJson([]);
+    expect(out.count).toBe(0);
+    expect(out.conversations).toEqual([]);
+  });
+});
+
+describe('conversationsToCsv (bulk)', () => {
+  it('prepends conversation id and title to every turn row', () => {
+    const c1 = conv({
+      id: 'c1', title: 'First, with comma',
+      turns: [{ id: 'u', role: 'user', content: 'q1', ts: 0 }],
+    });
+    const c2 = conv({
+      id: 'c2', title: 'Second',
+      turns: [{ id: 'a', role: 'assistant', content: 'a2', ts: 1000, model: 'm' }],
+    });
+    const csv = conversationsToCsv([c1, c2]);
+    const lines = csv.split('\r\n');
+    expect(lines[0]).toBe(
+      'conversation_id,conversation_title,turn_id,role,ts_iso,model,content,source_paths',
+    );
+    expect(csv).toContain('c1,"First, with comma",u,user');
+    expect(csv).toContain('c2,Second,a,assistant');
+    expect(csv.endsWith('\r\n')).toBe(true);
+  });
+
+  it('emits only the header for an empty list', () => {
+    const csv = conversationsToCsv([]);
+    expect(csv).toBe(
+      'conversation_id,conversation_title,turn_id,role,ts_iso,model,content,source_paths\r\n',
+    );
+  });
+});
+
+describe('conversationsToMarkdown (bulk)', () => {
+  it('renders a top heading plus a sub-section per conversation', () => {
+    const a = conv({ id: 'a', title: 'Alpha' });
+    const b = conv({ id: 'b', title: 'Beta' });
+    const md = conversationsToMarkdown([a, b], { formatDate: fmt });
+    expect(md).toContain('# ClawMind conversations');
+    expect(md).toContain('2 conversations exported 2026-05-29 17:00');
+    expect(md).toContain('## Alpha');
+    expect(md).toContain('## Beta');
+  });
+
+  it('shows a placeholder when the list is empty', () => {
+    const md = conversationsToMarkdown([], { formatDate: fmt });
+    expect(md).toContain('# ClawMind conversations');
+    expect(md).toContain('_No conversations yet._');
+  });
+});

@@ -173,3 +173,99 @@ export function conversationToMarkdown(conv: Conversation, opts: ExportOptions =
   const body = conv.turns.map((t) => renderTurn(t, opts)).join('\n\n');
   return header.join('\n') + body + '\n';
 }
+
+// Bulk export shapes. Mirror the saved / history / pins bulk export
+// envelopes so the same download UI and downstream tooling can rely on a
+// stable, versioned JSON wrapper. Bulk export lets a user back up every
+// conversation in one click instead of walking the list and downloading
+// each thread by hand.
+
+export interface ConversationsJsonExport {
+  version: 1;
+  exportedAt: number;
+  count: number;
+  conversations: ConversationJsonExport['conversation'][];
+}
+
+export function conversationsToJson(
+  convs: Conversation[],
+  opts: ExportOptions = {},
+): ConversationsJsonExport {
+  return {
+    version: 1,
+    exportedAt: Date.now(),
+    count: convs.length,
+    conversations: convs.map((c) => conversationToJson(c, opts).conversation),
+  };
+}
+
+// Bulk CSV flattens every turn across every conversation into one row per
+// turn, with conversation_id and conversation_title prepended so the
+// thread context survives a spreadsheet round trip.
+export function conversationsToCsv(
+  convs: Conversation[],
+  opts: ExportOptions = {},
+): string {
+  const base = opts.stripBasePath;
+  const header = [
+    'conversation_id',
+    'conversation_title',
+    'turn_id',
+    'role',
+    'ts_iso',
+    'model',
+    'content',
+    'source_paths',
+  ];
+  const rows: string[] = [header.join(',')];
+  for (const conv of convs) {
+    for (const t of conv.turns) {
+      const iso = new Date(t.ts).toISOString();
+      const sources =
+        t.role === 'assistant' && t.sources && t.sources.length > 0
+          ? t.sources
+              .map((s) => {
+                const p = trimPath(s.path, base);
+                return s.startLine === s.endLine
+                  ? `${p}:${s.startLine}`
+                  : `${p}:${s.startLine}-${s.endLine}`;
+              })
+              .join(' | ')
+          : '';
+      rows.push(
+        [
+          csvCell(conv.id),
+          csvCell(conv.title),
+          csvCell(t.id),
+          csvCell(t.role),
+          csvCell(iso),
+          csvCell(t.model ?? ''),
+          csvCell(t.content),
+          csvCell(sources),
+        ].join(','),
+      );
+    }
+  }
+  return rows.join('\r\n') + '\r\n';
+}
+
+export function conversationsToMarkdown(
+  convs: Conversation[],
+  opts: ExportOptions = {},
+): string {
+  const fmt = opts.formatDate ?? defaultFormatDate;
+  const head = [
+    '# ClawMind conversations',
+    '',
+    `${convs.length} ${convs.length === 1 ? 'conversation' : 'conversations'} exported ${fmt(Date.now())}`,
+    '',
+  ];
+  if (convs.length === 0) {
+    return head.concat(['_No conversations yet._', '']).join('\n');
+  }
+  const parts: string[] = [head.join('\n')];
+  for (const c of convs) {
+    parts.push(conversationToMarkdown(c, opts).replace(/^# /, '## '));
+  }
+  return parts.join('\n') + '\n';
+}

@@ -6,6 +6,7 @@ import { QuerySchema } from '@clawmind/types';
 import {
   createConversation,
   loadConversation,
+  listConversations,
   searchConversations,
   deleteConversation,
   forkConversation,
@@ -15,7 +16,14 @@ import {
   renameConversation,
   setConversationArchived,
 } from '../services/conversations.js';
-import { conversationToMarkdown, conversationToJson, conversationToCsv } from '../services/conversation-export.js';
+import {
+  conversationToMarkdown,
+  conversationToJson,
+  conversationToCsv,
+  conversationsToMarkdown,
+  conversationsToJson,
+  conversationsToCsv,
+} from '../services/conversation-export.js';
 import { expand } from '@clawmind/config';
 import { buildPrompt } from '@clawmind/llm';
 import { Scopes } from '../scopes.js';
@@ -81,6 +89,47 @@ export const conversationRoutes: FastifyPluginAsyncZod = async (app) => {
       return { conversation: conv };
     },
   });
+
+  // Bulk export every conversation owned by the caller in the requested
+  // format. Mirrors /saved/export.<fmt>, /history/export.<fmt> and
+  // /pins/export.<fmt> so the same download UI works across curation
+  // artifacts and downstream tooling gets a stable, versioned envelope.
+  // Includes archived conversations so a backup is actually a backup.
+  // Registered before the /:id/export.<fmt> routes so the literal
+  // 'export' segment wins over the :id param.
+  for (const fmt of ['json', 'csv', 'md'] as const) {
+    app.get(`/conversations/export.${fmt}`, {
+      preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
+      handler: async (req, reply) => {
+        const userId = req.user!.id;
+        const dataDir = app.clawmind.dataDir;
+        const [active, archived] = await Promise.all([
+          listConversations(dataDir, userId, { limit: 10000, archived: false }),
+          listConversations(dataDir, userId, { limit: 10000, archived: true }),
+        ]);
+        const all = [...active, ...archived].sort((a, b) => b.updatedAt - a.updatedAt);
+        const opts = { stripBasePath: expand(app.clawmind.env.CLAWMIND_WORKSPACE) };
+        const stamp = new Date().toISOString().slice(0, 10);
+        const filename = `clawmind-conversations-${stamp}.${fmt}`;
+        if (fmt === 'json') {
+          return reply
+            .header('content-type', 'application/json; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(conversationsToJson(all, opts));
+        }
+        if (fmt === 'csv') {
+          return reply
+            .header('content-type', 'text/csv; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(conversationsToCsv(all, opts));
+        }
+        return reply
+          .header('content-type', 'text/markdown; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .send(conversationsToMarkdown(all, opts));
+      },
+    });
+  }
 
   app.get<{ Params: { id: string } }>('/conversations/:id/export.md', {
     preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
