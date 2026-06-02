@@ -164,15 +164,26 @@ export const subProcessorsRoutes: FastifyPluginAsyncZod = async (app) => {
   });
 
   // Admin / operator view. Includes notes + updatedBy.
-  app.get('/sub-processors/admin', {
+  //
+  // Same optional `q` filter as the public list above. The haystack
+  // is deliberately the public-safe fields (name, purpose, region) so
+  // the admin view never surfaces a row that would be hidden from the
+  // public projection just because an operator typed the needle into
+  // a private `notes` field. Mirrors the rationale on /ropa/admin.
+  app.get<{ Querystring: { q?: string } }>('/sub-processors/admin', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [
       app.requireAuth,
       app.requireMinRole('admin'),
       app.requireScope(Scopes.SubProcessorsRead),
     ],
-    handler: async () => {
+    handler: async (req) => {
       const reg = await getRegistry(app.clawmind.dataDir);
-      return reg;
+      return { ...reg, entries: filterEntries(reg.entries, req.query.q) };
     },
   });
 

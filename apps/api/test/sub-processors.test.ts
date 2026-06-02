@@ -166,4 +166,23 @@ describe('filterEntries', () => {
   it('returns an empty list when nothing matches', () => {
     expect(filterEntries(entries, 'zzz-no-hit')).toEqual([]);
   });
+
+  // The admin view (/sub-processors/admin) reuses filterEntries on
+  // rows that also carry operator-only `notes`. The type bound
+  // (name|purpose|region) keeps notes out of the haystack so admin
+  // search can never surface a row a public-q search would hide.
+  it('does not match against operator-only notes when present', () => {
+    const adminEntries = [
+      {
+        name: 'Acme Hosting Inc.',
+        purpose: 'Object storage',
+        region: 'US',
+        notes: 'internal ticket OPS-1234',
+      },
+    ];
+    expect(filterEntries(adminEntries, 'OPS-1234')).toEqual([]);
+    expect(filterEntries(adminEntries, 'acme').map((e) => e.name)).toEqual([
+      'Acme Hosting Inc.',
+    ]);
+  });
 });
