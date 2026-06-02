@@ -8,6 +8,7 @@ import {
   updateSettings,
   validateCreate,
   publicView,
+  filterEntries,
   RopaValidationError,
   ROPA_LIMITS,
   ROPA_LEGAL_BASIS_VALUES,
@@ -167,18 +168,36 @@ function entryDiff(change: ChangeEvent): Record<string, unknown> {
 export const ropaRoutes: FastifyPluginAsyncZod = async (app) => {
   // Public list. No auth. The URL customers cite from their own Art.
   // 30 register; gating it would make the DPA unsignable.
-  app.get('/ropa', {
-    handler: async () => {
+  //
+  // Optional `q` is a case-insensitive substring filter over name,
+  // purpose, data categories, data subjects, storage region,
+  // recipients, retention, and transfer mechanism. Mirrors the q
+  // filter on /sub-processors, /recovery-contacts, /aliases, etc.
+  // so a DPO scanning for "stripe" or "us-east-1" against a long
+  // register doesn't have to load the full page.
+  app.get<{ Querystring: { q?: string } }>('/ropa', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
+    handler: async (req) => {
       const reg = await getRegistry(app.clawmind.dataDir);
-      return publicView(reg);
+      const view = publicView(reg);
+      return { ...view, entries: filterEntries(view.entries, req.query.q) };
     },
   });
 
-  app.get('/ropa/admin', {
+  app.get<{ Querystring: { q?: string } }>('/ropa/admin', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [app.requireAuth, app.requireMinRole('admin'), app.requireScope(Scopes.RopaRead)],
-    handler: async () => {
+    handler: async (req) => {
       const reg = await getRegistry(app.clawmind.dataDir);
-      return reg;
+      return { ...reg, entries: filterEntries(reg.entries, req.query.q) };
     },
   });
 

@@ -534,3 +534,45 @@ export function publicView(reg: RopaRegistry): {
 }
 
 export const ROPA_LIMITS = FIELD_LIMITS;
+
+/**
+ * Case-insensitive substring filter over the visible columns of a RoPA
+ * entry (name, purpose, data categories, data subjects, storage
+ * region, recipients, retention, transfer mechanism). Mirrors
+ * `filterEntries` on `/sub-processors`, `/recovery-contacts`, etc. so
+ * the same curation search box on the public Art. 30 register works
+ * the way a DPO expects when they paste "stripe" or "us-east-1" into
+ * the box. Operator-only `notes` are intentionally excluded so the
+ * admin view doesn't return rows the public view would hide.
+ */
+export function filterEntries<
+  T extends Pick<
+    RopaActivity,
+    | 'name'
+    | 'purpose'
+    | 'dataCategories'
+    | 'dataSubjects'
+    | 'storageRegion'
+    | 'recipients'
+    | 'retention'
+    | 'transferMechanism'
+  >,
+>(entries: T[], q: string | undefined): T[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return entries;
+  return entries.filter((e) => {
+    const hay = [
+      e.name,
+      e.purpose,
+      e.dataCategories,
+      e.dataSubjects,
+      e.storageRegion,
+      e.recipients ?? '',
+      e.retention,
+      e.transferMechanism ?? '',
+    ]
+      .join('\n')
+      .toLowerCase();
+    return hay.includes(needle);
+  });
+}

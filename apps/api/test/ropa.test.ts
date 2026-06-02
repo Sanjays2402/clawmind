@@ -9,6 +9,7 @@ import {
   retireEntry,
   updateSettings,
   publicView,
+  filterEntries,
   validateCreate,
   RopaValidationError,
 } from '../src/services/ropa.js';
@@ -133,5 +134,55 @@ describe('ropa registry CRUD', () => {
     await expect(updateEntry(dir, 'u', 'missing', { purpose: 'x' })).rejects.toThrow(
       RopaValidationError,
     );
+  });
+});
+
+describe('ropa filterEntries', () => {
+  it('returns all entries when q is empty or undefined', async () => {
+    await addEntry(dir, 'u', sample);
+    await addEntry(dir, 'u', { ...sample, name: 'Billing' });
+    const reg = await getRegistry(dir);
+    expect(filterEntries(reg.entries, undefined)).toHaveLength(2);
+    expect(filterEntries(reg.entries, '')).toHaveLength(2);
+    expect(filterEntries(reg.entries, '   ')).toHaveLength(2);
+  });
+
+  it('matches name, purpose, region, recipients, retention, and transfer mechanism case-insensitively', async () => {
+    await addEntry(dir, 'u', sample);
+    await addEntry(dir, 'u', {
+      ...sample,
+      name: 'Billing',
+      purpose: 'Charge customers',
+      dataCategories: 'card last 4, billing address',
+      dataSubjects: 'paying customers',
+      storageRegion: 'eu-west-1',
+      recipients: 'Stripe',
+      retention: '7 years for tax law',
+      transferMechanism: null,
+    });
+    const reg = await getRegistry(dir);
+
+    // name match (upper-cased needle).
+    expect(filterEntries(reg.entries, 'BILLING').map((e) => e.name)).toEqual(['Billing']);
+    // purpose match.
+    expect(filterEntries(reg.entries, 'end-users').map((e) => e.name)).toEqual([
+      'Customer support',
+    ]);
+    // storage region match.
+    expect(filterEntries(reg.entries, 'eu-west-1').map((e) => e.name)).toEqual(['Billing']);
+    // recipients match.
+    expect(filterEntries(reg.entries, 'stripe').map((e) => e.name)).toEqual(['Billing']);
+    // retention match.
+    expect(filterEntries(reg.entries, '7 years').map((e) => e.name)).toEqual(['Billing']);
+    // transfer mechanism match (sample carries SCCs).
+    expect(filterEntries(reg.entries, 'sccs').map((e) => e.name)).toEqual(['Customer support']);
+    // misses.
+    expect(filterEntries(reg.entries, 'nope')).toEqual([]);
+  });
+
+  it('does not match against operator-only notes', async () => {
+    await addEntry(dir, 'u', { ...sample, notes: 'internal ticket OPS-1234' });
+    const reg = await getRegistry(dir);
+    expect(filterEntries(reg.entries, 'OPS-1234')).toEqual([]);
   });
 });
