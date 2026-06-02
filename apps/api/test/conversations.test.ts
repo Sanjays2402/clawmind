@@ -8,6 +8,7 @@ import {
   appendTurn, toChatMessages, rewriteFollowUp, MAX_TURNS, MAX_CONTEXT_TURNS,
   renameConversation, setConversationArchived,
   searchConversations, snippetAround,
+  filterConversations,
 } from '../src/services/conversations.js';
 
 let dir: string;
@@ -295,6 +296,37 @@ describe('setConversationArchived', () => {
       expect(out).toContain('MIDDLE');
       expect(out!.startsWith('\u2026')).toBe(true);
       expect(out!.endsWith('\u2026')).toBe(true);
+    });
+  });
+
+  describe('filterConversations', () => {
+    it('returns input unchanged when q is empty/whitespace/undefined', async () => {
+      const a = await createConversation(dir, 'u1', 'alpha');
+      const b = await createConversation(dir, 'u1', 'beta');
+      const items = [a, b];
+      expect(filterConversations(items, undefined)).toEqual(items);
+      expect(filterConversations(items, '')).toEqual(items);
+      expect(filterConversations(items, '   ')).toEqual(items);
+    });
+
+    it('matches by title case-insensitively', async () => {
+      const a = await createConversation(dir, 'u1', 'Release Notes');
+      const b = await createConversation(dir, 'u1', 'Random Chat');
+      expect(filterConversations([a, b], 'NOTES').map((c) => c.id)).toEqual([a.id]);
+    });
+
+    it('matches by turn content', async () => {
+      const a = await createConversation(dir, 'u1', 'one');
+      await appendTurn(dir, a.id, { role: 'user', content: 'how do I configure entrypoint X' });
+      const fresh = await loadConversation(dir, a.id);
+      const b = await createConversation(dir, 'u1', 'two');
+      const got = filterConversations([fresh!, b], 'entrypoint');
+      expect(got.map((c) => c.id)).toEqual([a.id]);
+    });
+
+    it('returns [] when nothing matches', async () => {
+      const a = await createConversation(dir, 'u1', 'alpha');
+      expect(filterConversations([a], 'zzz-no-hit')).toEqual([]);
     });
   });
 });

@@ -64,6 +64,28 @@ export async function loadConversation(dataDir: string, id: string): Promise<Con
   }
 }
 
+/**
+ * Filter a list of conversations by a case-insensitive substring that
+ * matches the conversation title or any turn's content. Empty or
+ * whitespace `q` returns the input unchanged. Mirrors `filterPins` and
+ * `filterSavedSearches` so the same curation search box in the UI also
+ * narrows bulk exports.
+ */
+export function filterConversations(
+  items: Conversation[],
+  q: string | undefined,
+): Conversation[] {
+  const needle = q?.trim().toLowerCase();
+  if (!needle) return items;
+  return items.filter((c) => {
+    if (c.title.toLowerCase().includes(needle)) return true;
+    for (const turn of c.turns) {
+      if (turn?.content && turn.content.toLowerCase().includes(needle)) return true;
+    }
+    return false;
+  });
+}
+
 export async function listConversations(
   dataDir: string,
   userId: string,

@@ -7,6 +7,7 @@ import {
   createConversation,
   loadConversation,
   listConversations,
+  filterConversations,
   searchConversations,
   deleteConversation,
   forkConversation,
@@ -98,7 +99,12 @@ export const conversationRoutes: FastifyPluginAsyncZod = async (app) => {
   // Registered before the /:id/export.<fmt> routes so the literal
   // 'export' segment wins over the :id param.
   for (const fmt of ['json', 'csv', 'md'] as const) {
-    app.get(`/conversations/export.${fmt}`, {
+    app.get<{ Querystring: { q?: string } }>(`/conversations/export.${fmt}`, {
+      schema: {
+        querystring: z.object({
+          q: z.string().trim().min(1).max(200).optional(),
+        }),
+      },
       preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
       handler: async (req, reply) => {
         const userId = req.user!.id;
@@ -107,7 +113,8 @@ export const conversationRoutes: FastifyPluginAsyncZod = async (app) => {
           listConversations(dataDir, userId, { limit: 10000, archived: false }),
           listConversations(dataDir, userId, { limit: 10000, archived: true }),
         ]);
-        const all = [...active, ...archived].sort((a, b) => b.updatedAt - a.updatedAt);
+        const merged = [...active, ...archived].sort((a, b) => b.updatedAt - a.updatedAt);
+        const all = filterConversations(merged, (req.query as { q?: string }).q);
         const opts = { stripBasePath: expand(app.clawmind.env.CLAWMIND_WORKSPACE) };
         const stamp = new Date().toISOString().slice(0, 10);
         const filename = `clawmind-conversations-${stamp}.${fmt}`;
