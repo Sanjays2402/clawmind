@@ -8,6 +8,7 @@ import {
   addRule,
   removeRule,
   evaluate,
+  filterModels,
   AllowlistValidationError,
   MAX_MODELS,
 } from '../src/services/model-allowlist.js';
@@ -87,6 +88,31 @@ describe('model-allowlist service', () => {
       await setMode(dir, 'u', { mode: 'allow' });
       const p = await getPolicy(dir);
       expect(evaluate(p, 'anything').allowed).toBe(false);
+    });
+  });
+
+  describe('filterModels', () => {
+    it('returns input unchanged when q is empty or whitespace', async () => {
+      await addRule(dir, 'u', { model: 'gpt-4o-mini', label: 'prod' });
+      await addRule(dir, 'u', { model: 'claude-3-7-sonnet', label: 'dev' });
+      const { models } = await getPolicy(dir);
+      expect(filterModels(models, undefined)).toHaveLength(2);
+      expect(filterModels(models, '')).toHaveLength(2);
+      expect(filterModels(models, '   ')).toHaveLength(2);
+    });
+
+    it('matches case-insensitive substrings of id, model, or label', async () => {
+      const a = await addRule(dir, 'u', { model: 'gpt-4o-mini', label: 'prod' });
+      const b = await addRule(dir, 'u', { model: 'claude-3-7-sonnet', label: 'dev-preview' });
+      const c = await addRule(dir, 'u', { model: 'llama-3-70b', label: null });
+      const { models } = await getPolicy(dir);
+
+      expect(filterModels(models, 'GPT').map((m) => m.id)).toEqual([a.id]);
+      expect(filterModels(models, 'preview').map((m) => m.id)).toEqual([b.id]);
+      expect(filterModels(models, 'PROD').map((m) => m.id)).toEqual([a.id]);
+      expect(filterModels(models, 'lama').map((m) => m.id)).toEqual([c.id]);
+      expect(filterModels(models, b.id.slice(0, 6)).map((m) => m.id)).toEqual([b.id]);
+      expect(filterModels(models, 'zzz-nope')).toEqual([]);
     });
   });
 });

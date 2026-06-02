@@ -192,6 +192,29 @@ export async function addRule(
   return rule;
 }
 
+/**
+ * Filter a list of model rules by a case-insensitive substring that
+ * matches the rule's id, model id, or label. Empty/whitespace `q`
+ * returns the input unchanged. Mirrors the `q` filter on /keys,
+ * /domain-policies, /mutes, /pins, and /query-blocklist so an admin
+ * scanning a long allow/block table (multi-provider orgs, GPU pools,
+ * preview models) can search from the same UI box (e.g. every "gpt"
+ * model, every rule labelled "prod", or jump straight to a rule id).
+ */
+export function filterModels(
+  models: ModelRule[],
+  q: string | undefined | null,
+): ModelRule[] {
+  const needle = (q ?? '').trim().toLowerCase();
+  if (!needle) return models;
+  return models.filter((m) => {
+    if (m.id.toLowerCase().includes(needle)) return true;
+    if (m.model.toLowerCase().includes(needle)) return true;
+    if (m.label && m.label.toLowerCase().includes(needle)) return true;
+    return false;
+  });
+}
+
 export async function removeRule(
   dataDir: string,
   ruleId: string,

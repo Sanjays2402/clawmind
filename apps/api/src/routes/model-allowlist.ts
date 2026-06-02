@@ -5,6 +5,7 @@ import {
   setMode,
   addRule,
   removeRule,
+  filterModels,
   AllowlistValidationError,
   MAX_MODEL_ID_LEN,
   MAX_LABEL_LEN,
@@ -36,15 +37,28 @@ const AddBody = z
 const IdParams = z.object({ id: z.string().min(1).max(64) });
 
 export const modelAllowlistRoutes: FastifyPluginAsyncZod = async (app) => {
+  // Optional `q` filters the returned models by a case-insensitive
+  // substring of the rule id, model id, or label. Mirrors the same
+  // filter on /keys, /domain-policies, /mutes, /pins, and
+  // /query-blocklist so an admin scanning a long allow/block table can
+  // search from the same UI box (e.g. every "gpt" model or every rule
+  // labelled "prod"). The policy envelope (mode, updatedBy, ...) is
+  // returned unchanged so the UI can still render the toggle.
   app.get('/model-allowlist', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [
       app.requireAuth,
       app.requireMinRole('admin'),
       app.requireScope(Scopes.ModelAllowlistRead),
     ],
-    handler: async () => {
+    handler: async (req) => {
       const policy = await getPolicy(app.clawmind.dataDir);
-      return { policy };
+      const { q } = req.query as { q?: string };
+      return { policy: { ...policy, models: filterModels(policy.models, q) } };
     },
   });
 
