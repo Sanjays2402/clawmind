@@ -134,10 +134,20 @@ export async function create(
 export async function list(
   dataDir: string,
   userId: string,
-  opts: { limit?: number; unreadOnly?: boolean } = {},
+  opts: { limit?: number; unreadOnly?: boolean; q?: string } = {},
 ): Promise<NotificationRecord[]> {
   const all = await loadAll(dataDir, userId);
-  const filtered = opts.unreadOnly ? all.filter((i) => i.readAt === null) : all;
+  let filtered = opts.unreadOnly ? all.filter((i) => i.readAt === null) : all;
+  if (opts.q) {
+    const needle = opts.q.trim().toLowerCase();
+    if (needle.length > 0) {
+      filtered = filtered.filter((i) => {
+        const t = (i.title ?? '').toLowerCase();
+        const b = (i.body ?? '').toLowerCase();
+        return t.includes(needle) || b.includes(needle);
+      });
+    }
+  }
   const limit = Math.max(1, Math.min(opts.limit ?? 50, MAX_PER_USER));
   return filtered
     .slice()

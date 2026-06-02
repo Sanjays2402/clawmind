@@ -26,6 +26,7 @@ import { DryRunQuery, isDryRun, auditAction } from '../lib/dry-run.js';
 const ListQuery = z.object({
   limit: z.coerce.number().int().min(1).max(200).optional(),
   unread: z.coerce.boolean().optional(),
+  q: z.string().trim().min(1).max(200).optional(),
 });
 
 const ReadBody = z.union([
@@ -43,6 +44,7 @@ export const notificationRoutes: FastifyPluginAsyncZod = async (app) => {
       const items = await list(app.clawmind.dataDir, req.user!.id, {
         limit: req.query.limit ?? 50,
         unreadOnly: req.query.unread ?? false,
+        q: req.query.q,
       });
       const unread = await unreadCount(app.clawmind.dataDir, req.user!.id);
       return { items, unread };

@@ -123,4 +123,19 @@ describe('notifications service', () => {
   it('rejects path-traversal user ids', async () => {
     await expect(create(dir, { userId: '../etc/passwd', kind: 'system', title: 'x' })).rejects.toThrow();
   });
+
+  it('filters by q substring across title and body (case-insensitive)', async () => {
+    await create(dir, { userId: 'u1', kind: 'system', title: 'Share viewed', body: 'someone opened your link' }, 1);
+    await create(dir, { userId: 'u1', kind: 'webhook.failed', title: 'Webhook failing', body: '500 from receiver' }, 2);
+    await create(dir, { userId: 'u1', kind: 'system', title: 'Welcome', body: 'getting started' }, 3);
+    const share = await list(dir, 'u1', { q: 'share' });
+    expect(share.map((i) => i.title)).toEqual(['Share viewed']);
+    const receiver = await list(dir, 'u1', { q: 'RECEIVER' });
+    expect(receiver.map((i) => i.title)).toEqual(['Webhook failing']);
+    const none = await list(dir, 'u1', { q: 'nope' });
+    expect(none).toEqual([]);
+    // q combines with unreadOnly.
+    await markAllRead(dir, 'u1');
+    expect(await list(dir, 'u1', { q: 'share', unreadOnly: true })).toEqual([]);
+  });
 });
