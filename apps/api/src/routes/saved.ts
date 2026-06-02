@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod';
 import { listSaved, addSaved, removeSaved, updateSaved, getSaved } from '../services/saved.js';
+import { savedToCsv, savedToJson, savedToMarkdown } from '../services/saved-export.js';
 import { Scopes } from '../scopes.js';
 
 const tagsSchema = z.array(z.string()).max(16);
@@ -27,6 +28,41 @@ export const savedRoutes: FastifyPluginAsyncZod = async (app) => {
   // link to one entry (permalink, share with a teammate by id, re-open in
   // a new tab) without re-fetching the full list. Other users' entries
   // surface as 404 so ownership is never leaked.
+  // Export the caller's saved searches in the format hinted by the URL
+  // extension. Mirrors the per-user history export so the same download
+  // buttons in the web UI behave consistently. Output is streamed as a
+  // download (Content-Disposition: attachment) so browsers save it instead
+  // of rendering it. Items are returned in the same order as GET /saved
+  // (newest first), and tags are preserved across all three formats.
+  for (const fmt of ['json', 'csv', 'md'] as const) {
+    app.get(`/saved/export.${fmt}`, {
+      preHandler: [app.requireAuth, app.requireScope(Scopes.SavedRead)],
+      handler: async (req, reply) => {
+        const items = (await listSaved(app.clawmind.dataDir, req.user!.id))
+          .slice()
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        const stamp = new Date().toISOString().slice(0, 10);
+        const filename = `clawmind-saved-${stamp}.${fmt}`;
+        if (fmt === 'json') {
+          return reply
+            .header('content-type', 'application/json; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(savedToJson(items));
+        }
+        if (fmt === 'csv') {
+          return reply
+            .header('content-type', 'text/csv; charset=utf-8')
+            .header('content-disposition', `attachment; filename="${filename}"`)
+            .send(savedToCsv(items));
+        }
+        return reply
+          .header('content-type', 'text/markdown; charset=utf-8')
+          .header('content-disposition', `attachment; filename="${filename}"`)
+          .send(savedToMarkdown(items));
+      },
+    });
+  }
+
   app.get('/saved/:id', {
     schema: { params: z.object({ id: z.string().min(1) }) },
     preHandler: [app.requireAuth, app.requireScope(Scopes.SavedRead)],
