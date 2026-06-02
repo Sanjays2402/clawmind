@@ -36,6 +36,8 @@ const OpenSchema = z.object({
   dryRun: z.boolean().optional(),
 });
 
+const ListQuery = z.object({ q: z.string().trim().min(1).max(200).optional() });
+
 const DecideSchema = z.object({
   decision: z.enum(['keep', 'downgrade', 'revoke']),
   downgradeTo: RoleEnum.nullish(),
@@ -55,9 +57,21 @@ function actorRole(role: string): MemberRole {
 
 export const accessReviewsRoutes: FastifyPluginAsyncZod = async (app) => {
   app.get('/access-reviews', {
+    schema: { querystring: ListQuery },
     preHandler: [app.requireAuth, app.requireMinRole('admin'), app.requireScope(Scopes.AccessReviewsRead)],
-    handler: async () => {
-      const reviews = await listReviews(app.clawmind.dataDir);
+    handler: async (req) => {
+      const all = await listReviews(app.clawmind.dataDir);
+      const q = (req.query as { q?: string }).q?.toLowerCase();
+      const reviews = q
+        ? all.filter((r) => {
+            if (r.id.toLowerCase().includes(q)) return true;
+            if (r.title.toLowerCase().includes(q)) return true;
+            if (r.openedBy.toLowerCase().includes(q)) return true;
+            if (r.closedBy && r.closedBy.toLowerCase().includes(q)) return true;
+            if (r.attestation && r.attestation.toLowerCase().includes(q)) return true;
+            return false;
+          })
+        : all;
       return { reviews };
     },
   });

@@ -172,4 +172,40 @@ describe('access-reviews routes RBAC', () => {
     expect(events.total).toBe(1);
     await app.close();
   });
+
+  it('list filters reviews by q substring across id, title, openedBy, and attestation', async () => {
+    await inviteMember(dir, { userId: 'o1', role: 'owner', invitedBy: 'bootstrap' });
+    await inviteMember(dir, { userId: 'o2', role: 'owner', invitedBy: 'o1' });
+    const r1 = await openReview(dir, { title: '2026 Q2 recertification', openedBy: 'o1' });
+    const r2 = await openReview(dir, { title: '2026 Q3 recertification', openedBy: 'o2' });
+    await setDecision(dir, r1.id, 'o1', { decision: 'keep', downgradeTo: null, note: null, decidedBy: 'o1' });
+    await setDecision(dir, r1.id, 'o2', { decision: 'keep', downgradeTo: null, note: null, decidedBy: 'o1' });
+    await closeReview(dir, r1.id, { closedBy: 'o1', closerRole: 'owner', attestation: 'signed-by-cfo' });
+
+    const { app } = buildApp({ user: { id: 'o1', role: 'owner', scopes: [Scopes.AccessReviewsRead] } });
+    const all = await app.inject({ method: 'GET', url: '/v1/access-reviews' });
+    expect(JSON.parse(all.payload).reviews).toHaveLength(2);
+
+    const byTitle = await app.inject({ method: 'GET', url: '/v1/access-reviews?q=Q3' });
+    const t = JSON.parse(byTitle.payload).reviews;
+    expect(t).toHaveLength(1);
+    expect(t[0].id).toBe(r2.id);
+
+    const byOpener = await app.inject({ method: 'GET', url: '/v1/access-reviews?q=o2' });
+    const o = JSON.parse(byOpener.payload).reviews;
+    expect(o).toHaveLength(1);
+    expect(o[0].openedBy).toBe('o2');
+
+    const byAttestation = await app.inject({ method: 'GET', url: '/v1/access-reviews?q=signed-by-cfo' });
+    const a = JSON.parse(byAttestation.payload).reviews;
+    expect(a).toHaveLength(1);
+    expect(a[0].id).toBe(r1.id);
+
+    const byId = await app.inject({ method: 'GET', url: `/v1/access-reviews?q=${r2.id}` });
+    expect(JSON.parse(byId.payload).reviews).toHaveLength(1);
+
+    const miss = await app.inject({ method: 'GET', url: '/v1/access-reviews?q=zzz-nope' });
+    expect(JSON.parse(miss.payload).reviews).toHaveLength(0);
+    await app.close();
+  });
 });
