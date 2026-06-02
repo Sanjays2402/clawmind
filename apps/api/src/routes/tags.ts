@@ -24,12 +24,22 @@ import { Scopes } from '../scopes.js';
 // user in the workspace.
 
 export const tagsRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/tags', {
+  app.get<{ Querystring: { q?: string } }>('/tags', {
+    // Optional case-insensitive substring filter on the tag name. Mirrors
+    // the q filter on /saved and /pins so the tag picker search box in
+    // the web UI can render a list that matches what the user typed.
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(64).optional(),
+      }),
+    },
     preHandler: [app.requireAuth, app.requireScope(Scopes.TagsRead)],
-    handler: async () => {
+    handler: async (req) => {
       const map = await loadTags(app.clawmind.dataDir);
       const inverse = pathsByTag(map);
+      const needle = (req.query.q ?? '').trim().toLowerCase();
       const items = Object.entries(inverse)
+        .filter(([tag]) => !needle || tag.toLowerCase().includes(needle))
         .map(([tag, paths]) => ({ tag, count: paths.length }))
         .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
       return { items, count: items.length };
@@ -43,11 +53,23 @@ export const tagsRoutes: FastifyPluginAsyncZod = async (app) => {
   // first, and the JSON envelope is versioned so downstream tooling can
   // detect breaking changes.
   for (const fmt of ['json', 'csv', 'md'] as const) {
-    app.get(`/tags/export.${fmt}`, {
+    app.get<{ Querystring: { q?: string } }>(`/tags/export.${fmt}`, {
+      // Optional case-insensitive substring filter on the tag name so the
+      // download button in the tag picker honours the search box, the same
+      // way /saved/export.<fmt> and /pins/export.<fmt> already do.
+      schema: {
+        querystring: z.object({
+          q: z.string().trim().min(1).max(64).optional(),
+        }),
+      },
       preHandler: [app.requireAuth, app.requireScope(Scopes.TagsRead)],
-      handler: async (_req, reply) => {
+      handler: async (req, reply) => {
         const map = await loadTags(app.clawmind.dataDir);
-        const rows = tagsToRows(map);
+        const needle = (req.query.q ?? '').trim().toLowerCase();
+        const allRows = tagsToRows(map);
+        const rows = needle
+          ? allRows.filter((r) => r.tag.toLowerCase().includes(needle))
+          : allRows;
         const stamp = new Date().toISOString().slice(0, 10);
         const filename = `clawmind-tags-${stamp}.${fmt}`;
         if (fmt === 'json') {
