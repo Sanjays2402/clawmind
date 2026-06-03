@@ -27,11 +27,18 @@ export function tagsCommand() {
 
   cmd.command('list')
     .description('List every tag with its source count')
-    .action(async () => {
-      const out = (await apiFetch('GET', '/v1/tags')) as {
+    .option('-q, --q <text>', 'case-insensitive substring filter on tag name')
+    .option('--json', 'emit results as JSON for scripting')
+    .action(async (opts: { q?: string; json?: boolean }) => {
+      const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
+      const out = (await apiFetch('GET', `/v1/tags${qs}`)) as {
         items: { tag: string; count: number }[];
         count: number;
       };
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
       if (out.count === 0) { process.stdout.write(kleur.gray('no tags defined\n')); return; }
       for (const it of out.items) {
         process.stdout.write(`${kleur.bold(it.tag)} ${kleur.gray(`(${it.count})`)}\n`);
