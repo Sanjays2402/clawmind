@@ -6,6 +6,7 @@ import { forgetCommand } from '../src/commands/forget.js';
 import { compactCommand } from '../src/commands/compact.js';
 import { ingestCommand } from '../src/commands/ingest.js';
 import { reindexCommand } from '../src/commands/reindex.js';
+import { watchCommand } from '../src/commands/watch.js';
 
 describe('cli commands', () => {
   it('expose names', () => {
@@ -41,6 +42,11 @@ describe('cli commands', () => {
 
   it('reindex exposes --json for scripting', () => {
     const flags = reindexCommand().options.map((o) => o.long);
+    expect(flags).toContain('--json');
+  });
+
+  it('watch exposes --json for scripting', () => {
+    const flags = watchCommand().options.map((o) => o.long);
     expect(flags).toContain('--json');
   });
 });
