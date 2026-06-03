@@ -34,8 +34,30 @@ export function doctorCommand() {
     .action(async (opts: { json?: boolean }) => {
       const env = loadEnv();
       const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
-      const res = await fetch(`${base}/v1/doctor`);
-      if (!res.ok) throw new Error(`GET /v1/doctor -> ${res.status}: ${await res.text()}`);
+      let res: Response;
+      try {
+        res = await fetch(`${base}/v1/doctor`);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(kleur.red(`doctor failed: cannot reach ${base} (${msg})\n`));
+        process.exitCode = 1;
+        return;
+      }
+      if (!res.ok) {
+        let detail = (await res.text()).trim();
+        try {
+          const parsed = JSON.parse(detail) as { message?: unknown; error?: unknown };
+          if (typeof parsed.message === 'string') detail = parsed.message;
+          else if (typeof parsed.error === 'string') detail = parsed.error;
+        } catch {
+          // not JSON, keep as text
+        }
+        if (detail.length > 200) detail = detail.slice(0, 200) + '...';
+        const suffix = detail ? `: ${detail}` : '';
+        process.stderr.write(kleur.red(`doctor failed (${res.status} ${res.statusText})${suffix}\n`));
+        process.exitCode = 1;
+        return;
+      }
       const r = (await res.json()) as DoctorReport;
 
       if (opts.json) {
