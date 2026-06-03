@@ -27,7 +27,7 @@ describe('feedback cli', () => {
       if (u.endsWith('/v1/feedback') && init?.method === 'DELETE') {
         return new Response(JSON.stringify({ ok: true }), { status: 200 });
       }
-      if (u.endsWith('/v1/feedback') && (!init || init.method === undefined || init.method === 'GET')) {
+      if (u.includes('/v1/feedback') && (!init || init.method === undefined || init.method === 'GET')) {
         return new Response(JSON.stringify({ items: [
           { path: '/a.md', ups: 3, downs: 0, boost: 1.15, updatedAt: 0 },
           { path: '/b.md', ups: 0, downs: 2, boost: 0.9, updatedAt: 0 },
@@ -68,6 +68,19 @@ describe('feedback cli', () => {
     expect(out).toContain('/a.md');
     expect(out).toContain('/b.md');
     expect(out).toContain('1.15');
+  });
+
+  it('feedback list --json emits parseable JSON and skips table output', async () => {
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json']);
+    const out = captured.join('');
+    const parsed = JSON.parse(out) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/a.md', '/b.md']);
+    expect(out).not.toContain('1.15x');
+  });
+
+  it('feedback list -q forwards q= to the API', async () => {
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '-q', 'a md']);
+    expect(fetchCalls[0]?.url).toContain('/v1/feedback?q=a%20md');
   });
 });
 

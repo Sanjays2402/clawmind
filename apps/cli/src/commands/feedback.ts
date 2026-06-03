@@ -44,10 +44,17 @@ export function feedbackCommand() {
 
   cmd.command('list')
     .description('List current feedback entries with boost multipliers')
-    .action(async () => {
-      const out = (await apiFetch('GET', '/v1/feedback')) as {
+    .option('-q, --q <text>', 'case-insensitive substring filter on source path')
+    .option('--json', 'emit results as JSON for scripting')
+    .action(async (opts: { q?: string; json?: boolean }) => {
+      const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
+      const out = (await apiFetch('GET', `/v1/feedback${qs}`)) as {
         items: { path: string; ups: number; downs: number; boost: number }[];
       };
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
       if (out.items.length === 0) { process.stdout.write(kleur.gray('no feedback yet\n')); return; }
       for (const it of out.items) {
         const sign = it.boost > 1 ? kleur.green('+') : it.boost < 1 ? kleur.red('-') : kleur.gray('=');
