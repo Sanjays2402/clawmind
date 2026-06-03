@@ -9,11 +9,12 @@ import { Scopes } from '../scopes.js';
 // so a huge corpus doesn't blow up the response payload.
 
 export const staleRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get<{ Querystring: { olderThanDays?: string; limit?: string } }>('/sources/stale', {
+  app.get<{ Querystring: { olderThanDays?: string; limit?: string; q?: string } }>('/sources/stale', {
     schema: {
       querystring: z.object({
         olderThanDays: z.string().regex(/^\d+$/).optional(),
         limit: z.string().regex(/^\d+$/).optional(),
+        q: z.string().min(1).max(200).optional(),
       }),
     },
     preHandler: [app.requireAuth, app.requireScope(Scopes.StaleRead)],
@@ -22,7 +23,7 @@ export const staleRoutes: FastifyPluginAsyncZod = async (app) => {
         ? Number(req.query.olderThanDays)
         : DEFAULT_STALE_DAYS;
       const limit = req.query.limit ? Number(req.query.limit) : 200;
-      return findStaleSources(app.clawmind.manifest, { thresholdDays, limit });
+      return findStaleSources(app.clawmind.manifest, { thresholdDays, limit, q: req.query.q });
     },
   });
 };

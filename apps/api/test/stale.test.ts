@@ -95,4 +95,25 @@ describe('findStaleSources', () => {
     expect(out.thresholdDays).toBe(0);
     expect(out.total).toBe(2);
   });
+
+  it('filters items by case-insensitive substring on path', () => {
+    const out = findStaleFromEntries(
+      [
+        entry('/notes/alpha.md', 60),
+        entry('/notes/beta.md', 90),
+        entry('/code/Alpha.ts', 120),
+      ],
+      { thresholdDays: 30, now: NOW, q: 'ALPHA' },
+    );
+    expect(out.total).toBe(2);
+    expect(out.items.map((i) => i.path)).toEqual(['/code/Alpha.ts', '/notes/alpha.md']);
+  });
+
+  it('ignores an empty or whitespace-only q', () => {
+    const out = findStaleFromEntries(
+      [entry('/a.md', 60), entry('/b.md', 90)],
+      { thresholdDays: 30, now: NOW, q: '   ' },
+    );
+    expect(out.total).toBe(2);
+  });
 });

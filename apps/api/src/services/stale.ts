@@ -41,17 +41,19 @@ export const DEFAULT_STALE_DAYS = 30;
  */
 export function findStaleSources(
   manifest: IngestManifest,
-  opts: { thresholdDays?: number; now?: number; limit?: number } = {},
+  opts: { thresholdDays?: number; now?: number; limit?: number; q?: string } = {},
 ): StaleResult {
   const rawDays = opts.thresholdDays ?? DEFAULT_STALE_DAYS;
   const thresholdDays = Math.min(Math.max(0, rawDays), 3650);
   const now = opts.now ?? Date.now();
   const thresholdMs = thresholdDays * 86_400_000;
   const cutoff = now - thresholdMs;
+  const needle = opts.q?.trim().toLowerCase() ?? '';
 
   const items: StaleEntry[] = [];
   for (const e of manifest.entries()) {
     if (e.ingestedAt > cutoff) continue;
+    if (needle && !e.path.toLowerCase().includes(needle)) continue;
     const ageMs = now - e.ingestedAt;
     items.push({
       path: e.path,
@@ -79,7 +81,7 @@ export function findStaleSources(
  */
 export function findStaleFromEntries(
   entries: readonly ManifestEntry[],
-  opts: { thresholdDays?: number; now?: number; limit?: number } = {},
+  opts: { thresholdDays?: number; now?: number; limit?: number; q?: string } = {},
 ): StaleResult {
   const fake = {
     entries: () => [...entries],

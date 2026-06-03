@@ -26,17 +26,25 @@ export function staleCommand() {
     .description('List sources not re-ingested in N days')
     .option('-d, --days <n>', 'staleness threshold in days', '30')
     .option('-l, --limit <n>', 'cap on rows returned', '200')
+    .option('-q, --q <text>', 'case-insensitive substring filter on path')
     .option('--paths', 'print just the path column for piping into other commands')
-    .action(async (opts: { days: string; limit: string; paths?: boolean }) => {
-      const qs = new URLSearchParams({
+    .option('--json', 'emit results as JSON for scripting')
+    .action(async (opts: { days: string; limit: string; paths?: boolean; q?: string; json?: boolean }) => {
+      const params: Record<string, string> = {
         olderThanDays: opts.days,
         limit: opts.limit,
-      }).toString();
+      };
+      if (opts.q) params.q = opts.q;
+      const qs = new URLSearchParams(params).toString();
       const out = (await apiFetch('GET', `/v1/sources/stale?${qs}`)) as {
         thresholdDays: number;
         total: number;
         items: { path: string; ageDays: number; chunkCount: number; size: number }[];
       };
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
       if (opts.paths) {
         for (const it of out.items) process.stdout.write(`${it.path}\n`);
         return;
