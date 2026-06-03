@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 vi.mock('../src/runtime.js', () => ({
   buildRuntime: async () => ({
@@ -60,5 +63,54 @@ describe('search empty results UX', () => {
     await searchCommand().parseAsync(['node', 'cli', 'nope', '--json']);
     expect(JSON.parse(stdout.join(''))).toEqual([]);
     expect(stderr.join('')).toBe('');
+  });
+});
+
+describe('search --out writes results to a file', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  let dir: string;
+  beforeEach(async () => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    retrieveMock.mockReset();
+    dir = await mkdtemp(path.join(tmpdir(), 'clawmind-search-'));
+  });
+  afterEach(async () => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('writes json results to the given file and reports the count on stderr', async () => {
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', score: 0.5, chunk: { text: '' } },
+      { path: '/b.md', score: 0.4, chunk: { text: '' } },
+    ]);
+    const out = path.join(dir, 'hits.json');
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '-o', out]);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toContain('wrote 2 result(s)');
+    expect(stderr.join('')).toContain(out);
+    const body = JSON.parse(await readFile(out, 'utf8'));
+    expect(body).toHaveLength(2);
+    expect(body[0]).toMatchObject({ rank: 1, path: '/a.md' });
+  });
+
+  it('writes plain text results without ANSI color codes to --out', async () => {
+    retrieveMock.mockResolvedValue([{ path: '/a.md', score: 0.5, chunk: { text: '' } }]);
+    const out = path.join(dir, 'hits.txt');
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '-o', out]);
+    const body = await readFile(out, 'utf8');
+    expect(body).toContain('#1 /a.md:1 (0.500)');
+    // No ANSI escape sequences in saved file.
+    expect(body).not.toMatch(/\x1b\[/);
+    expect(stderr.join('')).toContain('wrote 1 result(s)');
   });
 });

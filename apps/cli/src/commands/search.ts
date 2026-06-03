@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { writeFile } from 'node:fs/promises';
 import kleur from 'kleur';
 import { retrieve, snippetFor, queryTerms } from '@clawmind/rag';
 import { QuerySchema } from '@clawmind/types';
@@ -22,6 +23,7 @@ export function searchCommand() {
     .option('--include-tags <list>', 'comma-separated tags; keep only sources carrying at least one')
     .option('--exclude-tags <list>', 'comma-separated tags; drop sources carrying any')
     .option('--json', 'emit results as a JSON array instead of formatted text')
+    .option('-o, --out <file>', 'write results to a file instead of stdout')
     .option('--no-highlight', 'disable ANSI highlighting of matched terms')
     .option('--snippet-width <n>', 'snippet width in characters', '240')
     .action(
@@ -33,6 +35,7 @@ export function searchCommand() {
           includeTags?: string;
           excludeTags?: string;
           json?: boolean;
+          out?: string;
           highlight: boolean;
           snippetWidth: string;
         },
@@ -63,7 +66,13 @@ export function searchCommand() {
               highlights: snip.highlights,
             };
           });
-          process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+          const payload = JSON.stringify(out, null, 2) + '\n';
+          if (opts.out) {
+            await writeFile(opts.out, payload, 'utf8');
+            process.stderr.write(kleur.green(`wrote ${out.length} result(s) -> ${opts.out}\n`));
+          } else {
+            process.stdout.write(payload);
+          }
           return;
         }
         if (hits.length === 0) {
@@ -75,10 +84,13 @@ export function searchCommand() {
           process.stderr.write(kleur.gray(`no results for "${q.q}"${suffix}\n`));
           return;
         }
+        // When writing to a file, drop ANSI styling so the saved text is clean.
+        const useColor = opts.highlight && !opts.out;
+        const chunks: string[] = [];
         hits.forEach((h, i) => {
           const snip = snippetFor(h, terms, width);
           let line = snip.text.replace(/\n/g, ' ');
-          if (opts.highlight) {
+          if (useColor) {
             // Walk spans in reverse so earlier offsets stay valid as we splice.
             for (let s = snip.highlights.length - 1; s >= 0; s--) {
               const hl = snip.highlights[s]!;
@@ -88,11 +100,17 @@ export function searchCommand() {
               line = before + kleur.yellow().bold(mid) + after;
             }
           }
-          process.stdout.write(
-            `${kleur.cyan(`#${i + 1}`)} ${kleur.gray(h.path + ':' + snip.startLine)} ${kleur.dim(`(${h.score.toFixed(3)})`)}\n` +
-              `${line}\n\n`,
-          );
+          const header = opts.out
+            ? `#${i + 1} ${h.path}:${snip.startLine} (${h.score.toFixed(3)})\n`
+            : `${kleur.cyan(`#${i + 1}`)} ${kleur.gray(h.path + ':' + snip.startLine)} ${kleur.dim(`(${h.score.toFixed(3)})`)}\n`;
+          chunks.push(header + `${line}\n\n`);
         });
+        if (opts.out) {
+          await writeFile(opts.out, chunks.join(''), 'utf8');
+          process.stderr.write(kleur.green(`wrote ${hits.length} result(s) -> ${opts.out}\n`));
+        } else {
+          for (const c of chunks) process.stdout.write(c);
+        }
       },
     );
 }
