@@ -182,4 +182,43 @@ describe('digest cli', () => {
     expect(parsed.state.history).toHaveLength(2);
     expect(out).not.toContain('query: snip');
   });
+
+  it('reports a clean message when the api is unreachable', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    globalThis.fetch = (async () => { throw new TypeError('fetch failed'); }) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'list']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const out = stderrBuf.join('');
+    expect(out).toContain('digest list failed: cannot reach');
+    expect(out).toContain('fetch failed');
+    process.exitCode = 0;
+  });
+
+  it('surfaces the message field from a json error body on run', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ message: 'no such saved search' }), {
+        status: 404,
+        statusText: 'Not Found',
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'run', 'missing']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const out = stderrBuf.join('');
+    expect(out).toContain('digest run failed: 404');
+    expect(out).toContain('no such saved search');
+    process.exitCode = 0;
+  });
 });

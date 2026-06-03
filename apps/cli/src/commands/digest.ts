@@ -2,16 +2,53 @@ import { Command } from 'commander';
 import kleur from 'kleur';
 import { loadEnv } from '@clawmind/config';
 
+class ApiError extends Error {
+  constructor(public readonly cleanMessage: string) {
+    super(cleanMessage);
+  }
+}
+
 async function apiFetch(method: string, path: string, body?: unknown) {
   const env = loadEnv();
   const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers: body ? { 'content-type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}: ${await res.text()}`);
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      method,
+      headers: body ? { 'content-type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new ApiError(`cannot reach ${base} (${msg})`);
+  }
+  if (!res.ok) {
+    let detail = (await res.text()).trim();
+    try {
+      const parsed = JSON.parse(detail) as { message?: unknown; error?: unknown };
+      if (typeof parsed.message === 'string') detail = parsed.message;
+      else if (typeof parsed.error === 'string') detail = parsed.error;
+    } catch {
+      // not JSON, keep as text
+    }
+    if (detail.length > 200) detail = detail.slice(0, 200) + '...';
+    const suffix = detail ? `: ${detail}` : '';
+    throw new ApiError(`${res.status} ${res.statusText}${suffix}`);
+  }
   return res.json();
+}
+
+async function runAction(label: string, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    if (err instanceof ApiError) {
+      process.stderr.write(kleur.red(`${label} failed: ${err.cleanMessage}\n`));
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
+  }
 }
 
 function fmtTime(ts: number | null) {
@@ -27,6 +64,7 @@ export function digestCommand() {
     .option('-q, --q <text>', 'case-insensitive substring filter across id, title, and query')
     .option('--json', 'emit results as JSON for scripting')
     .action(async (opts: { q?: string; json?: boolean }) => {
+     await runAction('digest list', async () => {
       const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
       const out = (await apiFetch('GET', `/v1/digests${qs}`)) as {
         items: {
@@ -48,12 +86,14 @@ export function digestCommand() {
           `${kleur.gray(`(${it.runs} runs)`)}\n`,
         );
       }
+     });
     });
 
   cmd.command('run [id]')
     .description('Run one saved search by id, or all if no id given')
     .option('--json', 'emit the run report as JSON for scripting')
     .action(async (id: string | undefined, opts: { json?: boolean }) => {
+     await runAction('digest run', async () => {
       if (id) {
         const out = (await apiFetch('POST', `/v1/digests/${id}/run`)) as {
           entry: { newSources: { path: string }[]; removedSources: string[] };
@@ -79,12 +119,14 @@ export function digestCommand() {
           process.stdout.write(`  ${r.savedSearchId}  ${kleur.green(`+${r.newCount}`)} ${kleur.red(`-${r.removedCount}`)}\n`);
         }
       }
+     });
     });
 
   cmd.command('show <id>')
     .description('Show full run history for one saved search')
     .option('--json', 'emit the history as JSON for scripting')
     .action(async (id: string, opts: { json?: boolean }) => {
+     await runAction('digest show', async () => {
       const out = (await apiFetch('GET', `/v1/digests/${id}`)) as {
         state: { query: string; history: { ts: number; newSources: { path: string }[]; removedSources: string[]; totalSources: number }[] };
       };
@@ -100,6 +142,7 @@ export function digestCommand() {
           `(${h.totalSources} total)\n`,
         );
       }
+     });
     });
 
   return cmd;
