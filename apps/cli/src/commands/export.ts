@@ -24,9 +24,27 @@ export function exportCommand() {
     .option('--api <url>', 'API base URL', process.env.CLAWMIND_API_URL ?? 'http://127.0.0.1:7410')
     .action(async (id: string, opts: { out?: string; format: Format; api: string }) => {
       const url = `${opts.api.replace(/\/+$/, '')}/v1/conversations/${encodeURIComponent(id)}/export.${opts.format}`;
-      const res = await fetch(url);
+      let res: Response;
+      try {
+        res = await fetch(url);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(kleur.red(`export failed: cannot reach ${opts.api} (${msg})\n`));
+        process.exitCode = 1;
+        return;
+      }
       if (!res.ok) {
-        process.stderr.write(kleur.red(`export failed (${res.status} ${res.statusText})\n`));
+        let detail = (await res.text()).trim();
+        try {
+          const parsed = JSON.parse(detail) as { message?: unknown; error?: unknown };
+          if (typeof parsed.message === 'string') detail = parsed.message;
+          else if (typeof parsed.error === 'string') detail = parsed.error;
+        } catch {
+          // not JSON, keep as text
+        }
+        if (detail.length > 200) detail = detail.slice(0, 200) + '...';
+        const suffix = detail ? `: ${detail}` : '';
+        process.stderr.write(kleur.red(`export failed (${res.status} ${res.statusText})${suffix}\n`));
         process.exitCode = 1;
         return;
       }

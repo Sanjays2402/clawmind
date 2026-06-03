@@ -81,5 +81,41 @@ describe('export cli', () => {
     }
     expect(process.exitCode).toBe(1);
     expect(stderr.join('')).toContain('export failed');
+    expect(stderr.join('')).toContain('not found');
+  });
+
+  it('surfaces the message field from a json error body', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ message: 'conversation abc not found' }), {
+        status: 404,
+        statusText: 'Not Found',
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    const stderr: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    try {
+      await exportCommand().parseAsync(['node', 'cli', 'abc', '--api', 'http://x']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('conversation abc not found');
+  });
+
+  it('reports a clean message when the api is unreachable', async () => {
+    globalThis.fetch = (async () => { throw new TypeError('fetch failed'); }) as never;
+    const stderr: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    try {
+      await exportCommand().parseAsync(['node', 'cli', 'abc', '--api', 'http://x']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const out = stderr.join('');
+    expect(out).toContain('cannot reach http://x');
+    expect(out).toContain('fetch failed');
   });
 });
