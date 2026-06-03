@@ -24,13 +24,20 @@ export function digestCommand() {
 
   cmd.command('list')
     .description('List saved searches with last digest run summary')
-    .action(async () => {
-      const out = (await apiFetch('GET', '/v1/digests')) as {
+    .option('-q, --q <text>', 'case-insensitive substring filter across id, title, and query')
+    .option('--json', 'emit results as JSON for scripting')
+    .action(async (opts: { q?: string; json?: boolean }) => {
+      const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
+      const out = (await apiFetch('GET', `/v1/digests${qs}`)) as {
         items: {
           savedSearchId: string; title: string; query: string;
           lastRunTs: number | null; lastNewCount: number; lastRemovedCount: number; runs: number;
         }[];
       };
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
       if (out.items.length === 0) { process.stdout.write(kleur.gray('no saved searches\n')); return; }
       for (const it of out.items) {
         process.stdout.write(

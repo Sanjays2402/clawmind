@@ -16,25 +16,40 @@ import { Scopes } from '../scopes.js';
 //   GET  /v1/digests/:id        full history for one saved search
 
 export const digestRoutes: FastifyPluginAsyncZod = async (app) => {
-  app.get('/digests', {
+  // Optional `q` filters by a case-insensitive substring matched against
+  // the saved search id, title, or query string. Handy for scripting against
+  // workspaces with many saved searches.
+  app.get<{ Querystring: { q?: string } }>('/digests', {
+    schema: {
+      querystring: z.object({
+        q: z.string().trim().min(1).max(200).optional(),
+      }),
+    },
     preHandler: [app.requireAuth, app.requireScope(Scopes.DigestsRead)],
     handler: async (req) => {
       const saved = await listSaved(app.clawmind.dataDir, req.user!.id);
       const states = await listDigestsForUser(app.clawmind.dataDir, req.user!.id, saved.map((s) => s.id));
-      return {
-        items: saved.map((s) => {
-          const st = states.find((x) => x.savedSearchId === s.id);
-          return {
-            savedSearchId: s.id,
-            title: s.title,
-            query: s.query,
-            lastRunTs: st?.lastRunTs ?? null,
-            lastNewCount: st?.history[0]?.newSources.length ?? 0,
-            lastRemovedCount: st?.history[0]?.removedSources.length ?? 0,
-            runs: st?.history.length ?? 0,
-          };
-        }),
-      };
+      const q = (req.query as { q?: string }).q?.toLowerCase();
+      const items = saved.map((s) => {
+        const st = states.find((x) => x.savedSearchId === s.id);
+        return {
+          savedSearchId: s.id,
+          title: s.title,
+          query: s.query,
+          lastRunTs: st?.lastRunTs ?? null,
+          lastNewCount: st?.history[0]?.newSources.length ?? 0,
+          lastRemovedCount: st?.history[0]?.removedSources.length ?? 0,
+          runs: st?.history.length ?? 0,
+        };
+      });
+      const filtered = q
+        ? items.filter((it) =>
+            it.savedSearchId.toLowerCase().includes(q)
+            || it.title.toLowerCase().includes(q)
+            || it.query.toLowerCase().includes(q),
+          )
+        : items;
+      return { items: filtered };
     },
   });
 
