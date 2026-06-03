@@ -47,11 +47,16 @@ export function tagsCommand() {
 
   cmd.command('paths <tag>')
     .description('List source paths carrying a tag')
-    .action(async (tag: string) => {
+    .option('--json', 'emit results as JSON for scripting')
+    .action(async (tag: string, opts: { json?: boolean }) => {
       const enc = encodeURIComponent(tag);
       const out = (await apiFetch('GET', `/v1/tags/${enc}`)) as {
         tag: string; paths: string[]; count: number;
       };
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
       if (out.count === 0) {
         process.stdout.write(kleur.gray(`no sources tagged ${out.tag}\n`));
         return;
@@ -61,11 +66,16 @@ export function tagsCommand() {
 
   cmd.command('show <path>')
     .description('Show tags currently attached to a source path')
-    .action(async (path: string) => {
+    .option('--json', 'emit results as JSON for scripting')
+    .action(async (path: string, opts: { json?: boolean }) => {
       const enc = encodeURIComponent(path);
       const out = (await apiFetch('GET', `/v1/tags/by-path?path=${enc}`)) as {
         path: string; tags: string[];
       };
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
       if (out.tags.length === 0) {
         process.stdout.write(kleur.gray(`no tags on ${out.path}\n`));
         return;
