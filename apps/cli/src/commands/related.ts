@@ -21,9 +21,27 @@ export function relatedCommand() {
     url.searchParams.set('path', path);
     url.searchParams.set('k', String(opts.k));
     if (opts.namespaces) url.searchParams.set('namespaces', opts.namespaces);
-    const res = await fetch(url);
+    let res: Response;
+    try {
+      res = await fetch(url);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      process.stderr.write(kleur.red(`related failed: cannot reach ${base} (${msg})\n`));
+      process.exitCode = 1;
+      return;
+    }
     if (!res.ok) {
-      process.stderr.write(kleur.red(`error: ${res.status} ${await res.text()}\n`));
+      let detail = (await res.text()).trim();
+      try {
+        const parsed = JSON.parse(detail) as { message?: unknown; error?: unknown };
+        if (typeof parsed.message === 'string') detail = parsed.message;
+        else if (typeof parsed.error === 'string') detail = parsed.error;
+      } catch {
+        // not JSON, keep as text
+      }
+      if (detail.length > 200) detail = detail.slice(0, 200) + '...';
+      const suffix = detail ? `: ${detail}` : '';
+      process.stderr.write(kleur.red(`related failed (${res.status} ${res.statusText})${suffix}\n`));
       process.exitCode = 1;
       return;
     }
