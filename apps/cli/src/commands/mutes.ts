@@ -6,16 +6,49 @@ import { loadEnv } from '@clawmind/config';
 // the two are conceptual mirrors: one biases retrieval toward a source, the
 // other away from it.
 
+class MutesCliError extends Error {}
+
 async function apiFetch(method: string, path: string, body?: unknown) {
   const env = loadEnv();
   const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
-  const res = await fetch(`${base}${path}`, {
-    method,
-    headers: body ? { 'content-type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  if (!res.ok) throw new Error(`${method} ${path} -> ${res.status}: ${await res.text()}`);
+  let res: Response;
+  try {
+    res = await fetch(`${base}${path}`, {
+      method,
+      headers: body ? { 'content-type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new MutesCliError(`cannot reach ${base} (${msg})`);
+  }
+  if (!res.ok) {
+    let detail = (await res.text()).trim();
+    try {
+      const parsed = JSON.parse(detail) as { message?: unknown; error?: unknown };
+      if (typeof parsed.message === 'string') detail = parsed.message;
+      else if (typeof parsed.error === 'string') detail = parsed.error;
+    } catch {
+      // not JSON, keep as text
+    }
+    if (detail.length > 200) detail = detail.slice(0, 200) + '...';
+    const suffix = detail ? `: ${detail}` : '';
+    throw new MutesCliError(`${res.status} ${res.statusText}${suffix}`);
+  }
   return res.json();
+}
+
+async function runOrReport(label: string, fn: () => Promise<void>): Promise<void> {
+  try {
+    await fn();
+  } catch (err) {
+    if (err instanceof MutesCliError) {
+      process.stderr.write(kleur.red(`${label} failed: ${err.message}\n`));
+      process.exitCode = 1;
+      return;
+    }
+    throw err;
+  }
 }
 
 function fmtDate(ms: number): string {
@@ -29,17 +62,21 @@ export function mutesCommand() {
     .description('Mute a source path with an optional reason. Use "dir/**" to mute a whole folder.')
     .option('-r, --reason <text>', 'short reminder about why this is muted')
     .action(async (path: string, opts: { reason?: string }) => {
-      const out = await apiFetch('POST', '/v1/mutes', { path, reason: opts.reason });
-      const e = out as { path: string; reason?: string };
-      process.stdout.write(kleur.yellow(`muted ${e.path}`) + (e.reason ? kleur.gray(` (${e.reason})`) : '') + '\n');
+      await runOrReport('mutes add', async () => {
+        const out = await apiFetch('POST', '/v1/mutes', { path, reason: opts.reason });
+        const e = out as { path: string; reason?: string };
+        process.stdout.write(kleur.yellow(`muted ${e.path}`) + (e.reason ? kleur.gray(` (${e.reason})`) : '') + '\n');
+      });
     });
 
   cmd.command('remove <path>')
     .alias('rm')
     .description('Remove a mute')
     .action(async (path: string) => {
-      await apiFetch('DELETE', '/v1/mutes', { path });
-      process.stdout.write(kleur.gray(`unmuted ${path}\n`));
+      await runOrReport('mutes remove', async () => {
+        await apiFetch('DELETE', '/v1/mutes', { path });
+        process.stdout.write(kleur.gray(`unmuted ${path}\n`));
+      });
     });
 
   cmd.command('list')
@@ -47,22 +84,24 @@ export function mutesCommand() {
     .option('-q, --q <text>', 'case-insensitive substring filter across path and reason')
     .option('--json', 'emit results as JSON for scripting')
     .action(async (opts: { q?: string; json?: boolean }) => {
-      const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
-      const out = (await apiFetch('GET', `/v1/mutes${qs}`)) as {
-        items: { path: string; reason?: string; mutedAt: number; mutedBy: string }[];
-        count: number;
-      };
-      if (opts.json) {
-        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
-        return;
-      }
-      if (out.count === 0) { process.stdout.write(kleur.gray('no muted sources\n')); return; }
-      for (const it of out.items) {
-        const head = kleur.bold(it.path);
-        const tail = kleur.gray(`(${fmtDate(it.mutedAt)} by ${it.mutedBy})`);
-        process.stdout.write(`${head} ${tail}\n`);
-        if (it.reason) process.stdout.write(kleur.dim(`    ${it.reason}\n`));
-      }
+      await runOrReport('mutes list', async () => {
+        const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
+        const out = (await apiFetch('GET', `/v1/mutes${qs}`)) as {
+          items: { path: string; reason?: string; mutedAt: number; mutedBy: string }[];
+          count: number;
+        };
+        if (opts.json) {
+          process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+          return;
+        }
+        if (out.count === 0) { process.stdout.write(kleur.gray('no muted sources\n')); return; }
+        for (const it of out.items) {
+          const head = kleur.bold(it.path);
+          const tail = kleur.gray(`(${fmtDate(it.mutedAt)} by ${it.mutedBy})`);
+          process.stdout.write(`${head} ${tail}\n`);
+          if (it.reason) process.stdout.write(kleur.dim(`    ${it.reason}\n`));
+        }
+      });
     });
 
   return cmd;
