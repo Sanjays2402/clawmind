@@ -82,6 +82,45 @@ describe('feedback cli', () => {
     await feedbackCommand().parseAsync(['node', 'cli', 'list', '-q', 'a md']);
     expect(fetchCalls[0]?.url).toContain('/v1/feedback?q=a%20md');
   });
+
+  it('reports a clean message when the api is unreachable', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    globalThis.fetch = (async () => { throw new TypeError('fetch failed'); }) as never;
+    try {
+      await feedbackCommand().parseAsync(['node', 'cli', 'list']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const out = stderrBuf.join('');
+    expect(out).toContain('feedback list failed: cannot reach');
+    expect(out).toContain('fetch failed');
+    process.exitCode = 0;
+  });
+
+  it('surfaces the message field from a json error body on up', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ message: 'unknown source path' }), {
+        status: 404,
+        statusText: 'Not Found',
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    try {
+      await feedbackCommand().parseAsync(['node', 'cli', 'up', '/missing.md']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const out = stderrBuf.join('');
+    expect(out).toContain('feedback up failed: (404');
+    expect(out).toContain('unknown source path');
+    process.exitCode = 0;
+  });
 });
 
 describe('digest cli', () => {
