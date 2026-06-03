@@ -7,12 +7,17 @@ export function compactCommand() {
   return new Command('compact')
     .description('Prune manifest, BM25, and LanceDB entries for files that no longer exist')
     .option('--dry-run', 'report what would be removed without changing anything', false)
-    .action(async (opts: { dryRun: boolean }) => {
+    .option('--json', 'emit machine-readable JSON instead of a text report')
+    .action(async (opts: { dryRun: boolean; json?: boolean }) => {
       const rt = await buildRuntime();
       const report = await compactStore({
         manifest: rt.manifest, bm25: rt.bm25, bm25File: rt.bm25File,
         lance: rt.lance, dryRun: opts.dryRun,
       });
+      if (opts.json) {
+        process.stdout.write(JSON.stringify({ dryRun: opts.dryRun, ...report }, null, 2) + '\n');
+        return;
+      }
       const head = opts.dryRun ? kleur.yellow('dry run') : kleur.green('compacted');
       process.stdout.write([
         `${head} scanned=${report.scanned} removed=${report.removed} kept=${report.kept}`,

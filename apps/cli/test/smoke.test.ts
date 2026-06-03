@@ -3,6 +3,7 @@ import { askCommand } from '../src/commands/ask.js';
 import { searchCommand } from '../src/commands/search.js';
 import { statusCommand } from '../src/commands/status.js';
 import { forgetCommand } from '../src/commands/forget.js';
+import { compactCommand } from '../src/commands/compact.js';
 
 describe('cli commands', () => {
   it('expose names', () => {
@@ -23,6 +24,11 @@ describe('cli commands', () => {
 
   it('forget exposes --json for scripting', () => {
     const flags = forgetCommand().options.map((o) => o.long);
+    expect(flags).toContain('--json');
+  });
+
+  it('compact exposes --json for scripting', () => {
+    const flags = compactCommand().options.map((o) => o.long);
     expect(flags).toContain('--json');
   });
 });
