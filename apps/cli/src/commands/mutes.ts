@@ -44,11 +44,18 @@ export function mutesCommand() {
 
   cmd.command('list')
     .description('List currently muted sources, newest first')
-    .action(async () => {
-      const out = (await apiFetch('GET', '/v1/mutes')) as {
+    .option('-q, --q <text>', 'case-insensitive substring filter across path and reason')
+    .option('--json', 'emit results as JSON for scripting')
+    .action(async (opts: { q?: string; json?: boolean }) => {
+      const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
+      const out = (await apiFetch('GET', `/v1/mutes${qs}`)) as {
         items: { path: string; reason?: string; mutedAt: number; mutedBy: string }[];
         count: number;
       };
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
       if (out.count === 0) { process.stdout.write(kleur.gray('no muted sources\n')); return; }
       for (const it of out.items) {
         const head = kleur.bold(it.path);
