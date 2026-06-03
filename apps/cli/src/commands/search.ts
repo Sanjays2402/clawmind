@@ -66,6 +66,15 @@ export function searchCommand() {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
           return;
         }
+        if (hits.length === 0) {
+          const filters: string[] = [];
+          if (q.namespaces?.length) filters.push(`namespaces=${q.namespaces.join(',')}`);
+          if (q.includeTags?.length) filters.push(`include-tags=${q.includeTags.join(',')}`);
+          if (q.excludeTags?.length) filters.push(`exclude-tags=${q.excludeTags.join(',')}`);
+          const suffix = filters.length ? ` with ${filters.join(' ')}` : '';
+          process.stderr.write(kleur.gray(`no results for "${q.q}"${suffix}\n`));
+          return;
+        }
         hits.forEach((h, i) => {
           const snip = snippetFor(h, terms, width);
           let line = snip.text.replace(/\n/g, ' ');
