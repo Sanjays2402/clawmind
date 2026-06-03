@@ -155,4 +155,31 @@ describe('digest cli', () => {
     expect(out).toContain('query: snip');
     expect(out.split('\n').filter((l) => l.includes('total')).length).toBe(2);
   });
+
+  it('run with id --json emits parseable JSON and skips text output', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'run', 's1', '--json']);
+    const out = captured.join('');
+    const parsed = JSON.parse(out) as { entry: { newSources: { path: string }[]; removedSources: string[] } };
+    expect(parsed.entry.newSources.map((s) => s.path)).toEqual(['/n1.md', '/n2.md']);
+    expect(parsed.entry.removedSources).toEqual(['x']);
+    expect(out).not.toContain('+ /n1.md');
+  });
+
+  it('run without id --json emits the batch report as JSON', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--json']);
+    const out = captured.join('');
+    const parsed = JSON.parse(out) as { ran: number; results: { savedSearchId: string }[] };
+    expect(parsed.ran).toBe(1);
+    expect(parsed.results[0]?.savedSearchId).toBe('s1');
+    expect(out).not.toContain('ran 1 saved searches');
+  });
+
+  it('show --json emits parseable history JSON and skips text output', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json']);
+    const out = captured.join('');
+    const parsed = JSON.parse(out) as { state: { query: string; history: { ts: number }[] } };
+    expect(parsed.state.query).toBe('snip');
+    expect(parsed.state.history).toHaveLength(2);
+    expect(out).not.toContain('query: snip');
+  });
 });

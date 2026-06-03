@@ -52,11 +52,16 @@ export function digestCommand() {
 
   cmd.command('run [id]')
     .description('Run one saved search by id, or all if no id given')
-    .action(async (id?: string) => {
+    .option('--json', 'emit the run report as JSON for scripting')
+    .action(async (id: string | undefined, opts: { json?: boolean }) => {
       if (id) {
         const out = (await apiFetch('POST', `/v1/digests/${id}/run`)) as {
           entry: { newSources: { path: string }[]; removedSources: string[] };
         };
+        if (opts.json) {
+          process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+          return;
+        }
         process.stdout.write(kleur.green(`new (${out.entry.newSources.length}):\n`));
         for (const s of out.entry.newSources) process.stdout.write(`  + ${s.path}\n`);
         process.stdout.write(kleur.red(`removed (${out.entry.removedSources.length}):\n`));
@@ -65,6 +70,10 @@ export function digestCommand() {
         const out = (await apiFetch('POST', '/v1/digests/run')) as {
           ran: number; results: { savedSearchId: string; newCount: number; removedCount: number }[];
         };
+        if (opts.json) {
+          process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+          return;
+        }
         process.stdout.write(kleur.gray(`ran ${out.ran} saved searches\n`));
         for (const r of out.results) {
           process.stdout.write(`  ${r.savedSearchId}  ${kleur.green(`+${r.newCount}`)} ${kleur.red(`-${r.removedCount}`)}\n`);
@@ -74,10 +83,15 @@ export function digestCommand() {
 
   cmd.command('show <id>')
     .description('Show full run history for one saved search')
-    .action(async (id: string) => {
+    .option('--json', 'emit the history as JSON for scripting')
+    .action(async (id: string, opts: { json?: boolean }) => {
       const out = (await apiFetch('GET', `/v1/digests/${id}`)) as {
         state: { query: string; history: { ts: number; newSources: { path: string }[]; removedSources: string[]; totalSources: number }[] };
       };
+      if (opts.json) {
+        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
       process.stdout.write(kleur.gray(`query: ${out.state.query}\n`));
       for (const h of out.state.history) {
         process.stdout.write(
