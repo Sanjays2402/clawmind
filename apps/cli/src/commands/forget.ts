@@ -27,9 +27,17 @@ export function forgetCommand() {
     .argument('<patterns...>', 'one or more glob patterns matched against absolute paths')
     .option('--apply', 'actually delete the matches; default is a dry-run preview')
     .option('--quiet', 'do not list every matched path')
-    .action(async (patterns: string[], opts: { apply?: boolean; quiet?: boolean }) => {
+    .option('--json', 'emit the forget report as JSON for scripting')
+    .action(async (patterns: string[], opts: { apply?: boolean; quiet?: boolean; json?: boolean }) => {
       const dryRun = !opts.apply;
       const report = await callForget(patterns, dryRun);
+
+      if (opts.json) {
+        process.stdout.write(
+          JSON.stringify({ patterns, ...report }, null, 2) + '\n',
+        );
+        return;
+      }
 
       const verb = dryRun ? 'would remove' : 'removed';
       const head = `${verb} ${report.matched} source(s) and ${report.removedChunks} chunk(s)`;

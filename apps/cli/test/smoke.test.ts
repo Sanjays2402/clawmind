@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { askCommand } from '../src/commands/ask.js';
 import { searchCommand } from '../src/commands/search.js';
 import { statusCommand } from '../src/commands/status.js';
+import { forgetCommand } from '../src/commands/forget.js';
 
 describe('cli commands', () => {
   it('expose names', () => {
@@ -17,6 +18,11 @@ describe('cli commands', () => {
 
   it('status exposes --json for scripting', () => {
     const flags = statusCommand().options.map((o) => o.long);
+    expect(flags).toContain('--json');
+  });
+
+  it('forget exposes --json for scripting', () => {
+    const flags = forgetCommand().options.map((o) => o.long);
     expect(flags).toContain('--json');
   });
 });
