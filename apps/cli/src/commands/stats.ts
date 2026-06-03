@@ -37,13 +37,28 @@ function fmtAge(ms: number | null): string {
 export function statsCommand() {
   return new Command('stats')
     .description('Per-namespace breakdown of indexed files, chunks, and bytes')
+    .option('-q, --query <substr>', 'only include namespaces whose name contains this substring (case-insensitive)')
     .option('--json', 'emit machine-readable JSON instead of a text table')
-    .action(async (opts: { json?: boolean }) => {
+    .action(async (opts: { json?: boolean; query?: string }) => {
       const env = loadEnv();
       const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
       const res = await fetch(`${base}/v1/stats`);
       if (!res.ok) throw new Error(`GET /v1/stats -> ${res.status}: ${await res.text()}`);
-      const report = (await res.json()) as StatsReport;
+      let report = (await res.json()) as StatsReport;
+      if (opts.query) {
+        const needle = opts.query.toLowerCase();
+        const byNamespace = report.byNamespace.filter((n) => n.namespace.toLowerCase().includes(needle));
+        const totals = byNamespace.reduce(
+          (acc, n) => {
+            acc.files += n.files;
+            acc.chunks += n.chunks;
+            acc.bytes += n.bytes;
+            return acc;
+          },
+          { files: 0, chunks: 0, bytes: 0, namespaces: byNamespace.length },
+        );
+        report = { ...report, byNamespace, totals };
+      }
       if (opts.json) {
         process.stdout.write(JSON.stringify(report, null, 2) + '\n');
         return;
