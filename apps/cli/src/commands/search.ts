@@ -14,10 +14,24 @@ function splitList(value: string | undefined): string[] | undefined {
   return parts.length ? parts : undefined;
 }
 
+/**
+ * Read the entire stdin as a UTF-8 string. Used when the operator
+ * passes `-` as the query so things like `echo foo | clawmind search -`
+ * or `cat queries.txt | clawmind search -` work in shell loops without
+ * having to quote the query into the argument list. Trailing newlines
+ * are trimmed because that is what every shell pipeline produces.
+ */
+async function readStdin(): Promise<string> {
+  let buf = '';
+  process.stdin.setEncoding('utf8');
+  for await (const chunk of process.stdin) buf += chunk;
+  return buf.replace(/\s+$/, '');
+}
+
 export function searchCommand() {
   return new Command('search')
     .description('Hybrid search without LLM generation')
-    .argument('<query...>')
+    .argument('<query...>', 'query terms; pass a single "-" to read the full query from stdin')
     .option('-k, --k <n>', 'top k', '10')
     .option('-n, --namespaces <list>', 'comma-separated namespaces to restrict to')
     .option('--include-tags <list>', 'comma-separated tags; keep only sources carrying at least one')
@@ -45,8 +59,29 @@ export function searchCommand() {
         },
       ) => {
         const rt = await buildRuntime();
+        // Stdin sigil: a single literal `-` argument means "the real
+        // query comes from stdin". This lets shell loops do
+        //   echo "embeddings vs bm25" | clawmind search -
+        //   xargs -I{} clawmind search - <<<{}    # one query at a time
+        // without having to splice the query into the argv list. Any
+        // other argv shape is joined with spaces exactly as before, so
+        // existing scripts keep working byte-for-byte. We reject an
+        // empty stdin loudly so an accidental `cmd | clawmind search -`
+        // with no upstream output does not silently retrieve the whole
+        // index by issuing the empty query against every doc.
+        let qText: string;
+        if (query.length === 1 && query[0] === '-') {
+          qText = await readStdin();
+          if (qText.length === 0) {
+            process.stderr.write(kleur.red('search failed: stdin was empty (no query to run)\n'));
+            process.exitCode = 1;
+            return;
+          }
+        } else {
+          qText = query.join(' ');
+        }
         const q = QuerySchema.parse({
-          q: query.join(' '),
+          q: qText,
           k: Number(opts.k),
           namespaces: splitList(opts.namespaces),
           includeTags: splitList(opts.includeTags),

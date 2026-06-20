@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { readFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 
 vi.mock('../src/runtime.js', () => ({
   buildRuntime: async () => ({
@@ -270,5 +271,96 @@ describe('search --no-snippet trims the json payload to ranking fields', () => {
     const out = stdout.join('');
     expect(out).toContain('snippet body for /a.md');
     expect(out).toContain('snippet body for /b.md');
+  });
+});
+
+describe('search reads the query from stdin when the argument is "-"', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  let origStdin: typeof process.stdin;
+  function pipeStdin(payload: string) {
+    // Replace process.stdin with a Readable that yields `payload` and
+    // then ends. `readStdin` reads via `for await (const chunk of
+    // process.stdin)` which works against any Readable.
+    const fake = Readable.from([payload]) as unknown as NodeJS.ReadStream;
+    // setEncoding is called by the source under test; Readable.from
+    // returns an object-mode-ish stream that already yields strings, so
+    // we install a noop to satisfy the call without disturbing the
+    // chunk type.
+    (fake as unknown as { setEncoding: (enc: string) => void }).setEncoding = () => {};
+    Object.defineProperty(process, 'stdin', { value: fake, configurable: true });
+  }
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    origStdin = process.stdin;
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    retrieveMock.mockReset();
+    // Track the query the action actually built so we can assert on it.
+    retrieveMock.mockResolvedValue([]);
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    Object.defineProperty(process, 'stdin', { value: origStdin, configurable: true });
+    process.exitCode = 0;
+  });
+
+  it('reads a one-line query from stdin and uses it as the search text', async () => {
+    pipeStdin('embeddings vs bm25\n');
+    await searchCommand().parseAsync(['node', 'cli', '-']);
+    // The empty-results stderr line is the easiest way to recover the
+    // exact query string the action ran with — it gets echoed verbatim.
+    expect(stderr.join('')).toContain('no results for "embeddings vs bm25"');
+    // The retrieve call should have happened — confirms we did not bail
+    // out before the search ran.
+    expect(retrieveMock).toHaveBeenCalledOnce();
+    const q = retrieveMock.mock.calls[0]?.[1] as { q: string };
+    expect(q.q).toBe('embeddings vs bm25');
+  });
+
+  it('trims trailing whitespace/newlines (heredoc and `echo` friendly)', async () => {
+    // `echo foo` always appends a newline; heredocs append one too.
+    // The contract for `--paths-only` / `--tsv` is "exact bytes" — but
+    // here the trailing newline is an artifact, so we strip it.
+    pipeStdin('multi line\nquery\n\n');
+    await searchCommand().parseAsync(['node', 'cli', '-']);
+    const q = retrieveMock.mock.calls[0]?.[1] as { q: string };
+    // Trailing whitespace gone; interior newline preserved (BM25 tokeniser
+    // splits on whitespace anyway, so it does not matter for results, but
+    // we deliberately do not collapse interior whitespace).
+    expect(q.q).toBe('multi line\nquery');
+  });
+
+  it('an empty stdin stream is a fatal error, NOT a silent whole-index dump', async () => {
+    pipeStdin('');
+    await searchCommand().parseAsync(['node', 'cli', '-']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('search failed: stdin was empty');
+    // Critical: an empty query must NOT reach the retriever.
+    expect(retrieveMock).not.toHaveBeenCalled();
+  });
+
+  it('a "-" alongside other argv tokens is treated literally (no stdin read)', async () => {
+    // Only a single literal "-" triggers stdin mode. `clawmind search -
+    // foo bar` joins to "- foo bar" (the operator probably meant to type
+    // the dash but did not want stdin). Stdin must not be read in this
+    // case or the command would hang in a real shell.
+    await searchCommand().parseAsync(['node', 'cli', '-', 'foo', 'bar']);
+    const q = retrieveMock.mock.calls[0]?.[1] as { q: string };
+    expect(q.q).toBe('- foo bar');
+  });
+
+  it('the normal positional-args path still works byte-for-byte', async () => {
+    // Belt-and-braces regression check: the existing `cli search foo bar`
+    // shape must not change behaviour now that the `-` branch exists.
+    await searchCommand().parseAsync(['node', 'cli', 'foo', 'bar', 'baz']);
+    const q = retrieveMock.mock.calls[0]?.[1] as { q: string };
+    expect(q.q).toBe('foo bar baz');
   });
 });
