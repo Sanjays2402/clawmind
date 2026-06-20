@@ -82,8 +82,9 @@ export function mutesCommand() {
   cmd.command('list')
     .description('List currently muted sources, newest first')
     .option('-q, --q <text>', 'case-insensitive substring filter across path and reason')
+    .option('--paths', 'emit only the muted paths, one per line, with no styling or reasons (pipe-friendly)')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; json?: boolean }) => {
+    .action(async (opts: { q?: string; paths?: boolean; json?: boolean }) => {
       await runOrReport('mutes list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         const out = (await apiFetch('GET', `/v1/mutes${qs}`)) as {
@@ -92,6 +93,17 @@ export function mutesCommand() {
         };
         if (opts.json) {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+          return;
+        }
+        // --paths is the pipe-friendly twin of `pins list --paths` /
+        // `stale --paths` / `forget --paths-only`. Drops every styled byte
+        // (no header, no "no muted sources" hint, no colour, no reason)
+        // so `clawmind mutes list --paths | xargs -n1 clawmind mutes rm`
+        // (or `xargs -n1 clawmind forget --apply`) works without
+        // conditional skips. -q still narrows the set first; zero matches
+        // yields a clean empty stream.
+        if (opts.paths) {
+          for (const it of out.items) process.stdout.write(`${it.path}\n`);
           return;
         }
         if (out.count === 0) { process.stdout.write(kleur.gray('no muted sources\n')); return; }
