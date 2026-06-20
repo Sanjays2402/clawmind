@@ -79,8 +79,9 @@ export function statsCommand() {
   return new Command('stats')
     .description('Per-namespace breakdown of indexed files, chunks, and bytes')
     .option('-q, --query <substr>', 'only include namespaces whose name contains this substring (case-insensitive)')
+    .option('--top <n>', 'cap the per-namespace extension breakdown at this many entries (default 4)', '4')
     .option('--json', 'emit machine-readable JSON instead of a text table')
-    .action(async (opts: { json?: boolean; query?: string }) => {
+    .action(async (opts: { json?: boolean; query?: string; top: string }) => {
       await runOrReport('stats', async () => {
         let report = (await apiFetch('GET', '/v1/stats')) as StatsReport;
         if (opts.query) {
@@ -97,6 +98,20 @@ export function statsCommand() {
           );
           report = { ...report, byNamespace, totals };
         }
+        // --top trims the per-namespace `extensions` list in both --json and
+        // text mode. We clamp to a sensible range so a user typo like
+        // `--top 0` or `--top -1` still produces a meaningful output instead
+        // of a silently empty table; large values (e.g. `--top 1000`) just
+        // mean "show them all".
+        const parsedTop = Number.parseInt(opts.top, 10);
+        const topN = Number.isFinite(parsedTop) && parsedTop > 0 ? parsedTop : 4;
+        report = {
+          ...report,
+          byNamespace: report.byNamespace.map((n) => ({
+            ...n,
+            extensions: n.extensions.slice(0, topN),
+          })),
+        };
         if (opts.json) {
           process.stdout.write(JSON.stringify(report, null, 2) + '\n');
           return;
@@ -112,7 +127,7 @@ export function statsCommand() {
           return;
         }
         for (const ns of report.byNamespace) {
-          const top = ns.extensions.slice(0, 4).map((e) => `${e.ext}:${e.count}`).join(' ');
+          const top = ns.extensions.map((e) => `${e.ext}:${e.count}`).join(' ');
           process.stdout.write(
             `${kleur.cyan(ns.namespace.padEnd(10))} ` +
             `${String(ns.files).padStart(6)} files  ` +

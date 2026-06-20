@@ -4,7 +4,24 @@ import { statsCommand } from '../src/commands/stats.js';
 const sampleReport = {
   totals: { files: 30, chunks: 300, bytes: 30_000, namespaces: 3 },
   byNamespace: [
-    { namespace: 'memory', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [{ ext: 'md', count: 10 }] },
+    {
+      namespace: 'memory',
+      files: 10,
+      chunks: 100,
+      bytes: 10_000,
+      oldestIngestedAt: null,
+      newestIngestedAt: null,
+      // 6 extensions so we can exercise --top with values both below and
+      // above the natural length.
+      extensions: [
+        { ext: 'md', count: 50 },
+        { ext: 'txt', count: 20 },
+        { ext: 'json', count: 15 },
+        { ext: 'yaml', count: 8 },
+        { ext: 'csv', count: 4 },
+        { ext: 'log', count: 3 },
+      ],
+    },
     { namespace: 'sessions', files: 5, chunks: 50, bytes: 5_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [{ ext: 'json', count: 5 }] },
     { namespace: 'projects', files: 15, chunks: 150, bytes: 15_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [{ ext: 'ts', count: 15 }] },
   ],
@@ -61,6 +78,52 @@ describe('stats cli', () => {
     expect(text).toContain('projects');
     expect(text).not.toContain('memory ');
     expect(text).not.toContain('sessions ');
+  });
+
+  it('--top caps the extensions list to N entries in json mode', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--top', '2']);
+    const out = JSON.parse(captured.join(''));
+    const memory = out.byNamespace.find((n: { namespace: string }) => n.namespace === 'memory');
+    expect(memory.extensions).toHaveLength(2);
+    expect(memory.extensions.map((e: { ext: string }) => e.ext)).toEqual(['md', 'txt']);
+    // Smaller namespaces unaffected when they have fewer entries than the cap.
+    const projects = out.byNamespace.find((n: { namespace: string }) => n.namespace === 'projects');
+    expect(projects.extensions).toHaveLength(1);
+  });
+
+  it('--top defaults to 4 when omitted', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json']);
+    const out = JSON.parse(captured.join(''));
+    const memory = out.byNamespace.find((n: { namespace: string }) => n.namespace === 'memory');
+    expect(memory.extensions).toHaveLength(4);
+  });
+
+  it('--top with a value larger than the natural length yields all entries', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--top', '100']);
+    const out = JSON.parse(captured.join(''));
+    const memory = out.byNamespace.find((n: { namespace: string }) => n.namespace === 'memory');
+    expect(memory.extensions).toHaveLength(6);
+  });
+
+  it('--top with garbage (0, negative, non-numeric) falls back to the default of 4', async () => {
+    // A user typo like `--top 0` would silently zero out the breakdown if we
+    // forwarded the value as-is. We clamp to the default instead so the
+    // command remains useful.
+    for (const bad of ['0', '-3', 'abc']) {
+      captured.length = 0;
+      await statsCommand().parseAsync(['node', 'cli', '--json', '--top', bad]);
+      const out = JSON.parse(captured.join(''));
+      const memory = out.byNamespace.find((n: { namespace: string }) => n.namespace === 'memory');
+      expect(memory.extensions).toHaveLength(4);
+    }
+  });
+
+  it('--top is reflected in the text-mode bracket summary', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--top', '2']);
+    const text = captured.join('');
+    // The bracket carries the two highest-count extensions only.
+    expect(text).toContain('[md:50 txt:20]');
+    expect(text).not.toContain('json:15');
   });
 });
 
