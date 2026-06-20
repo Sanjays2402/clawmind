@@ -125,6 +125,67 @@ describe('stats cli', () => {
     expect(text).toContain('[md:50 txt:20]');
     expect(text).not.toContain('json:15');
   });
+
+  it('--sort files orders namespaces by file count desc', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'files']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual([
+      'projects', // 15 files
+      'memory',   // 10 files
+      'sessions', // 5 files
+    ]);
+  });
+
+  it('--sort chunks orders namespaces by chunk count desc', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'chunks']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual([
+      'projects', // 150 chunks
+      'memory',   // 100 chunks
+      'sessions', // 50 chunks
+    ]);
+  });
+
+  it('--sort bytes orders namespaces by byte count desc', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'bytes']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual([
+      'projects', // 15000
+      'memory',   // 10000
+      'sessions', // 5000
+    ]);
+  });
+
+  it('--sort defaults to namespace (preserves API order)', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json']);
+    const out = JSON.parse(captured.join(''));
+    // Same order as the sampleReport.
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual([
+      'memory', 'sessions', 'projects',
+    ]);
+  });
+
+  it('--sort is case-insensitive', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'FILES']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.byNamespace[0].namespace).toBe('projects');
+  });
+
+  it('--sort with an unknown key fails cleanly with a non-zero exit code', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('stats failed: unknown --sort key "banana"');
+    expect(err).toContain('expected: files, chunks, bytes, namespace');
+    process.exitCode = 0;
+  });
 });
 
 describe('stats cli error handling', () => {

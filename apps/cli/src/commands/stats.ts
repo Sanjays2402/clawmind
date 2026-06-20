@@ -80,8 +80,9 @@ export function statsCommand() {
     .description('Per-namespace breakdown of indexed files, chunks, and bytes')
     .option('-q, --query <substr>', 'only include namespaces whose name contains this substring (case-insensitive)')
     .option('--top <n>', 'cap the per-namespace extension breakdown at this many entries (default 4)', '4')
+    .option('--sort <key>', 'sort namespaces descending by one of: files, chunks, bytes, namespace (default: namespace)', 'namespace')
     .option('--json', 'emit machine-readable JSON instead of a text table')
-    .action(async (opts: { json?: boolean; query?: string; top: string }) => {
+    .action(async (opts: { json?: boolean; query?: string; top: string; sort: string }) => {
       await runOrReport('stats', async () => {
         let report = (await apiFetch('GET', '/v1/stats')) as StatsReport;
         if (opts.query) {
@@ -112,6 +113,19 @@ export function statsCommand() {
             extensions: n.extensions.slice(0, topN),
           })),
         };
+        // --sort lets the operator rank by their preferred metric. The
+        // numeric keys sort descending (biggest namespace first) because
+        // that is the question they answer ("which namespace dominates the
+        // index?"). The default "namespace" key keeps the alphabetical
+        // order the API returns so existing scripts that diff stats output
+        // do not have to change.
+        const sortKey = opts.sort.toLowerCase();
+        if (sortKey === 'files' || sortKey === 'chunks' || sortKey === 'bytes') {
+          const sorted = [...report.byNamespace].sort((a, b) => b[sortKey] - a[sortKey]);
+          report = { ...report, byNamespace: sorted };
+        } else if (sortKey !== 'namespace') {
+          throw new StatsCliError(`unknown --sort key "${opts.sort}" (expected: files, chunks, bytes, namespace)`);
+        }
         if (opts.json) {
           process.stdout.write(JSON.stringify(report, null, 2) + '\n');
           return;
