@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-20 08:05 PDT (current)
+### Tick 2026-06-20 12:27 PDT (current)
+
+- [x] feat(pins): add --paths flag to pins list for pipeline-friendly output (e91c76d)
+- [x] feat(mutes): add --paths flag to mutes list for pipeline-friendly output (7c84163)
+- [x] feat(aliases): add --paths flag to aliases list for pipeline-friendly output (28cd9c6)
+- [x] feat(search): add --no-snippet to emit slim ranking-only JSON (2645a6b)
+- [x] feat(search): read the query from stdin when the argument is "-" (8538749)
+
+### Tick 2026-06-20 08:05 PDT
 
 - [x] feat(stats): add --top <n> to cap per-namespace extension breakdown (c47bc78)
 - [x] feat(stats): add --sort <files|chunks|bytes|namespace> for the per-namespace table (77e0d9a)
@@ -47,15 +55,10 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 ### Queued for later ticks
 
 - [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved)
-- [ ] feat(pins): add --paths option to print just pinned paths for piping (mirror of forget --paths-only / stale --paths)
-- [ ] feat(mutes): add --paths option to print just muted paths for piping (mirror of forget --paths-only / stale --paths)
-- [ ] feat(aliases): add --paths option to print just alias targets for piping
 - [ ] feat(tags): add --paths-only to tags paths to drop styling and emit one path per line (currently it does that in text mode but a flag makes the contract explicit)
 - [ ] feat(ask): add --no-citations flag for quick non-cited answers
 - [ ] feat(ask): add --out option mirroring search --out for saving long answers
 - [ ] feat(ask): add --threshold to require a minimum citation score (skip llm when no citation clears the bar)
-- [ ] feat(search): add --no-snippet to skip the snippet body and emit only paths+scores (smaller --json payload for ranking pipelines)
-- [ ] feat(search): support reading the query from stdin when `<query>` is `-`, so `echo "foo" | clawmind search -` works for shell loops
 - [ ] feat(digest): add -q substring filter to digest *show* history rows (digest list already has -q)
 - [ ] feat(digest): add --since <iso-date> to digest show to bound the history window
 - [ ] feat(watch): add --debounce <ms> option to coalesce rapid file events
@@ -67,6 +70,13 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(stats): add --since <iso-date> to filter namespaces whose newestIngestedAt is older than the cutoff
 - [ ] feat(stats): add --json compact mode (single-line JSON instead of pretty-printed, easier to diff)
 - [ ] feat(feedback): add --json filter to list returning only paths above/below a boost multiplier
+- [ ] feat(reindex): add --dry-run that lists files that would be reindexed without touching the store
+- [ ] feat(ingest): add --since <iso-date> to only ingest files modified after the cutoff (incremental refresh from cron)
+- [ ] feat(forget): add --confirm <count> safety prompt: refuse --apply when the match count exceeds N unless --confirm matches the actual count (prevents accidental whole-index wipes)
+- [ ] feat(search): add --paths-only as a one-shot path dump (`clawmind search foo --paths-only` -> one path per line for shell loops)
+- [ ] feat(ask): add --stream-json to emit one NDJSON event per token (kind=token/sources/done) for live UI piping
+- [ ] feat(status): add --json-watch that emits one NDJSON snapshot per poll cycle (pairs with --watch)
+- [ ] feat(pins/mutes): add --paths --since <iso> filter so cron snapshots only export recently-touched entries
 
 ## Conventions
 
@@ -105,3 +115,26 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   -t/--threshold to push the relevance floor into the command; forget grew
   --paths-only to mirror stale --paths and complete the pipeline `clawmind
   stale --paths | xargs -n1 clawmind forget --apply`.
+
+- 2026-06-20 12:27 PDT (Cake/cron) — 5 features shipped on feature/autoship.
+  Features: e91c76d, 7c84163, 28cd9c6, 2645a6b, 8538749. Test gate:
+  `@clawmind/cli` 113/113 vitest pass (up from 94). 19 net new tests
+  spread across 5 files: pins.test.ts (new, 4), mutes.test.ts (new, 4),
+  aliases.test.ts (+2), search.test.ts (+5 stdin and +4 --no-snippet).
+  Typecheck: same pre-existing telemetry/declaration-file pattern (chai
+  duplicate identifiers + ts target downlevel + kleur esModuleInterop)
+  unchanged; no new errors introduced.
+  Theme: round out the `--paths` pipeline contract that started with
+  stale --paths and forget --paths-only. pins/mutes/aliases all grew the
+  same `--paths` flag (one path per line, no styling, no headers, no
+  notes/reasons/timestamps; zero matches yields an empty stream). This
+  makes a whole new class of one-liner real:
+    clawmind pins list --paths -q stale | xargs -n1 clawmind forget --apply
+    clawmind aliases list --paths -q work | xargs ls -la
+  search grew `--no-snippet` (drops snippet/highlights from the --json
+  payload so rerank/eval pipelines get an order-of-magnitude smaller
+  shape) and stdin support (`clawmind search -` reads the query from
+  stdin so `echo foo | clawmind search -` works in shell loops without
+  argv quoting). Stdin mode rejects the empty stream loudly so an
+  accidental `cmd | clawmind search -` upstream-empty does NOT
+  silently dump the index.
