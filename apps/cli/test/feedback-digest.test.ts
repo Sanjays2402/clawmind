@@ -222,6 +222,47 @@ describe('digest cli', () => {
     expect(out).not.toContain('query: snip');
   });
 
+  it('show -q keeps only history rows that touched a matching newSources path', async () => {
+    // The fixture has two rows: ts=2 touched /n1.md (new), ts=1
+    // touched /p1.md (new) and 'old' (removed). Filtering on 'n1'
+    // keeps only the first row.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '-q', 'n1']);
+    const out = captured.join('');
+    // The "query: snip" preamble stays so the operator still sees the
+    // saved-search context.
+    expect(out).toContain('query: snip');
+    // ts=2 row kept (timestamp formatted to ISO).
+    const lines = out.split('\n').filter((l) => l.includes('total'));
+    expect(lines).toHaveLength(1);
+  });
+
+  it('show -q keeps rows whose removedSources match (filter spans both lists)', async () => {
+    // 'old' is in removedSources of the ts=1 row only. The match is
+    // case-insensitive, so 'OLD' picks the same row.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '-q', 'OLD']);
+    const out = captured.join('');
+    const lines = out.split('\n').filter((l) => l.includes('total'));
+    expect(lines).toHaveLength(1);
+  });
+
+  it('show -q with no matches emits the "no history rows touched" hint and skips history rendering', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '-q', 'nothing-matches']);
+    const out = captured.join('');
+    expect(out).toContain('no history rows touched a path matching "nothing-matches"');
+    // No history table rows should be rendered.
+    expect(out.split('\n').filter((l) => l.includes('total'))).toHaveLength(0);
+  });
+
+  it('show --json -q emits filtered history in the JSON payload', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '-q', 'n1']);
+    const parsed = JSON.parse(captured.join('')) as {
+      state: { query: string; history: { ts: number; newSources: { path: string }[] }[] };
+    };
+    expect(parsed.state.query).toBe('snip');
+    expect(parsed.state.history).toHaveLength(1);
+    expect(parsed.state.history[0]?.newSources[0]?.path).toBe('/n1.md');
+  });
+
   it('reports a clean message when the api is unreachable', async () => {
     const stderrBuf: string[] = [];
     const origErr = process.stderr.write.bind(process.stderr);

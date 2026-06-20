@@ -124,18 +124,49 @@ export function digestCommand() {
 
   cmd.command('show <id>')
     .description('Show full run history for one saved search')
+    .option('-q, --q <text>', 'case-insensitive substring filter; keep only history rows that touched a matching path (in newSources or removedSources)')
     .option('--json', 'emit the history as JSON for scripting')
-    .action(async (id: string, opts: { json?: boolean }) => {
+    .action(async (id: string, opts: { q?: string; json?: boolean }) => {
      await runAction('digest show', async () => {
       const out = (await apiFetch('GET', `/v1/digests/${id}`)) as {
         state: { query: string; history: { ts: number; newSources: { path: string }[]; removedSources: string[]; totalSources: number }[] };
       };
+      // -q keeps only history rows where AT LEAST ONE path in either
+      // newSources or removedSources matches the substring (case
+      // insensitive). This is the "show me runs that touched a path
+      // about X" semantic — the same shape `digest list -q` uses,
+      // except `list` filters at the API on saved-search id/title/
+      // query whereas `show` filters client-side on the history rows
+      // it received (we keep all rows in the JSON response shape so
+      // a follow-up `--json` consumer sees exactly what was kept,
+      // not a magically-shrunk total count). Empty history rows
+      // (totalSources but no new/removed) are filtered out by -q
+      // because they have nothing to match against — which is what
+      // an operator searching for "what changed about /foo.md" wants.
+      let filteredHistory = out.state.history;
+      if (opts.q) {
+        const needle = opts.q.toLowerCase();
+        filteredHistory = filteredHistory.filter((h) =>
+          h.newSources.some((s) => s.path.toLowerCase().includes(needle)) ||
+          h.removedSources.some((p) => p.toLowerCase().includes(needle)),
+        );
+      }
+      const payload = {
+        state: { ...out.state, history: filteredHistory },
+      };
       if (opts.json) {
-        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
         return;
       }
       process.stdout.write(kleur.gray(`query: ${out.state.query}\n`));
-      for (const h of out.state.history) {
+      if (opts.q && filteredHistory.length === 0) {
+        // Tell the operator we found nothing without making them dig.
+        // The "query: <q>" line above stays so they still see the
+        // saved search context.
+        process.stdout.write(kleur.gray(`no history rows touched a path matching "${opts.q}"\n`));
+        return;
+      }
+      for (const h of filteredHistory) {
         process.stdout.write(
           `${fmtTime(h.ts)}  ` +
           `${kleur.green(`+${h.newSources.length}`)} ${kleur.red(`-${h.removedSources.length}`)}  ` +
