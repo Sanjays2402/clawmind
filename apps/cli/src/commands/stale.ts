@@ -61,8 +61,9 @@ export function staleCommand() {
     .option('-l, --limit <n>', 'cap on rows returned', '200')
     .option('-q, --q <text>', 'case-insensitive substring filter on path')
     .option('--paths', 'print just the path column for piping into other commands')
+    .option('--tsv', 'emit tab-separated rows (path<TAB>ageDays<TAB>chunkCount<TAB>size) suitable for awk/cut')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { days: string; limit: string; paths?: boolean; q?: string; json?: boolean }) => {
+    .action(async (opts: { days: string; limit: string; paths?: boolean; tsv?: boolean; q?: string; json?: boolean }) => {
       await runOrReport('stale', async () => {
         const params: Record<string, string> = {
           olderThanDays: opts.days,
@@ -81,6 +82,18 @@ export function staleCommand() {
         }
         if (opts.paths) {
           for (const it of out.items) process.stdout.write(`${it.path}\n`);
+          return;
+        }
+        if (opts.tsv) {
+          // No header by default: leaves the output drop-in friendly for
+          // `awk -F'\t' '{print $1}'` and `sort -t$'\t' -k2 -n`. The columns
+          // intentionally lead with the path so a partial pipeline that only
+          // splits the first field still works.
+          for (const it of out.items) {
+            process.stdout.write(
+              `${it.path}\t${it.ageDays}\t${it.chunkCount}\t${it.size}\n`,
+            );
+          }
           return;
         }
         if (out.total === 0) {

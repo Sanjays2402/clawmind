@@ -97,4 +97,38 @@ describe('stale cli', () => {
     const out = stdout.join('');
     expect(out).toBe('/a.md\n/b.md\n');
   });
+
+  it('emits tab-separated rows in --tsv mode for awk/cut pipelines', async () => {
+    const payload = {
+      thresholdDays: 30,
+      total: 2,
+      items: [
+        { path: '/a.md', ageDays: 90, chunkCount: 3, size: 1024 },
+        { path: '/b.md', ageDays: 45, chunkCount: 1, size: 512 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--tsv']);
+    const out = stdout.join('');
+    // Exact byte layout so downstream `cut -f2` / `awk -F'\t'` keeps working.
+    expect(out).toBe('/a.md\t90\t3\t1024\n/b.md\t45\t1\t512\n');
+    // No headers, no ANSI styling — tsv is meant to be machine-readable.
+    expect(out).not.toMatch(/\x1b\[/);
+  });
+
+  it('omits no rows in --tsv mode when nothing is stale (clean empty stream)', async () => {
+    const payload = { thresholdDays: 30, total: 0, items: [] };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--tsv']);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
 });
