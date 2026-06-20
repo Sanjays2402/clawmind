@@ -229,6 +229,54 @@ describe('stats cli', () => {
     await statsCommand().parseAsync(['node', 'cli', '--tsv', '-q', 'nope']);
     expect(captured.join('')).toBe('');
   });
+
+  it('--json --compact emits a single-line JSON document (no indentation) with a trailing newline', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--compact']);
+    const out = captured.join('');
+    // Exactly one newline, at the very end. The body itself is a single
+    // line — no indentation, no internal newlines anywhere in the
+    // document. This is the property NDJSON snapshot scripts rely on.
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1)).not.toContain('\n');
+    // Still valid JSON with the same content as the indented form.
+    const parsed = JSON.parse(out);
+    expect(parsed.totals.namespaces).toBe(3);
+    expect(parsed.byNamespace).toHaveLength(3);
+    // The indented version has indentation; the compact one must not.
+    expect(out).not.toContain('  "');
+  });
+
+  it('--json (without --compact) keeps the indented shape (no regression)', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json']);
+    const out = captured.join('');
+    // The default indented JSON has multiple newlines (one per key).
+    // We assert at least one indented `"namespace":` line as a cheap
+    // proof the indent=2 shape is preserved.
+    expect(out).toContain('\n  "totals":');
+    expect(out).toContain('\n  "byNamespace":');
+  });
+
+  it('--compact alone (without --json) leaves text mode unchanged', async () => {
+    // --compact only takes effect with --json. Used without it, the
+    // text-mode renderer is untouched so an accidental `--compact` in a
+    // script does not silently switch to JSON.
+    await statsCommand().parseAsync(['node', 'cli', '--compact']);
+    const text = captured.join('');
+    // The text-mode banner is still present.
+    expect(text).toContain('30 files, 300 chunks');
+    // It is NOT JSON.
+    expect(text.trim().startsWith('{')).toBe(false);
+  });
+
+  it('--json --compact preserves --top, --sort and -q filters', async () => {
+    // The compact path is purely a stringify shape switch — every other
+    // option must still apply to the report before it is emitted.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--compact', '--sort', 'files', '--top', '2', '-q', 'mem']);
+    const parsed = JSON.parse(captured.join(''));
+    expect(parsed.byNamespace).toHaveLength(1);
+    expect(parsed.byNamespace[0].namespace).toBe('memory');
+    expect(parsed.byNamespace[0].extensions).toHaveLength(2);
+  });
 });
 
 describe('stats cli error handling', () => {

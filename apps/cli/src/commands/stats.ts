@@ -83,7 +83,8 @@ export function statsCommand() {
     .option('--sort <key>', 'sort namespaces descending by one of: files, chunks, bytes, namespace (default: namespace)', 'namespace')
     .option('--tsv', 'emit tab-separated rows (namespace<TAB>files<TAB>chunks<TAB>bytes<TAB>newestIngestedAt) for awk/cut pipelines')
     .option('--json', 'emit machine-readable JSON instead of a text table')
-    .action(async (opts: { json?: boolean; tsv?: boolean; query?: string; top: string; sort: string }) => {
+    .option('--compact', 'with --json: emit a single-line JSON document (no indentation) for easier diffing across cron snapshots. Ignored without --json.')
+    .action(async (opts: { json?: boolean; tsv?: boolean; query?: string; top: string; sort: string; compact?: boolean }) => {
       await runOrReport('stats', async () => {
         let report = (await apiFetch('GET', '/v1/stats')) as StatsReport;
         if (opts.query) {
@@ -128,7 +129,20 @@ export function statsCommand() {
           throw new StatsCliError(`unknown --sort key "${opts.sort}" (expected: files, chunks, bytes, namespace)`);
         }
         if (opts.json) {
-          process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+          // --compact swaps the pretty-printed (indent=2) document for a
+          // single-line JSON document. This is the right shape for
+          // `clawmind stats --json --compact > stats.ndjson` scripts
+          // that snapshot the index over time and want each row to live
+          // on exactly one line (so `diff` / `comm` / line-oriented
+          // tooling compares snapshots without indentation churn). The
+          // trailing newline stays so each emission is still a complete
+          // line — appending two compact snapshots produces valid
+          // NDJSON. The default (indent=2) shape is unchanged so
+          // existing pipes do not regress.
+          const body = opts.compact
+            ? JSON.stringify(report)
+            : JSON.stringify(report, null, 2);
+          process.stdout.write(body + '\n');
           return;
         }
         if (opts.tsv) {
