@@ -15,16 +15,26 @@ CLI usability + reliability. The API surface has had a heavy compliance push
 recently (security posture, breach register, key allowlists, etc.) and the
 `apps/cli` surface is the user-facing seam that's been lagging on:
 1. Consistent "API unreachable" / non-2xx error handling across every command.
-2. JSON / scripting ergonomics (`--json`, `--paths`, `--out`) for piping into
-   other tools.
-3. Small affordances that show up in Sanjay's day-to-day (filters, latency
+2. JSON / scripting ergonomics (`--json`, `--paths`, `--tsv`, `--out`,
+   `--paths-only`) for piping into other tools.
+3. Filter / shape options (`--top`, `--sort`, `--threshold`, `-q`) so the
+   operator doesn't have to post-process with `jq` for the common cases.
+4. Small affordances that show up in Sanjay's day-to-day (filters, latency
    hints, exit codes).
 
 ## Roadmap (newest first - work top to bottom each tick)
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-20 04:25 PDT (current)
+### Tick 2026-06-20 08:05 PDT (current)
+
+- [x] feat(stats): add --top <n> to cap per-namespace extension breakdown (c47bc78)
+- [x] feat(stats): add --sort <files|chunks|bytes|namespace> for the per-namespace table (77e0d9a)
+- [x] feat(stats): add --tsv mode mirroring stale --tsv for awk/cut pipelines (2146dcb)
+- [x] feat(search): add -t/--threshold to drop hits below a relevance score (6a7327b)
+- [x] feat(forget): add --paths-only to emit just the matched paths (dd00423)
+
+### Tick 2026-06-20 04:25 PDT
 
 - [x] fix(deps): pin vitest to ^2.1.9 to restore vite 5 compatibility (3010d31)
 - [x] fix(stale): surface clean error when api is unreachable or returns error body (aedb504)
@@ -36,26 +46,27 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 
 ### Queued for later ticks
 
-- [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings)
-- [ ] fix(reindex): surface clean error when api is unreachable or returns error body
-- [ ] fix(watch): surface clean error when api is unreachable or returns error body
-- [ ] fix(compact): surface clean error when api is unreachable or returns error body
-- [ ] fix(ask): surface clean error when api is unreachable or returns error body
-- [ ] fix(ingest): surface clean error when api is unreachable or returns error body
-- [ ] fix(status): surface clean error when embed/llm probes fail (return exit 1, not crash)
-- [ ] feat(stats): add --top <n> option to cap per-namespace extension breakdown
-- [ ] feat(stats): add --sort <files|chunks|bytes> option for the per-namespace table
-- [ ] feat(stats): add --tsv mode mirroring stale --tsv for awk/cut pipelines
-- [ ] feat(search): add --threshold <n> to filter hits below a relevance score
+- [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved)
+- [ ] feat(pins): add --paths option to print just pinned paths for piping (mirror of forget --paths-only / stale --paths)
+- [ ] feat(mutes): add --paths option to print just muted paths for piping (mirror of forget --paths-only / stale --paths)
+- [ ] feat(aliases): add --paths option to print just alias targets for piping
+- [ ] feat(tags): add --paths-only to tags paths to drop styling and emit one path per line (currently it does that in text mode but a flag makes the contract explicit)
 - [ ] feat(ask): add --no-citations flag for quick non-cited answers
 - [ ] feat(ask): add --out option mirroring search --out for saving long answers
-- [ ] feat(digest): add -q substring filter to digest history listing
+- [ ] feat(ask): add --threshold to require a minimum citation score (skip llm when no citation clears the bar)
+- [ ] feat(search): add --no-snippet to skip the snippet body and emit only paths+scores (smaller --json payload for ranking pipelines)
+- [ ] feat(search): support reading the query from stdin when `<query>` is `-`, so `echo "foo" | clawmind search -` works for shell loops
+- [ ] feat(digest): add -q substring filter to digest *show* history rows (digest list already has -q)
+- [ ] feat(digest): add --since <iso-date> to digest show to bound the history window
 - [ ] feat(watch): add --debounce <ms> option to coalesce rapid file events
-- [ ] feat(pins): add --paths option to print just pinned paths for piping
-- [ ] feat(mutes): add --paths option to print just muted paths for piping
-- [ ] feat(forget): add --paths-only option to emit just the matched paths
-- [ ] feat(doctor): exit non-zero if any error-severity finding is present
+- [ ] feat(watch): print a one-line startup banner to stderr (kind=banner, ts) so log scrapers can spot a restart
+- [ ] feat(doctor): add --severity <warn|error> to filter the displayed findings list (always exits non-zero on error regardless)
+- [ ] feat(doctor): add --staleAfterDays <n> CLI flag that forwards to the API's staleAfterMs override
 - [ ] feat(status): add --watch <ms> to repoll periodically for terminal dashboards
+- [ ] feat(status): add --check to exit non-zero when any probe (embed/llm) is down (CI smoke check)
+- [ ] feat(stats): add --since <iso-date> to filter namespaces whose newestIngestedAt is older than the cutoff
+- [ ] feat(stats): add --json compact mode (single-line JSON instead of pretty-printed, easier to diff)
+- [ ] feat(feedback): add --json filter to list returning only paths above/below a boost multiplier
 
 ## Conventions
 
@@ -67,6 +78,9 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   `aliases.test.ts`.
 - Keep `--json` output stable across non-error paths so downstream scripts
   can pipe with `jq` without conditional handling.
+- Pipeline-friendly modes (`--paths`, `--paths-only`, `--tsv`) MUST emit
+  with no ANSI styling and no headers so `cut`/`awk`/`xargs` work without
+  conditional skips. Pin the exact byte layout in tests.
 
 ## Tick log
 
@@ -79,3 +93,15 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   green EXCEPT `@clawmind/telemetry` which has a pre-existing OpenTelemetry
   1.x/2.x peer mismatch (queued for next tick). Compact.ts TS2783 that was
   silently red on main is now fixed.
+
+- 2026-06-20 08:05 PDT (Cake/cron) — 5 features shipped on feature/autoship.
+  Features: c47bc78, 77e0d9a, 2146dcb, 6a7327b, dd00423. Test gate:
+  `@clawmind/cli` 94/94 vitest pass (up from 70). Typecheck: `@clawmind/cli`
+  green, telemetry pre-existing red unchanged (confirmed by running typecheck
+  on packages/telemetry both before and after the batch — identical error,
+  not introduced by anything in this batch). All five focus the same theme:
+  scripting ergonomics. stats grew --top/--sort/--tsv so the namespace
+  breakdown is finally pipeline-friendly without `jq`; search grew
+  -t/--threshold to push the relevance floor into the command; forget grew
+  --paths-only to mirror stale --paths and complete the pipeline `clawmind
+  stale --paths | xargs -n1 clawmind forget --apply`.
