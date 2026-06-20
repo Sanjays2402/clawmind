@@ -66,6 +66,73 @@ describe('search empty results UX', () => {
   });
 });
 
+describe('search --threshold filters hits below the score floor', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    retrieveMock.mockReset();
+    retrieveMock.mockResolvedValue([
+      { path: '/strong.md', score: 0.92, chunk: { text: '' } },
+      { path: '/medium.md', score: 0.55, chunk: { text: '' } },
+      { path: '/weak.md', score: 0.10, chunk: { text: '' } },
+    ]);
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+  });
+
+  it('keeps only hits at or above the threshold (json mode)', async () => {
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--threshold', '0.5', '--json']);
+    const out = JSON.parse(stdout.join(''));
+    expect(out.map((h: { path: string }) => h.path)).toEqual(['/strong.md', '/medium.md']);
+  });
+
+  it('treats the cutoff as inclusive (score === threshold survives)', async () => {
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--threshold', '0.55', '--json']);
+    const out = JSON.parse(stdout.join(''));
+    expect(out.map((h: { path: string }) => h.path)).toEqual(['/strong.md', '/medium.md']);
+  });
+
+  it('-t alias works exactly like --threshold', async () => {
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '-t', '0.9', '--json']);
+    const out = JSON.parse(stdout.join(''));
+    expect(out.map((h: { path: string }) => h.path)).toEqual(['/strong.md']);
+  });
+
+  it('emits the threshold in the no-results stderr message when it filters everything out', async () => {
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--threshold', '0.99']);
+    expect(stdout.join('')).toBe('');
+    const err = stderr.join('');
+    expect(err).toContain('no results for "foo"');
+    expect(err).toContain('threshold=0.99');
+  });
+
+  it('a non-numeric threshold is ignored rather than fatal', async () => {
+    // `--threshold $MAYBE` with an empty / garbage env var must not break
+    // the command. We fall back to "no filter" silently.
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--threshold', 'nope', '--json']);
+    const out = JSON.parse(stdout.join(''));
+    expect(out).toHaveLength(3);
+  });
+
+  it('renders only kept hits in text mode and drops the rest entirely', async () => {
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--threshold', '0.5']);
+    const out = stdout.join('');
+    expect(out).toContain('/strong.md');
+    expect(out).toContain('/medium.md');
+    expect(out).not.toContain('/weak.md');
+  });
+});
+
 describe('search --out writes results to a file', () => {
   let stdout: string[];
   let stderr: string[];
