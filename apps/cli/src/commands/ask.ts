@@ -10,8 +10,9 @@ export function askCommand() {
     .argument('<question...>', 'your question')
     .option('-k, --k <n>', 'top k chunks', '8')
     .option('-n, --namespaces <list>', 'comma-separated namespaces')
+    .option('--no-citations', 'in text mode, hide the citations footer; in --json mode, omit the citations[] array. The streamed answer is unchanged.')
     .option('--json', 'emit answer, citations, and metadata as JSON for scripting')
-    .action(async (question: string[], opts: { k: string; namespaces?: string; json?: boolean }) => {
+    .action(async (question: string[], opts: { k: string; namespaces?: string; json?: boolean; citations: boolean }) => {
       const rt = await buildRuntime();
       const q = QuerySchema.parse({
         q: question.join(' '),
@@ -59,28 +60,38 @@ export function askCommand() {
       }
       if (errored) return;
       if (opts.json) {
-        process.stdout.write(
-          JSON.stringify(
-            {
-              question: q.q,
-              answer,
-              citations: sources.map((s, i) => ({
-                index: i + 1,
-                path: s.path,
-                startLine: s.startLine,
-                endLine: s.endLine,
-              })),
-              count: sources.length,
-              latencyMs,
-              model,
-            },
-            null,
-            2,
-          ) + '\n',
-        );
+        // --no-citations drops the citations[] array AND the count field
+        // from the JSON payload. Pipelines that only want the prose
+        // answer (e.g. piping into another LLM, or storing in a
+        // chat log) get a noticeably smaller, cleaner shape. The
+        // question/answer/latency/model fields stay so callers still
+        // get the answer body and timing info. We omit `count` along
+        // with the array because keeping `count: 5` next to no
+        // citations[] would be a confusing half-truth.
+        const payload: Record<string, unknown> = {
+          question: q.q,
+          answer,
+          latencyMs,
+          model,
+        };
+        if (opts.citations !== false) {
+          payload.citations = sources.map((s, i) => ({
+            index: i + 1,
+            path: s.path,
+            startLine: s.startLine,
+            endLine: s.endLine,
+          }));
+          payload.count = sources.length;
+        }
+        process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
         return;
       }
-      if (sources.length) {
+      // --no-citations also suppresses the text-mode footer below.
+      // The streamed answer body has already been printed token-by-
+      // token; this just keeps the citation list off the end so an
+      // operator copy-pasting the answer does not have to manually
+      // strip the `[^1] ...` lines.
+      if (opts.citations !== false && sources.length) {
         process.stdout.write('\n' + kleur.bold('citations:') + '\n');
         sources.forEach((s, i) => {
           process.stdout.write(kleur.gray(`  [^${i + 1}] ${s.path}:${s.startLine}-${s.endLine}\n`));
