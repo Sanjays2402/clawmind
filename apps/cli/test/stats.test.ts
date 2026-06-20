@@ -186,6 +186,49 @@ describe('stats cli', () => {
     expect(err).toContain('expected: files, chunks, bytes, namespace');
     process.exitCode = 0;
   });
+
+  it('--tsv emits one tab-separated row per namespace in the API order', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--tsv']);
+    const out = captured.join('');
+    // Default sort is "namespace" => the API order is preserved
+    // (memory, sessions, projects). newestIngestedAt is null in the
+    // sample, so the last column is empty (but the tab before it stays
+    // so column indices line up for `cut`/`awk`).
+    expect(out).toBe(
+      'memory\t10\t100\t10000\t\n' +
+      'sessions\t5\t50\t5000\t\n' +
+      'projects\t15\t150\t15000\t\n',
+    );
+    // tsv is meant to be machine-readable: no ANSI codes, no header row.
+    expect(out).not.toMatch(/\x1b\[/);
+    expect(out).not.toMatch(/^namespace\t/);
+  });
+
+  it('--tsv emits the epoch ms when newestIngestedAt is set', async () => {
+    // Override fetch for this single case with a payload that has a timestamp.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 2, chunks: 4, bytes: 1000, namespaces: 1 },
+      byNamespace: [{
+        namespace: 'memory', files: 2, chunks: 4, bytes: 1000,
+        oldestIngestedAt: 1700000000000, newestIngestedAt: 1700000123456,
+        extensions: [{ ext: 'md', count: 2 }],
+      }],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--tsv']);
+    expect(captured.join('')).toBe('memory\t2\t4\t1000\t1700000123456\n');
+  });
+
+  it('--tsv respects --sort by ranking rows by the chosen metric', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--tsv', '--sort', 'files']);
+    const rows = captured.join('').trim().split('\n').map((r) => r.split('\t')[0]);
+    expect(rows).toEqual(['projects', 'memory', 'sessions']);
+  });
+
+  it('--tsv emits nothing (clean empty stream) when no namespaces match -q', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--tsv', '-q', 'nope']);
+    expect(captured.join('')).toBe('');
+  });
 });
 
 describe('stats cli error handling', () => {

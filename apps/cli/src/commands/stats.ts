@@ -81,8 +81,9 @@ export function statsCommand() {
     .option('-q, --query <substr>', 'only include namespaces whose name contains this substring (case-insensitive)')
     .option('--top <n>', 'cap the per-namespace extension breakdown at this many entries (default 4)', '4')
     .option('--sort <key>', 'sort namespaces descending by one of: files, chunks, bytes, namespace (default: namespace)', 'namespace')
+    .option('--tsv', 'emit tab-separated rows (namespace<TAB>files<TAB>chunks<TAB>bytes<TAB>newestIngestedAt) for awk/cut pipelines')
     .option('--json', 'emit machine-readable JSON instead of a text table')
-    .action(async (opts: { json?: boolean; query?: string; top: string; sort: string }) => {
+    .action(async (opts: { json?: boolean; tsv?: boolean; query?: string; top: string; sort: string }) => {
       await runOrReport('stats', async () => {
         let report = (await apiFetch('GET', '/v1/stats')) as StatsReport;
         if (opts.query) {
@@ -128,6 +129,22 @@ export function statsCommand() {
         }
         if (opts.json) {
           process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+          return;
+        }
+        if (opts.tsv) {
+          // No header by default — mirrors `stale --tsv` so `awk -F'\t'`
+          // and `cut -f2` keep working without conditional skips. The
+          // columns intentionally lead with the namespace name so a
+          // partial pipeline that only splits the first field still
+          // identifies each row. newestIngestedAt is the raw epoch ms
+          // (or empty string when never indexed) so downstream tools
+          // can format it however they want.
+          for (const ns of report.byNamespace) {
+            const newest = ns.newestIngestedAt == null ? '' : String(ns.newestIngestedAt);
+            process.stdout.write(
+              `${ns.namespace}\t${ns.files}\t${ns.chunks}\t${ns.bytes}\t${newest}\n`,
+            );
+          }
           return;
         }
         process.stdout.write(
