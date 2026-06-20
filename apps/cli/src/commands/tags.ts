@@ -48,13 +48,24 @@ export function tagsCommand() {
   cmd.command('paths <tag>')
     .description('List source paths carrying a tag')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (tag: string, opts: { json?: boolean }) => {
+    .option('--paths', 'pipeline-friendly: emit ONLY the path column (no styling, no headers, no "no sources tagged" hint). Zero matches yields an empty stream so xargs/wc keep working.')
+    .action(async (tag: string, opts: { json?: boolean; paths?: boolean }) => {
       const enc = encodeURIComponent(tag);
       const out = (await apiFetch('GET', `/v1/tags/${enc}`)) as {
         tag: string; paths: string[]; count: number;
       };
       if (opts.json) {
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        return;
+      }
+      // --paths is the pipeline-friendly contract shared with pins/mutes/
+      // aliases/stale: one path per line, no ANSI, no "no sources tagged"
+      // hint, no header. Zero matches yields an empty stream. The default
+      // text mode already prints "no sources tagged <tag>" for empty
+      // results and a styled-bold path body for matches, neither of which
+      // a `| xargs` consumer wants.
+      if (opts.paths) {
+        for (const p of out.paths) process.stdout.write(`${p}\n`);
         return;
       }
       if (out.count === 0) {
