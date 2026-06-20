@@ -26,14 +26,17 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 
 ### Tick 2026-06-20 04:25 PDT (current)
 
-- [ ] fix(stale): surface clean error when api is unreachable or returns error body
-- [ ] fix(forget): surface clean error when api is unreachable or returns error body
-- [ ] fix(stats): surface clean error when api is unreachable or returns error body
-- [ ] feat(stale): add --tsv option to emit tab-separated path/age/size/chunks for piping
-- [ ] feat(status): include the resolved api base url and per-probe latency in status output
+- [x] fix(deps): pin vitest to ^2.1.9 to restore vite 5 compatibility (3010d31)
+- [x] fix(stale): surface clean error when api is unreachable or returns error body (aedb504)
+- [x] feat(stale): add --tsv option to emit tab-separated rows for piping (7e1f329)
+- [x] fix(forget): surface clean error when api is unreachable or returns error body (c6be7ae)
+- [x] fix(stats): surface clean error when api is unreachable or returns error body (f9d7948)
+- [x] feat(status): show resolved api base url and per-probe latency (46d1151)
+- [x] fix(cli/compact): drop duplicate dryRun key in --json output (1c57284)
 
 ### Queued for later ticks
 
+- [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings)
 - [ ] fix(reindex): surface clean error when api is unreachable or returns error body
 - [ ] fix(watch): surface clean error when api is unreachable or returns error body
 - [ ] fix(compact): surface clean error when api is unreachable or returns error body
@@ -42,6 +45,7 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] fix(status): surface clean error when embed/llm probes fail (return exit 1, not crash)
 - [ ] feat(stats): add --top <n> option to cap per-namespace extension breakdown
 - [ ] feat(stats): add --sort <files|chunks|bytes> option for the per-namespace table
+- [ ] feat(stats): add --tsv mode mirroring stale --tsv for awk/cut pipelines
 - [ ] feat(search): add --threshold <n> to filter hits below a relevance score
 - [ ] feat(ask): add --no-citations flag for quick non-cited answers
 - [ ] feat(ask): add --out option mirroring search --out for saving long answers
@@ -67,3 +71,11 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 ## Tick log
 
 (updated by each tick at the bottom)
+
+- 2026-06-20 04:25 PDT (Cake/cron) — 7 features shipped on feature/autoship.
+  Bootstrap: 561f1fb. Features: 3010d31, aedb504, 7e1f329, c6be7ae, f9d7948,
+  46d1151, 1c57284. Test gate: `@clawmind/cli` 70/70 vitest pass after the
+  vitest pin (was completely broken on main). Typecheck: every package
+  green EXCEPT `@clawmind/telemetry` which has a pre-existing OpenTelemetry
+  1.x/2.x peer mismatch (queued for next tick). Compact.ts TS2783 that was
+  silently red on main is now fixed.
