@@ -23,6 +23,7 @@ export function searchCommand() {
     .option('--include-tags <list>', 'comma-separated tags; keep only sources carrying at least one')
     .option('--exclude-tags <list>', 'comma-separated tags; drop sources carrying any')
     .option('-t, --threshold <n>', 'drop hits with score strictly below this value (0..1 typical)')
+    .option('--no-snippet', 'in --json mode, emit only rank/path/score/startLine (no snippet/highlights). Smaller payload for ranking pipelines')
     .option('--json', 'emit results as a JSON array instead of formatted text')
     .option('-o, --out <file>', 'write results to a file instead of stdout')
     .option('--no-highlight', 'disable ANSI highlighting of matched terms')
@@ -36,6 +37,7 @@ export function searchCommand() {
           includeTags?: string;
           excludeTags?: string;
           threshold?: string;
+          snippet: boolean;
           json?: boolean;
           out?: string;
           highlight: boolean;
@@ -67,8 +69,25 @@ export function searchCommand() {
         const terms = queryTerms(q.q);
         const width = Number(opts.snippetWidth) || 240;
         if (opts.json) {
+          // --no-snippet trims the JSON payload to the bare ranking
+          // fields (rank/path/score/startLine). It is roughly an order
+          // of magnitude smaller than the full payload for large k and
+          // is the right shape for rerank/eval pipelines that only care
+          // about the order of hits. The startLine is still useful as a
+          // tie-breaker / chunk-identifier and is computed regardless,
+          // so keeping it costs nothing. Text mode is unaffected because
+          // a snippet-less text rendering is just a slower path-and-score
+          // dump — that's what `forget --paths-only` / `--paths` are for.
           const out = hits.map((h, i) => {
             const snip = snippetFor(h, terms, width);
+            if (opts.snippet === false) {
+              return {
+                rank: i + 1,
+                path: h.path,
+                score: h.score,
+                startLine: snip.startLine,
+              };
+            }
             return {
               rank: i + 1,
               path: h.path,

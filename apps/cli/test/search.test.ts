@@ -11,9 +11,15 @@ vi.mock('../src/runtime.js', () => ({
 }));
 
 const retrieveMock = vi.fn();
+// Loose type on purpose: the per-block `mockImplementation` below
+// installs a function with an arity matching `snippetFor`'s real
+// signature. `vi.fn()` defaults to a no-arg type, which would reject
+// the rebind, so we cast to `any` to keep the test type-light.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const snippetForMock: any = vi.fn(() => ({ startLine: 1, text: '', highlights: [] as { start: number; end: number }[] }));
 vi.mock('@clawmind/rag', () => ({
-  retrieve: (...args: unknown[]) => retrieveMock(...args),
-  snippetFor: () => ({ startLine: 1, text: '', highlights: [] }),
+  retrieve: (...args: unknown[]) => retrieveMock(...(args as [])),
+  snippetFor: (...args: unknown[]) => snippetForMock(...args),
   queryTerms: () => [],
 }));
 
@@ -179,5 +185,90 @@ describe('search --out writes results to a file', () => {
     // No ANSI escape sequences in saved file.
     expect(body).not.toMatch(/\x1b\[/);
     expect(stderr.join('')).toContain('wrote 1 result(s)');
+  });
+});
+
+describe('search --no-snippet trims the json payload to ranking fields', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    retrieveMock.mockReset();
+    snippetForMock.mockReset();
+    // Realistic snippet for this block so we can verify the
+    // body-and-highlights-dropping behaviour actually drops something.
+    snippetForMock.mockImplementation((hit: { path: string }) => ({
+      startLine: 42,
+      text: `snippet body for ${hit.path} that is intentionally long enough to matter`,
+      highlights: [{ start: 0, end: 7 }, { start: 12, end: 16 }],
+    }));
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', score: 0.91, chunk: { text: '' } },
+      { path: '/b.md', score: 0.42, chunk: { text: '' } },
+    ]);
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+  });
+
+  it('--json --no-snippet emits rank/path/score/startLine only', async () => {
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--no-snippet']);
+    const out = JSON.parse(stdout.join('')) as Record<string, unknown>[];
+    expect(out).toHaveLength(2);
+    // Exact key set per row — no snippet body, no highlights leak through.
+    for (const row of out) {
+      expect(Object.keys(row).sort()).toEqual(['path', 'rank', 'score', 'startLine']);
+    }
+    expect(out[0]).toEqual({ rank: 1, path: '/a.md', score: 0.91, startLine: 42 });
+    expect(out[1]).toEqual({ rank: 2, path: '/b.md', score: 0.42, startLine: 42 });
+    // The snippet body that the mock returns must not leak into output.
+    expect(stdout.join('')).not.toContain('snippet body for');
+    expect(stdout.join('')).not.toContain('highlights');
+  });
+
+  it('--json without --no-snippet still emits the full payload (no regression)', async () => {
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json']);
+    const out = JSON.parse(stdout.join('')) as Record<string, unknown>[];
+    expect(out).toHaveLength(2);
+    // All six fields present in the default JSON shape.
+    for (const row of out) {
+      expect(Object.keys(row).sort()).toEqual([
+        'highlights', 'path', 'rank', 'score', 'snippet', 'startLine',
+      ]);
+    }
+    expect(stdout.join('')).toContain('snippet body for /a.md');
+  });
+
+  it('--no-snippet drops the snippet payload from --out json files too', async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), 'clawmind-search-nosnip-'));
+    try {
+      const out = path.join(dir, 'hits.json');
+      await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--no-snippet', '-o', out]);
+      const body = JSON.parse(await readFile(out, 'utf8')) as Record<string, unknown>[];
+      expect(body).toHaveLength(2);
+      for (const row of body) {
+        expect(Object.keys(row).sort()).toEqual(['path', 'rank', 'score', 'startLine']);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('text mode is unaffected by --no-snippet (snippet still renders)', async () => {
+    // --no-snippet only changes the JSON shape. The default text mode
+    // is for humans and stays as-is. We assert by checking that the
+    // snippet body text reaches stdout.
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--no-snippet']);
+    const out = stdout.join('');
+    expect(out).toContain('snippet body for /a.md');
+    expect(out).toContain('snippet body for /b.md');
   });
 });
