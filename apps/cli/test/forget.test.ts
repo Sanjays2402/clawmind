@@ -86,4 +86,64 @@ describe('forget cli', () => {
     expect(out).toContain('/x.md');
     expect(out).toContain('rerun with --apply');
   });
+
+  it('--paths-only emits one matched path per line with no styling or summary', async () => {
+    const payload = {
+      matched: 3,
+      removedChunks: 7,
+      removedPaths: ['/a.md', '/b.md', '/c.md'],
+      dryRun: true,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--paths-only']);
+    const out = stdout.join('');
+    // Exact byte layout so `xargs`/`wc -l` keep working.
+    expect(out).toBe('/a.md\n/b.md\n/c.md\n');
+    // No human-facing summary should leak in.
+    expect(out).not.toContain('would remove');
+    expect(out).not.toContain('rerun with --apply');
+    // No ANSI styling — paths-only is meant for downstream commands.
+    expect(out).not.toMatch(/\x1b\[/);
+  });
+
+  it('--paths-only with zero matches yields a clean empty stream', async () => {
+    const payload = {
+      matched: 0,
+      removedChunks: 0,
+      removedPaths: [],
+      dryRun: true,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/nope/*', '--paths-only']);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--paths-only honours --apply (lists the same paths after deletion)', async () => {
+    // The behaviour does not change between dry-run and apply — the API
+    // returns the same `removedPaths` shape. The flag pair is mostly a
+    // sanity check that we do not accidentally suppress paths when the
+    // command is actually destructive.
+    const payload = {
+      matched: 1,
+      removedChunks: 4,
+      removedPaths: ['/gone.md'],
+      dryRun: false,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--apply', '--paths-only']);
+    expect(stdout.join('')).toBe('/gone.md\n');
+  });
 });

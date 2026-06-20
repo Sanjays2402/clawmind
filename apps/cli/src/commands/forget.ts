@@ -60,8 +60,9 @@ export function forgetCommand() {
     .argument('<patterns...>', 'one or more glob patterns matched against absolute paths')
     .option('--apply', 'actually delete the matches; default is a dry-run preview')
     .option('--quiet', 'do not list every matched path')
+    .option('--paths-only', 'emit only the matched paths, one per line, for piping into other commands')
     .option('--json', 'emit the forget report as JSON for scripting')
-    .action(async (patterns: string[], opts: { apply?: boolean; quiet?: boolean; json?: boolean }) => {
+    .action(async (patterns: string[], opts: { apply?: boolean; quiet?: boolean; pathsOnly?: boolean; json?: boolean }) => {
       await runOrReport('forget', async () => {
         const dryRun = !opts.apply;
         const report = await callForget(patterns, dryRun);
@@ -70,6 +71,17 @@ export function forgetCommand() {
           process.stdout.write(
             JSON.stringify({ patterns, ...report }, null, 2) + '\n',
           );
+          return;
+        }
+
+        // --paths-only is the pipe-friendly twin of `stale --paths`. It
+        // skips every styled byte (no header, no rerun hint, no colour)
+        // so `clawmind forget '/tmp/*.md' --paths-only | xargs git rm`
+        // is safe. It deliberately ignores --quiet (which only hides the
+        // path list in the human report) because hiding paths in
+        // --paths-only would defeat the point of the flag.
+        if (opts.pathsOnly) {
+          for (const p of report.removedPaths) process.stdout.write(`${p}\n`);
           return;
         }
 
