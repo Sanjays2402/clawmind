@@ -81,8 +81,9 @@ export function aliasesCommand() {
   cmd.command('list')
     .description('List aliases sorted by name')
     .option('-q, --q <text>', 'case-insensitive substring filter across name and path')
+    .option('--paths', 'emit only the alias target paths, one per line, with no styling (pipe-friendly)')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; json?: boolean }) => {
+    .action(async (opts: { q?: string; paths?: boolean; json?: boolean }) => {
       await runOrReport('aliases list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         const out = (await apiFetch('GET', `/v1/aliases${qs}`)) as {
@@ -91,6 +92,18 @@ export function aliasesCommand() {
         };
         if (opts.json) {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+          return;
+        }
+        // --paths is the pipe-friendly twin of `pins list --paths` /
+        // `mutes list --paths` / `forget --paths-only`. Emits only the
+        // alias's resolved target path (one per line, no styling, no
+        // arrow, no @name, no timestamp), so things like
+        //   clawmind aliases list --paths -q work | xargs ls -la
+        //   clawmind aliases list --paths | xargs -n1 clawmind ingest
+        // work without conditional skips. -q still narrows the set;
+        // zero matches yields a clean empty stream.
+        if (opts.paths) {
+          for (const it of out.items) process.stdout.write(`${it.path}\n`);
           return;
         }
         if (out.count === 0) { process.stdout.write(kleur.gray('no aliases defined\n')); return; }
