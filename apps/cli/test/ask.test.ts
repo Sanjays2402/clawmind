@@ -129,3 +129,112 @@ describe('ask --no-citations', () => {
     expect(out).not.toContain('count');
   });
 });
+
+describe('ask --threshold', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    askStreamCalls = 0;
+    // Two sources, best score 0.91. Tokens are tagged 'UNIQUE_TOKEN_'
+    // so we can assert they did NOT reach stdout in the skip path —
+    // a stronger check than `not.toContain('hello')` would be.
+    nextEvents = [
+      { type: 'sources', value: [
+        { path: '/a.md', startLine: 1, endLine: 5, score: 0.91 },
+        { path: '/b.md', startLine: 10, endLine: 20, score: 0.62 },
+      ] },
+      { type: 'token', value: 'UNIQUE_TOKEN_one ' },
+      { type: 'token', value: 'UNIQUE_TOKEN_two' },
+      { type: 'done', value: { latencyMs: 42, model: 'fake-model' } },
+    ];
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+    vi.restoreAllMocks();
+  });
+
+  it('--threshold below the best score lets the LLM run normally (no regression)', async () => {
+    // Best score is 0.91; a threshold of 0.5 clears trivially.
+    await askCommand().parseAsync(['node', 'cli', '--threshold', '0.5', 'q']);
+    const out = stdout.join('');
+    expect(out).toContain('UNIQUE_TOKEN_one');
+    expect(out).toContain('UNIQUE_TOKEN_two');
+    expect(out).toContain('(42ms via fake-model)');
+    expect(out).toContain('citations:');
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it('--threshold above the best score skips the LLM and exits 1', async () => {
+    // Best score is 0.91; a threshold of 0.99 fails. The LLM stream
+    // (token events) must NOT be consumed — assert the unique token
+    // payload never reaches stdout.
+    await askCommand().parseAsync(['node', 'cli', '--threshold', '0.99', 'q']);
+    expect(process.exitCode).toBe(1);
+    expect(stdout.join('')).not.toContain('UNIQUE_TOKEN_');
+    // Clean text-mode hint on stderr — operators expect failures
+    // there, NOT in the answer stream.
+    const err = stderr.join('');
+    expect(err).toContain('no citation cleared --threshold 0.99');
+    expect(err).toContain('best 0.910');
+    expect(err).toContain('across 2 sources');
+    expect(err).toContain('LLM was not called');
+  });
+
+  it('--json --threshold above the best score emits a structured skip payload', async () => {
+    await askCommand().parseAsync(['node', 'cli', '--json', '--threshold', '0.99', 'q']);
+    expect(process.exitCode).toBe(1);
+    const out = stdout.join('');
+    const parsed = JSON.parse(out) as Record<string, unknown>;
+    expect(parsed.skipped).toBe(true);
+    expect(parsed.reason).toBe('no citation cleared --threshold');
+    expect(parsed.threshold).toBe(0.99);
+    expect(parsed.bestScore).toBe(0.91);
+    expect(parsed.count).toBe(2);
+    expect(parsed.question).toBe('q');
+    // No answer body since the LLM did not run. Critically, no
+    // unique token leaks through either.
+    expect(parsed.answer).toBeUndefined();
+    expect(out).not.toContain('UNIQUE_TOKEN_');
+  });
+
+  it('--threshold with a non-numeric value silently degrades to "no threshold"', async () => {
+    // `--threshold $MAYBE` in a shell script where the variable is
+    // empty must NOT throw. We treat unparseable values as "no
+    // threshold" so the script keeps working.
+    await askCommand().parseAsync(['node', 'cli', '--threshold', 'banana', 'q']);
+    const out = stdout.join('');
+    expect(out).toContain('UNIQUE_TOKEN_one');
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it('--threshold exactly equal to the best score still clears (>= comparison)', async () => {
+    // Boundary: a threshold equal to the best score is a pass, not
+    // a fail. We use `>=` so an exact match is "good enough".
+    await askCommand().parseAsync(['node', 'cli', '--threshold', '0.91', 'q']);
+    const out = stdout.join('');
+    expect(out).toContain('UNIQUE_TOKEN_one');
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it('--threshold composes with --no-citations (skip path takes precedence)', async () => {
+    // Even with --no-citations set, the skip path on threshold-failure
+    // emits its own structured message — --no-citations only governs
+    // the post-LLM citations block, which never runs in the skip path.
+    await askCommand().parseAsync(['node', 'cli', '--no-citations', '--threshold', '0.99', 'q']);
+    expect(process.exitCode).toBe(1);
+    const err = stderr.join('');
+    expect(err).toContain('no citation cleared --threshold 0.99');
+    // The skip path still does not call the LLM.
+    expect(stdout.join('')).not.toContain('UNIQUE_TOKEN_');
+  });
+});
