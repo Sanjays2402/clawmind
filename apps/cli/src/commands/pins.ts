@@ -82,8 +82,9 @@ export function pinsCommand() {
   cmd.command('list')
     .description('List currently pinned sources, newest first')
     .option('-q, --q <text>', 'case-insensitive substring filter across path and note')
+    .option('--paths', 'emit only the pinned paths, one per line, with no styling or notes (pipe-friendly)')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; json?: boolean }) => {
+    .action(async (opts: { q?: string; paths?: boolean; json?: boolean }) => {
       await runOrReport('pins list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         const out = (await apiFetch('GET', `/v1/pins${qs}`)) as {
@@ -92,6 +93,17 @@ export function pinsCommand() {
         };
         if (opts.json) {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+          return;
+        }
+        // --paths is the pipe-friendly twin of `stale --paths` / `forget
+        // --paths-only`. It drops every styled byte (no header, no "no
+        // pinned sources" hint, no colour, no note line) so things like
+        // `clawmind pins list --paths | xargs -n1 clawmind forget --apply`
+        // work without conditional skips. -q still narrows the set before
+        // we emit. Zero matches yields a clean empty stream — same
+        // contract as `forget --paths-only`.
+        if (opts.paths) {
+          for (const it of out.items) process.stdout.write(`${it.path}\n`);
           return;
         }
         if (out.count === 0) { process.stdout.write(kleur.gray('no pinned sources\n')); return; }
