@@ -63,3 +63,64 @@ describe('stats cli', () => {
     expect(text).not.toContain('sessions ');
   });
 });
+
+describe('stats cli error handling', () => {
+  let originalFetch: typeof globalThis.fetch;
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    originalFetch = globalThis.fetch;
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('reports a clean message when the api is unreachable', async () => {
+    globalThis.fetch = (async () => { throw new TypeError('fetch failed'); }) as never;
+    await statsCommand().parseAsync(['node', 'cli']);
+    expect(process.exitCode).toBe(1);
+    const out = stderr.join('');
+    expect(out).toContain('stats failed: cannot reach');
+    expect(out).toContain('fetch failed');
+    // No node stack frames should leak: the operator sees one styled line.
+    expect(out).not.toContain('at ');
+  });
+
+  it('surfaces the message field from a json error body', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ message: 'storage corrupt' }), {
+        status: 500,
+        statusText: 'Internal Server Error',
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await statsCommand().parseAsync(['node', 'cli']);
+    expect(process.exitCode).toBe(1);
+    const out = stderr.join('');
+    expect(out).toContain('stats failed: (500');
+    expect(out).toContain('storage corrupt');
+  });
+
+  it('falls back to raw text when the error body is not json', async () => {
+    globalThis.fetch = (async () =>
+      new Response('plain text error', {
+        status: 502,
+        statusText: 'Bad Gateway',
+      })) as never;
+    await statsCommand().parseAsync(['node', 'cli']);
+    expect(process.exitCode).toBe(1);
+    const out = stderr.join('');
+    expect(out).toContain('stats failed: (502');
+    expect(out).toContain('plain text error');
+  });
+});
