@@ -364,3 +364,91 @@ describe('search reads the query from stdin when the argument is "-"', () => {
     expect(q.q).toBe('foo bar baz');
   });
 });
+
+describe('search --paths-only emits a deduplicated path-per-line stream', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    retrieveMock.mockReset();
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+  });
+
+  it('emits one path per line in rank order with duplicates dropped', async () => {
+    // Search returns chunk-granular hits, so /a.md appears in two
+    // different chunks. --paths-only must dedupe to ONE /a.md line,
+    // keeping the first occurrence so rank order is preserved.
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', score: 0.91, chunk: { text: 'first chunk of a' } },
+      { path: '/b.md', score: 0.85, chunk: { text: 'b.md chunk' } },
+      { path: '/a.md', score: 0.72, chunk: { text: 'second chunk of a' } },
+      { path: '/c.md', score: 0.55, chunk: { text: 'c.md chunk' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--paths-only']);
+    // Exact byte layout — `wc -l` and `xargs -n1` must keep working.
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n/c.md\n');
+    // No ANSI styling.
+    expect(stdout.join('')).not.toMatch(/\x1b\[/);
+    // No "no results" hint, no headers, no rank/score chatter.
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('zero matches yields a clean empty stream (NOT the "no results" stderr hint)', async () => {
+    // Critical: `clawmind search nope --paths-only | xargs ls` would
+    // run ls with the literal string "no results for nope" if we
+    // accidentally let the stderr hint leak through. We empty both
+    // streams hard.
+    retrieveMock.mockResolvedValue([]);
+    await searchCommand().parseAsync(['node', 'cli', 'nope', '--paths-only']);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--paths-only composes with --threshold (filter shrinks the dedup input)', async () => {
+    // The threshold filter runs BEFORE --paths-only short-circuits,
+    // so a low-score chunk that would have anchored a unique path is
+    // dropped, and we never emit that path even though search
+    // technically retrieved it.
+    retrieveMock.mockResolvedValue([
+      { path: '/keep.md', score: 0.92, chunk: { text: '' } },
+      { path: '/drop.md', score: 0.10, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--threshold', '0.5', '--paths-only']);
+    expect(stdout.join('')).toBe('/keep.md\n');
+  });
+
+  it('--paths-only short-circuits before --json (--json is ignored as documented)', async () => {
+    // The flag contract is "ignore json/out/snippet/highlight" — verify
+    // by checking we get the plain path-per-line stream, NOT a JSON
+    // array, when both are passed.
+    retrieveMock.mockResolvedValue([
+      { path: '/x.md', score: 0.5, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--paths-only']);
+    expect(stdout.join('')).toBe('/x.md\n');
+    // No JSON bracketing.
+    expect(stdout.join('')).not.toContain('[');
+    expect(stdout.join('')).not.toContain('{');
+  });
+
+  it('--paths-only stays dedup-stable when a path repeats more than twice', async () => {
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', score: 0.9, chunk: { text: '' } },
+      { path: '/a.md', score: 0.8, chunk: { text: '' } },
+      { path: '/a.md', score: 0.7, chunk: { text: '' } },
+      { path: '/b.md', score: 0.6, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--paths-only']);
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n');
+  });
+});

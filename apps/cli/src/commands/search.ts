@@ -38,6 +38,7 @@ export function searchCommand() {
     .option('--exclude-tags <list>', 'comma-separated tags; drop sources carrying any')
     .option('-t, --threshold <n>', 'drop hits with score strictly below this value (0..1 typical)')
     .option('--no-snippet', 'in --json mode, emit only rank/path/score/startLine (no snippet/highlights). Smaller payload for ranking pipelines')
+    .option('--paths-only', 'emit only the matched paths, one per line, with duplicates collapsed in rank order. Pipeline-friendly twin of `forget --paths-only` / `stale --paths`. Ignores --json / --out / --snippet / --highlight; just dumps paths.')
     .option('--json', 'emit results as a JSON array instead of formatted text')
     .option('-o, --out <file>', 'write results to a file instead of stdout')
     .option('--no-highlight', 'disable ANSI highlighting of matched terms')
@@ -52,6 +53,7 @@ export function searchCommand() {
           excludeTags?: string;
           threshold?: string;
           snippet: boolean;
+          pathsOnly?: boolean;
           json?: boolean;
           out?: string;
           highlight: boolean;
@@ -101,6 +103,29 @@ export function searchCommand() {
         // variable is empty.
         const minScore = opts.threshold !== undefined ? Number.parseFloat(opts.threshold) : NaN;
         const hits = Number.isFinite(minScore) ? rawHits.filter((h) => h.score >= minScore) : rawHits;
+        // --paths-only is the shortest possible pipeline shape: one
+        // path per line, deduplicated in rank order. Search returns
+        // chunk-granular hits so the SAME file can appear multiple
+        // times under different chunks; for a downstream `xargs ls`
+        // or `xargs git diff` the operator wants each file once,
+        // preserving the rank order so the most-relevant file comes
+        // first. We dedupe with a Set sentinel against `h.path` and
+        // intentionally short-circuit before the rest of the action
+        // body so --json / --out / --highlight / --snippet are all
+        // moot — the contract is "give me paths, nothing else". This
+        // matches the precedent set by `forget --paths-only` and
+        // `stale --paths`. Threshold + filter flags still apply (they
+        // shaped `hits` above) so `clawmind search foo --threshold .5
+        // --paths-only | xargs ...` works.
+        if (opts.pathsOnly) {
+          const seen = new Set<string>();
+          for (const h of hits) {
+            if (seen.has(h.path)) continue;
+            seen.add(h.path);
+            process.stdout.write(`${h.path}\n`);
+          }
+          return;
+        }
         const terms = queryTerms(q.q);
         const width = Number(opts.snippetWidth) || 240;
         if (opts.json) {
