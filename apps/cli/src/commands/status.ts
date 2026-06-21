@@ -32,7 +32,8 @@ export function statusCommand() {
   return new Command('status')
     .description('Print index status and provider health')
     .option('--json', 'emit status as JSON for scripting')
-    .action(async (opts: { json?: boolean }) => {
+    .option('--check', 'exit non-zero (code 2) when any probe is down. Designed for CI smoke checks — pipes back the same JSON / text body but flips the exit code so a flat `clawmind status --check` is a usable health-check command in a wider script.')
+    .action(async (opts: { json?: boolean; check?: boolean }) => {
       const rt = await buildRuntime();
       const apiBase = `http://${rt.env.CLAWMIND_API_HOST}:${rt.env.CLAWMIND_API_PORT}`;
       const [embedProbe, llmProbe, chunks] = await Promise.all([
@@ -44,6 +45,16 @@ export function statusCommand() {
       const llmOk = Boolean(llmProbe.value);
       const documents = rt.manifest.size();
       const bm25Docs = rt.bm25.size();
+      const overallOk = embedOk && llmOk;
+      // --check is the CI smoke-check flag. The body of the response
+      // (json or text) is unchanged so a single command can both report
+      // status AND drive the exit code, but a non-OK result flips the
+      // exit code to 2 so a wrapper script can branch on it without
+      // having to parse the output. We use exit code 2 (not 1) to
+      // distinguish "everything ran but a probe is down" from "the
+      // command itself crashed" (which still uses 1 from the top-level
+      // commander handler). The flag is a no-op when everything is up
+      // so the happy path stays at exit 0.
       if (opts.json) {
         process.stdout.write(JSON.stringify({
           workspace: rt.workspace,
@@ -55,8 +66,9 @@ export function statusCommand() {
           llm: llmOk ? 'ok' : 'down',
           embedLatencyMs: embedProbe.ms,
           llmLatencyMs: llmProbe.ms,
-          ok: embedOk && llmOk,
+          ok: overallOk,
         }) + '\n');
+        if (opts.check && !overallOk) process.exitCode = 2;
         return;
       }
       const fmtProbe = (ok: boolean, ms: number) => {
@@ -73,5 +85,17 @@ export function statusCommand() {
         `  embed     : ${fmtProbe(embedOk, embedProbe.ms)}`,
         `  llm       : ${fmtProbe(llmOk, llmProbe.ms)}`,
       ].join('\n') + '\n');
+      if (opts.check && !overallOk) {
+        // Also drop a one-line summary to stderr so a script that
+        // redirected stdout to /dev/null still sees WHICH probe was
+        // down. We intentionally name only the down probes; an
+        // operator scanning `journalctl` should not have to re-parse
+        // the table to find the offender.
+        const down: string[] = [];
+        if (!embedOk) down.push('embed');
+        if (!llmOk) down.push('llm');
+        process.stderr.write(kleur.red(`status --check: ${down.join(' + ')} down\n`));
+        process.exitCode = 2;
+      }
     });
 }
