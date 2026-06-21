@@ -138,5 +138,124 @@ export function feedbackCommand() {
       });
     });
 
+  cmd.command('prune')
+    .description('Bulk-clear feedback entries whose boost falls below a threshold')
+    .option('--below <n>', 'clear every entry whose boost multiplier is strictly less than this value (typical: --below 0.7 to drop the strongest downvotes that no longer earn their boost). Required — there is no "prune everything" shorthand because that would be `feedback clear *` and a misclick should never wipe the whole map.', (v) => Number.parseFloat(v))
+    .option('-q, --q <text>', 'narrow the candidate set by case-insensitive substring on the source path BEFORE the --below threshold is applied. Use to limit the prune to a specific directory subtree (e.g. `--q /archive --below 0.7` only touches feedback on archived paths).')
+    .option('--apply', 'actually clear the matched entries. Without --apply this is a dry-run that lists what WOULD be cleared without touching the feedback store. Matches the forget --apply safety pattern: destructive by default off, never silent.')
+    .option('--json', 'emit the prune report as JSON for scripting')
+    .action(async (opts: { below?: number; q?: string; apply?: boolean; json?: boolean }) => {
+      await runOrReport('feedback prune', async () => {
+        // The bulk-prune flow. The natural cron use is:
+        //   clawmind feedback prune --below 0.7              # dry-run, lists candidates
+        //   clawmind feedback prune --below 0.7 --apply      # actually clears them
+        // This mirrors the forget --apply safety pattern: the
+        // command is destructive when --apply is set, dry-run
+        // otherwise, and the dry-run is byte-identical to the
+        // apply call MINUS the actual DELETE. The operator can
+        // copy-paste their preview command, add --apply, and get
+        // exactly the rows they previewed cleared.
+        //
+        // Why --below required, no "prune everything" shorthand:
+        // a misclick or auto-completed `clawmind feedback prune
+        // --apply` should NEVER wipe the whole feedback map.
+        // Requiring --below makes the operator declare their
+        // intent and gives us a single number to validate. There
+        // is no `--above` variant because high boosts are the
+        // operator's curated work — `--above 1.5` only matches
+        // entries that hit the boost cap, and "clear the things
+        // I worked hardest to upvote" is not a question worth
+        // automating.
+        if (opts.below === undefined) {
+          throw new FeedbackCliError(`--below <n> is required (no shorthand to prune the entire map; use \`feedback clear <path>\` for individual entries)`);
+        }
+        if (!Number.isFinite(opts.below)) {
+          throw new FeedbackCliError(`--below value is not a number`);
+        }
+        // Step 1: fetch the candidate set. Forwards -q to the API
+        // server-side (so the operator's substring filter does
+        // not waste network bandwidth on rows the cron is going
+        // to throw away anyway).
+        const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
+        const list = (await apiFetch('GET', `/v1/feedback${qs}`)) as {
+          items: { path: string; ups: number; downs: number; boost: number }[];
+        };
+        // Step 2: client-side filter to the rows strictly below
+        // the threshold. Strict comparison (`<`) so boost === N
+        // is EXCLUDED — an entry exactly at the threshold is
+        // ON the line, not below it. The operator who passes
+        // --below 0.7 to mean "everything strongly downvoted"
+        // does not want to also clear a path that is exactly at
+        // boost 0.7 (the symmetric edge case is `--above 1.0` in
+        // `feedback list` which is also strict).
+        const candidates = list.items.filter((it) => it.boost < opts.below!);
+        // Step 3: with --apply, actually clear each matched path.
+        // We do this serially rather than in parallel because the
+        // /v1/feedback DELETE endpoint mutates the same feedback
+        // store and the recordVote/clearVote service has its own
+        // race-sensitive reload step. Serial is safer for a
+        // typical prune of dozens of paths; if a future prune
+        // needs to clear thousands, a server-side bulk endpoint
+        // would be the right answer.
+        let cleared = 0;
+        const errors: { path: string; message: string }[] = [];
+        if (opts.apply) {
+          for (const it of candidates) {
+            try {
+              await apiFetch('DELETE', '/v1/feedback', { path: it.path });
+              cleared++;
+            } catch (err) {
+              // A single failure does not abort the rest of the
+              // prune — surface the failure in the report and
+              // keep going. The cron use is "clear the bad
+              // entries from last week"; one entry that hits a
+              // transient failure should not block the other
+              // forty-nine.
+              const msg = err instanceof FeedbackCliError ? err.message : String(err);
+              errors.push({ path: it.path, message: msg });
+            }
+          }
+        }
+        const report = {
+          threshold: opts.below,
+          dryRun: !opts.apply,
+          matched: candidates.length,
+          cleared,
+          errors,
+          paths: candidates.map((it) => it.path),
+        };
+        // Set the exit code BEFORE any output branch returns so the
+        // JSON mode and the text mode agree: a partial failure
+        // surfaces as exit 1 regardless of which output shape the
+        // operator asked for. A wrapper script piping --json into
+        // jq must be able to detect "not every clear succeeded"
+        // from the exit code alone, the same way a shell wrapper
+        // grepping the text output can detect it from the red
+        // "clear(s) failed" header.
+        if (errors.length > 0) {
+          process.exitCode = 1;
+        }
+        if (opts.json) {
+          process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+          return;
+        }
+        const verb = opts.apply ? 'cleared' : 'would clear';
+        const head = `${verb} ${candidates.length} feedback entr${candidates.length === 1 ? 'y' : 'ies'} below boost ${opts.below}`;
+        process.stdout.write((opts.apply ? kleur.red(head) : kleur.yellow(head)) + '\n');
+        for (const it of candidates) {
+          process.stdout.write(kleur.gray(`  ${it.boost.toFixed(2)}x  ${it.path}\n`));
+        }
+        if (errors.length > 0) {
+          process.stdout.write(kleur.red(`\n${errors.length} clear(s) failed:\n`));
+          for (const e of errors) {
+            process.stdout.write(kleur.red(`  ${e.path}: ${e.message}\n`));
+          }
+        }
+        if (!opts.apply && candidates.length > 0) {
+          process.stdout.write(kleur.bold('\nrerun with --apply to actually clear these.\n'));
+        }
+      });
+    });
+
   return cmd;
 }

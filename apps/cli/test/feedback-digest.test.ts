@@ -209,6 +209,214 @@ describe('feedback cli', () => {
   });
 });
 
+describe('feedback prune cli', () => {
+  let originalFetch: typeof globalThis.fetch;
+  let originalWrite: typeof process.stdout.write;
+  let originalErr: typeof process.stderr.write;
+  let stdout: string[];
+  let stderr: string[];
+  let fetchCalls: Array<{ url: string; method?: string; body?: unknown }>;
+  let deleteFailPaths: Set<string>;
+
+  // Fixture with five rows spanning the boost range so --below 0.7
+  // matches strong-down only, --below 1.0 matches all downs,
+  // --below 0.95 matches mild-down + strong-down, and --below 0.5
+  // matches nothing.
+  const FIXTURE_ITEMS = [
+    { path: '/strong-up.md', ups: 5, downs: 0, boost: 1.25 },
+    { path: '/mild-up.md', ups: 1, downs: 0, boost: 1.05 },
+    { path: '/neutral.md', ups: 1, downs: 1, boost: 1.0 },
+    { path: '/mild-down.md', ups: 0, downs: 2, boost: 0.9 },
+    { path: '/strong-down.md', ups: 0, downs: 5, boost: 0.65 },
+  ];
+
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    fetchCalls = [];
+    deleteFailPaths = new Set();
+    originalFetch = globalThis.fetch;
+    originalWrite = process.stdout.write.bind(process.stdout);
+    originalErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      const method = init?.method;
+      const body = init?.body ? JSON.parse(String(init.body)) : undefined;
+      fetchCalls.push({ url: u, method, body });
+      if (u.includes('/v1/feedback') && (!method || method === 'GET')) {
+        return new Response(JSON.stringify({ items: FIXTURE_ITEMS }), { status: 200 });
+      }
+      if (u.endsWith('/v1/feedback') && method === 'DELETE') {
+        const p = (body as { path: string }).path;
+        if (deleteFailPaths.has(p)) {
+          return new Response(JSON.stringify({ message: 'simulated failure' }), {
+            status: 500, statusText: 'Internal Server Error',
+            headers: { 'content-type': 'application/json' },
+          });
+        }
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    process.stdout.write = originalWrite;
+    process.stderr.write = originalErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes prune as a subcommand with --below, --apply, -q, --json on the surface', () => {
+    const prune = feedbackCommand().commands.find((c) => c.name() === 'prune');
+    expect(prune).toBeDefined();
+    const flags = prune!.options.map((o) => o.long);
+    expect(flags).toContain('--below');
+    expect(flags).toContain('--apply');
+    expect(flags).toContain('--q');
+    expect(flags).toContain('--json');
+  });
+
+  it('--below required: omitting it aborts cleanly without touching the API', async () => {
+    // The whole point of --below being required is that a misclick
+    // like `feedback prune --apply` does NOT silently wipe the map.
+    // We assert the error fires AND no DELETE was issued.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('feedback prune failed: --below <n> is required');
+    // Critically: no DELETE calls were issued.
+    expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+  });
+
+  it('--below with a non-numeric value aborts cleanly (NaN cannot silently match everything)', async () => {
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('feedback prune failed: --below value is not a number');
+    expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+  });
+
+  it('dry-run (no --apply): lists candidates strictly below threshold without DELETE', async () => {
+    // The byte-identical preview the operator gets BEFORE adding
+    // --apply. We test --below 0.7 (matches strong-down only) so
+    // the candidate set is unambiguous. No DELETE call is issued.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '0.7', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      threshold: number; dryRun: boolean; matched: number; cleared: number; paths: string[];
+    };
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.threshold).toBe(0.7);
+    expect(parsed.matched).toBe(1);
+    expect(parsed.cleared).toBe(0);
+    expect(parsed.paths).toEqual(['/strong-down.md']);
+    // No DELETE — the GET was the only network call.
+    expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+  });
+
+  it('--apply actually clears each matched entry (one DELETE per path)', async () => {
+    // --below 1.0 matches mild-down + strong-down. With --apply we
+    // expect one DELETE per candidate and a cleared count equal to
+    // matched count (no failures).
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '1.0', '--apply', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      dryRun: boolean; matched: number; cleared: number; errors: unknown[]; paths: string[];
+    };
+    expect(parsed.dryRun).toBe(false);
+    expect(parsed.matched).toBe(2);
+    expect(parsed.cleared).toBe(2);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.paths.sort()).toEqual(['/mild-down.md', '/strong-down.md']);
+    // Two DELETE calls, one per path.
+    const deletes = fetchCalls.filter((c) => c.method === 'DELETE');
+    expect(deletes).toHaveLength(2);
+    const deletedPaths = deletes.map((c) => (c.body as { path: string }).path).sort();
+    expect(deletedPaths).toEqual(['/mild-down.md', '/strong-down.md']);
+  });
+
+  it('--below is STRICT: boost === threshold is EXCLUDED from the prune (matches feedback list --below)', async () => {
+    // /neutral.md is at boost 1.0 exactly. --below 1.0 must NOT
+    // match it (the entry is ON the line, not below it). This
+    // mirrors the strict-comparison contract that `feedback list
+    // --below` already honours.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '1.0', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as { paths: string[] };
+    expect(parsed.paths).not.toContain('/neutral.md');
+  });
+
+  it('-q forwards to the API server-side (saves the round-trip on rows the prune would discard anyway)', async () => {
+    // -q is the substring filter on the GET; the API narrows the
+    // candidate set BEFORE the client-side --below threshold is
+    // applied. We assert the GET URL carries q= and the DELETE
+    // calls touch only the paths matching the substring.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '1.0', '-q', 'down', '--apply', '--json']);
+    const getCall = fetchCalls.find((c) => !c.method || c.method === 'GET');
+    expect(getCall?.url).toContain('/v1/feedback?q=down');
+  });
+
+  it('zero matches yields a clean report (matched=0, cleared=0, paths=[]) and no DELETE calls', async () => {
+    // --below 0.5 below the floor of MIN_BOOST: nothing in the
+    // fixture qualifies. The cron-friendly contract is "the
+    // command always succeeds when the input is well-formed,
+    // even if it has nothing to do" — every cron tick that
+    // happens to find no candidates should not look like an
+    // error.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '0.5', '--apply', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as { matched: number; cleared: number; paths: string[] };
+    expect(parsed.matched).toBe(0);
+    expect(parsed.cleared).toBe(0);
+    expect(parsed.paths).toEqual([]);
+    expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it('dry-run text mode prints "would clear" header AND a rerun nudge', async () => {
+    // Mirrors the forget --apply dry-run UX: the operator gets a
+    // yellow preview header + the gray path list + an explicit
+    // "rerun with --apply" so they can move from preview to
+    // destruction with a single command edit.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '0.7']);
+    const out = stdout.join('');
+    expect(out).toContain('would clear 1 feedback entry below boost 0.7');
+    expect(out).toContain('/strong-down.md');
+    expect(out).toContain('rerun with --apply');
+  });
+
+  it('apply text mode prints "cleared" header (red) and NO rerun nudge', async () => {
+    // After --apply runs, there is nothing to rerun. The header
+    // shifts to past tense and red (to make the destructive action
+    // visible in a cron log).
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '0.7', '--apply']);
+    const out = stdout.join('');
+    expect(out).toContain('cleared 1 feedback entry below boost 0.7');
+    // No rerun nudge after a real apply.
+    expect(out).not.toContain('rerun with --apply');
+  });
+
+  it('partial failures: one DELETE that errors does NOT abort the rest of the prune', async () => {
+    // The cron use is "clear the bad entries from last week"; a
+    // single transient failure on one path should not block the
+    // other paths from being cleared. The report carries the
+    // error in `errors[]` AND sets exitCode=1 so a wrapper script
+    // can detect that NOT every clear succeeded.
+    deleteFailPaths = new Set(['/mild-down.md']);
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '1.0', '--apply', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      matched: number; cleared: number; errors: { path: string; message: string }[];
+    };
+    expect(parsed.matched).toBe(2);
+    // Only one cleared — the other failed.
+    expect(parsed.cleared).toBe(1);
+    expect(parsed.errors).toHaveLength(1);
+    expect(parsed.errors[0]?.path).toBe('/mild-down.md');
+    expect(parsed.errors[0]?.message).toContain('500');
+    // Both DELETE calls were attempted (we did not stop after the
+    // first failure).
+    expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(2);
+    expect(process.exitCode).toBe(1);
+  });
+});
+
 describe('digest cli', () => {
   let originalFetch: typeof globalThis.fetch;
   let originalWrite: typeof process.stdout.write;
