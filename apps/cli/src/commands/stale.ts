@@ -60,10 +60,11 @@ export function staleCommand() {
     .option('-d, --days <n>', 'staleness threshold in days', '30')
     .option('-l, --limit <n>', 'cap on rows returned', '200')
     .option('-q, --q <text>', 'case-insensitive substring filter on path')
+    .option('--since <iso-date>', 'further restrict the report to files whose last ingest predates this ISO date. Complements --days <n> (which is a relative "older than N days from now" threshold) by accepting an absolute cutoff — useful from cron where the cutoff is anchored to a known date. The two filters compose: the kept set is the intersection. Files are kept when their lastIngestedAt < cutoff; lastIngestedAt is derived from the row\'s ageDays (which the API already computes against current time) so a file aged 90 days passes `--since` cutoffs up to 90 days in the past. Parse failures abort cleanly.')
     .option('--paths', 'print just the path column for piping into other commands')
     .option('--tsv', 'emit tab-separated rows (path<TAB>ageDays<TAB>chunkCount<TAB>size) suitable for awk/cut')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { days: string; limit: string; paths?: boolean; tsv?: boolean; q?: string; json?: boolean }) => {
+    .action(async (opts: { days: string; limit: string; paths?: boolean; tsv?: boolean; q?: string; since?: string; json?: boolean }) => {
       await runOrReport('stale', async () => {
         const params: Record<string, string> = {
           olderThanDays: opts.days,
@@ -71,11 +72,40 @@ export function staleCommand() {
         };
         if (opts.q) params.q = opts.q;
         const qs = new URLSearchParams(params).toString();
-        const out = (await apiFetch('GET', `/v1/sources/stale?${qs}`)) as {
+        let out = (await apiFetch('GET', `/v1/sources/stale?${qs}`)) as {
           thresholdDays: number;
           total: number;
           items: { path: string; ageDays: number; chunkCount: number; size: number }[];
         };
+        // --since <iso-date> is a client-side post-filter that
+        // intersects with the existing --days threshold. The /v1
+        // endpoint already filters by "older than N days from now"
+        // (a relative window anchored to wall-clock); --since gives
+        // the operator an absolute anchor instead, which matters
+        // from cron where the cutoff often lives in a config or env
+        // var rather than being recomputed each run. We compute each
+        // row's effective lastIngestedAt by subtracting ageDays from
+        // the current wall clock — the API does not surface the
+        // timestamp directly but ageDays is computed from it, so the
+        // round-trip is lossless to the nearest day. Files whose
+        // effective lastIngestedAt < cutoff are kept; the rest are
+        // dropped. We recompute `total` from the filtered length so
+        // the "N stale, showing M" header in text mode reflects the
+        // post-filter shape — otherwise the operator would see a
+        // header that does not match the rows below it. Parse
+        // failures abort cleanly via the StaleCliError path so a
+        // typo like `--since 2026-13-01` does not silently fall back
+        // to "no extra filter".
+        if (opts.since) {
+          const cutoff = Date.parse(opts.since);
+          if (!Number.isFinite(cutoff)) {
+            throw new StaleCliError(`--since value "${opts.since}" is not a valid ISO date`);
+          }
+          const now = Date.now();
+          const dayMs = 86_400_000;
+          const items = out.items.filter((it) => (now - it.ageDays * dayMs) < cutoff);
+          out = { ...out, items, total: items.length };
+        }
         if (opts.json) {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
           return;
