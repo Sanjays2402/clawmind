@@ -37,6 +37,7 @@ export function searchCommand() {
     .option('--include-tags <list>', 'comma-separated tags; keep only sources carrying at least one')
     .option('--exclude-tags <list>', 'comma-separated tags; drop sources carrying any')
     .option('-t, --threshold <n>', 'drop hits with score strictly below this value (0..1 typical)')
+    .option('--rerank-off', 'DEBUG escape hatch: skip the lexical-rerank step in the retrieval pipeline. Surfaces the raw hybrid-merged + boost-adjusted ordering BEFORE the lexical reorder, so an operator can diagnose whether the rerank is HELPING or HURTING on a particular query. Useful when tuning hybridAlpha or chasing a regression where a known-relevant chunk drops out of the top-k. Other stages (embed call, hybrid merge, MMR diversity) stay enabled — only the heuristic lexical-rerank is bypassed. Composes with --json / --threshold / --paths-only / -k for "what does the pipeline rank as #1 without the lexical layer", "what does the top-50 look like without the rerank pull", etc.')
     .option('--no-snippet', 'in --json mode, emit only rank/path/score/startLine (no snippet/highlights). Smaller payload for ranking pipelines')
     .option('--paths-only', 'emit only the matched paths, one per line, with duplicates collapsed in rank order. Pipeline-friendly twin of `forget --paths-only` / `stale --paths`. Ignores --json / --out / --snippet / --highlight; just dumps paths.')
     .option('--json', 'emit results as a JSON array instead of formatted text')
@@ -52,6 +53,7 @@ export function searchCommand() {
           includeTags?: string;
           excludeTags?: string;
           threshold?: string;
+          rerankOff?: boolean;
           snippet: boolean;
           pathsOnly?: boolean;
           json?: boolean;
@@ -92,6 +94,17 @@ export function searchCommand() {
         const rawHits = await retrieve(
           { bm25: rt.bm25, lance: rt.lance, embed: rt.embed, llm: rt.llm, embedModel: rt.env.CLAWMIND_EMBED_MODEL },
           q,
+          undefined,
+          // --rerank-off is the debug escape hatch. We forward
+          // `skipRerank: true` through the retrieve() options so the
+          // lexical-rerank stage is bypassed entirely (NOT applied and
+          // then hidden — the operator wants to see what the pipeline
+          // actually ranks without the heuristic layer). Other stages
+          // stay enabled because they're either correctness (embed +
+          // hybrid merge are how dense+sparse combine) or UX (MMR
+          // guarantees diversity in the top-k). Only `skipRerank` is
+          // surfaced today; future debug knobs land here too.
+          opts.rerankOff ? { skipRerank: true } : undefined,
         );
         // --threshold is a post-retrieval filter. We apply it here rather
         // than threading a `minScore` through the retrieve() pipeline because

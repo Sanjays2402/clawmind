@@ -189,6 +189,86 @@ describe('search --out writes results to a file', () => {
   });
 });
 
+describe('search --rerank-off forwards skipRerank=true to retrieve()', () => {
+  // The flag is a DEBUG escape hatch: it tells the retrieval
+  // pipeline to bypass the lexicalRerank stage so an operator can
+  // diagnose whether the heuristic reorder is helping or hurting
+  // on a particular query. We capture the FOURTH argument to the
+  // retrieve() mock (the new RetrieveOptions param) and assert
+  // that it carries `skipRerank: true` when --rerank-off is set
+  // and is left undefined otherwise. The hits/scores themselves
+  // are not the assertion — the contract is "the flag flows
+  // through to the pipeline"; the pipeline-side test in
+  // packages/rag covers the actual short-circuit behaviour.
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    retrieveMock.mockReset();
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', score: 0.5, chunk: { text: '' } },
+    ]);
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+  });
+
+  it('exposes --rerank-off on the command surface', () => {
+    const flags = searchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--rerank-off');
+  });
+
+  it('--rerank-off forwards { skipRerank: true } as the fourth argument to retrieve()', async () => {
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--rerank-off', '--json']);
+    // retrieve(deps, q, meta, options) — the 4th positional arg.
+    const callArgs = retrieveMock.mock.calls[0] as unknown[];
+    expect(callArgs[3]).toEqual({ skipRerank: true });
+  });
+
+  it('without --rerank-off, the options argument is undefined (NOT { skipRerank: false })', async () => {
+    // The pipeline-side default is `lexicalRerank ON`; we forward
+    // `undefined` so the pipeline does not have to special-case the
+    // explicit `skipRerank: false` shape. A future addition to
+    // RetrieveOptions can land without breaking existing callers.
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json']);
+    const callArgs = retrieveMock.mock.calls[0] as unknown[];
+    expect(callArgs[3]).toBeUndefined();
+  });
+
+  it('--rerank-off composes with --threshold (threshold still applied client-side)', async () => {
+    retrieveMock.mockResolvedValue([
+      { path: '/strong.md', score: 0.92, chunk: { text: '' } },
+      { path: '/weak.md', score: 0.10, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--rerank-off', '--threshold', '0.5', '--json']);
+    const out = JSON.parse(stdout.join('')) as Array<{ path: string }>;
+    expect(out.map((h) => h.path)).toEqual(['/strong.md']);
+    // And the flag still flowed through.
+    const callArgs = retrieveMock.mock.calls[0] as unknown[];
+    expect(callArgs[3]).toEqual({ skipRerank: true });
+  });
+
+  it('--rerank-off composes with --paths-only (paths still emitted from the unreranked order)', async () => {
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', score: 0.8, chunk: { text: '' } },
+      { path: '/b.md', score: 0.6, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--rerank-off', '--paths-only']);
+    // Exact byte layout — same contract as the non-debug path.
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n');
+    const callArgs = retrieveMock.mock.calls[0] as unknown[];
+    expect(callArgs[3]).toEqual({ skipRerank: true });
+  });
+});
+
 describe('search --no-snippet trims the json payload to ranking fields', () => {
   let stdout: string[];
   let stderr: string[];

@@ -29,10 +29,30 @@ export interface RetrievalMeta {
   expansion: Expansion;
 }
 
+/**
+ * Optional knobs the caller can pass to short-circuit individual stages
+ * of the retrieval pipeline. Used today by the cli's `search --rerank-off`
+ * debug flag to skip the lexical-rerank step and surface the raw
+ * hybrid-merged + boost-adjusted ordering. The flag exists so an
+ * operator can diagnose whether the rerank is HELPING or HURTING on
+ * a particular query — useful when tuning hybridAlpha or chasing a
+ * regression where a known-relevant chunk drops out of the top-k.
+ *
+ * Other stages stay mandatory because they're either correctness
+ * (the embed call + hybrid merge are how dense+sparse combine) or
+ * UX (mmrRerank is what guarantees diversity in the top-k). Only the
+ * lexical-rerank stage is presentational enough to bypass without
+ * compromising the retrieval contract.
+ */
+export interface RetrieveOptions {
+  skipRerank?: boolean;
+}
+
 export async function retrieve(
   deps: RagDeps,
   q: Query,
   meta?: { meta: RetrievalMeta },
+  options?: RetrieveOptions,
 ): Promise<RetrievedChunk[]> {
   const expansion = q.expand === false
     ? { original: q.q, expanded: q.q, added: [], corrections: [] }
@@ -58,7 +78,16 @@ export async function retrieve(
         return b === 1 ? h : { ...h, score: h.score * b };
       })
     : filtered;
-  const reranked = lexicalRerank(effectiveQ, boosted);
+  // The lexical-rerank stage is the only one that's safe to bypass:
+  // it's a heuristic boost (compact passages + exact-term occurrences)
+  // applied on top of the hybrid-merged + boost-adjusted scores. When
+  // it's skipped we pass the raw `boosted` ordering through to MMR
+  // (which still needs to enforce diversity in the top-k regardless).
+  // The intent is debugging — `search --rerank-off` lets an operator
+  // see whether the lexical reorder is the reason a known-relevant
+  // chunk is missing from the top-k, or whether the problem is upstream
+  // (hybridAlpha tuning, bm25/dense balance, filter misconfiguration).
+  const reranked = options?.skipRerank ? boosted : lexicalRerank(effectiveQ, boosted);
   const top = mmrRerank(reranked, { lambda: q.mmrLambda, k: q.k, queryVector: emb });
   return top;
 }
