@@ -28,13 +28,51 @@ export function tagsCommand() {
   cmd.command('list')
     .description('List every tag with its source count')
     .option('-q, --q <text>', 'case-insensitive substring filter on tag name')
+    .option('--sort <key>', 'sort key for the tag list: `count` (descending by source count, ties broken alphabetically by tag — the API default) or `tag` (ascending alphabetical by tag name, useful for diff-stable cron snapshots). Mirrors the `--sort` family on `stats` and the verbosity-knob philosophy that the cli should expose the ordering the operator wants without forcing a downstream `jq ... | sort`.', 'count')
+    .option('--top <n>', 'cap the list at this many entries AFTER sorting and -q filtering. The natural use is "the top 10 tags by source count" — pairs with `--sort count` (the default) to answer "which labels dominate my index" in a single invocation. Composes with -q: the substring filter narrows the candidate set first, then --top picks the head. Mirrors `stats --top` byte-for-byte (clamped to a sensible positive integer; non-positive or NaN values fall back to "no cap" so a typo like --top 0 still yields a useful response rather than an empty table).', (v) => Number.parseInt(v, 10))
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; json?: boolean }) => {
+    .action(async (opts: { q?: string; sort: string; top?: number; json?: boolean }) => {
       const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
-      const out = (await apiFetch('GET', `/v1/tags${qs}`)) as {
+      const apiOut = (await apiFetch('GET', `/v1/tags${qs}`)) as {
         items: { tag: string; count: number }[];
         count: number;
       };
+      // The API already returns `items` sorted by count descending
+      // with alphabetical tie-breaking (see services/tags.ts /
+      // pathsByTag). We re-sort here only when the operator asked
+      // for a different key. Two supported keys:
+      //   - count (default): keep the API order verbatim, no work
+      //   - tag           : ascending alphabetical by tag name —
+      //                     stable across snapshots so two
+      //                     consecutive `clawmind tags list --sort
+      //                     tag --json --top 100` runs diff cleanly
+      //                     even when a tag's count flutters across
+      //                     ingests. The cron use is a daily snapshot
+      //                     of the namespace label set.
+      // An unknown --sort key aborts cleanly (matches `stats --sort`).
+      const sortKey = opts.sort.toLowerCase();
+      let items = apiOut.items;
+      if (sortKey === 'tag') {
+        items = [...items].sort((a, b) => a.tag.localeCompare(b.tag));
+      } else if (sortKey !== 'count') {
+        process.stderr.write(kleur.red(`tags list failed: unknown --sort key "${opts.sort}" (expected: count, tag)\n`));
+        process.exitCode = 1;
+        return;
+      }
+      // --top is the final shaper: it slices the head off the
+      // already-sorted list. Clamping matches `stats --top` so the
+      // muscle memory carries — a non-positive or NaN value falls
+      // back to "no cap" (the full list) rather than yielding the
+      // surprising "empty table" that `--top 0` would otherwise
+      // produce. We apply --top AFTER --sort because the slice
+      // semantic is "the top N entries by the chosen order"; the
+      // operator who passes `--sort tag --top 10` is asking for
+      // the first 10 alphabetically, not 10 random tags. Composes
+      // with -q (the API already narrowed by substring above).
+      if (opts.top !== undefined && Number.isFinite(opts.top) && opts.top > 0) {
+        items = items.slice(0, opts.top);
+      }
+      const out = { items, count: items.length };
       if (opts.json) {
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
         return;
