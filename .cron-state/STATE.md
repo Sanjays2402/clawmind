@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-20 22:01 PDT (current)
+### Tick 2026-06-21 00:40 PDT (current)
+
+- [x] feat(related): add -t/--threshold to drop neighbours below a relevance score (51dd7b8)
+- [x] feat(digest): add show --last <n> to cap history rows newest-first (53e2550)
+- [x] feat(stats): add --paths to emit the per-namespace extension flat list (fc363f0)
+- [x] feat(watch): add --debounce <ms> to coalesce rapid file events (814cbe5)
+- [x] feat(watch): emit an NDJSON startup banner to stderr on each run (76a5c9e)
+
+### Tick 2026-06-20 22:01 PDT
 
 - [x] feat(related): add --paths-only to dump deduped neighbour paths in rank order (5d6edcf)
 - [x] feat(stats): add --since to keep only namespaces whose newestIngestedAt is older than the cutoff (f9f81a4)
@@ -80,8 +88,6 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 
 - [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved)
 - [ ] fix(rag/hybrid): hybridMerge test on packages/rag/test/hybrid.test.ts expects `out[0].id === 'b'` but the merge orders 'a' (bm25 score 10) above 'b' under alpha=0.5; either the test fixture or the hybrid blend has drifted. Pre-existing failure (verified by typechecking parent commit 3cc6fd1), NOT introduced by any cron tick — was simply unknown because earlier ticks only ran `--filter @clawmind/cli test`, not `pnpm -r test`. Either rewrite the test against the current alpha-blend semantics OR re-derive the expected order from first principles.
-- [ ] feat(watch): add --debounce <ms> option to coalesce rapid file events
-- [ ] feat(watch): print a one-line startup banner to stderr (kind=banner, ts) so log scrapers can spot a restart
 - [ ] feat(doctor): add --staleAfterDays <n> CLI flag that forwards to the API's staleAfterMs override
 - [ ] feat(status): add --watch <ms> to repoll periodically for terminal dashboards
 - [ ] feat(reindex): add --dry-run that lists files that would be reindexed without touching the store
@@ -94,9 +100,12 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(search): add --rerank-off escape hatch to skip the rerank step for debugging fusion vs rerank effects
 - [ ] feat(forget): add --json --dry-run --paths-only shortcut so a script can preview removals without parsing the structured payload (currently a single-flag combo of existing flags but worth a smoke test)
 - [ ] feat(feedback): add `feedback prune --below <n>` to bulk-clear all paths whose boost falls below a threshold (natural sibling of `feedback list --below`; the cron use is "every Sunday morning, prune anything below 0.7 that has not been re-voted in 90d")
-- [ ] feat(stats): add --paths to emit the per-namespace `extensions[*].ext` flat list (one ext per line) so `clawmind stats --paths -q memory` answers "which file types live in this namespace" without --json + jq
-- [ ] feat(digest): add `digest show --last <n>` to cap the history rows returned (newest-first), pairs with --since for sliding-window views
-- [ ] feat(related): add -t/--threshold to drop neighbours below a relevance score (mirrors `search --threshold`)
+- [ ] feat(watch): add --quiet / -q flag to suppress the per-file event lines (banner still emits on stderr; useful for cron-restarted watchers where the operator wants only the restart marker, not 100/sec event chatter)
+- [ ] feat(watch): add --once flag that processes the initial scan + ingests current files once, then exits cleanly (lets cron use the same code path as a normal ingest for parity between scheduled refresh and live watching)
+- [ ] feat(digest): add `digest show --since-last` shortcut — bound to the saved-search's previous run timestamp ("what has this saved search surfaced since the last time I read it") without an explicit cutoff arg
+- [ ] feat(stats): add --json --since shortcut that emits a single `{stale: [...], total: N}` payload — pairs with --since semantics already shipped this session but currently --json + --since dumps the full report shape; a slimmed shape is what cron pipelines actually want
+- [ ] feat(related): add -n/--namespaces filter forwarded to the API (the option already exists; verify it's honoured end-to-end and add a regression test)
+- [ ] feat(stale): add --paths-only mirroring forget --paths-only / search --paths-only naming (the existing `--paths` flag predates the contract; add --paths-only as an alias so the family is uniform AND keep --paths for back-compat with the byte-layout tests)
 
 ## Conventions
 
@@ -316,3 +325,83 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   Verify-gate note: ran the full `pnpm typecheck` and `pnpm -r
   test`. The only failures are the same two pre-existing reds
   noted above. The `@clawmind/cli` build is clean.
+
+- 2026-06-21 00:40 PDT (Cake/cron) — 5 features shipped on feature/autoship.
+  Features: 51dd7b8, 53e2550, fc363f0, 814cbe5, 76a5c9e. Test gate:
+  `@clawmind/cli` 216/216 vitest pass (up from 186). 30 net new tests
+  spread across 4 files: related.test.ts (+5), feedback-digest.test.ts
+  (+7), stats.test.ts (+6), watch.test.ts (new, 12). Typecheck:
+  `@clawmind/cli` clean. Same two pre-existing reds outside cli
+  (telemetry OpenTelemetry 1.x/2.x peer mismatch + rag/hybrid test
+  alpha-blend drift); neither introduced this tick.
+  Theme: knock out the queued cli items that mirror existing
+  contracts on adjacent commands.
+    1. related --threshold: mirrors `search --threshold` byte-for-byte
+       (inclusive lower bound, non-numeric silently ignored so
+       `--threshold $MAYBE` does not crash on an empty env var,
+       filter applied BEFORE --paths-only / --json / text so every
+       output mode sees the same subset). Applied client-side
+       because the /v1/related API does not accept a minScore
+       parameter today; exposing the dial on the cli avoids an
+       API change for a genuinely-presentational choice. The
+       --json `count` field is recomputed to the kept length so a
+       downstream `jq '.count'` consumer is not lied to;
+       `sourceChunkCount` is preserved verbatim (it's a property
+       of the source, not the returned set).
+    2. digest show --last <n>: caps history to the newest N rows
+       after -q / --since narrow the survivors. API returns
+       history newest-first, so slice(0, N) is correct without a
+       re-sort. The cap is applied LAST so the semantics are
+       "the newest N rows that pass every other filter" — that
+       is what an operator asks ("the 5 most recent runs about
+       /foo.md in the last week" composes -q + --since + --last
+       naturally). A non-positive or NaN value is rejected
+       cleanly because a typo like `--last 0` would silently
+       produce an empty result that looks like "history was
+       empty" rather than "filter narrowed to zero", and the
+       unified empty-state hint depends on the distinction.
+    3. stats --paths: per-namespace extensions flat stream. The
+       walk is namespace order (server-provided), then ext order
+       per namespace. Composes with -q (filter by namespace name)
+       and --top (cap each contribution) for "the top 3 exts in
+       namespaces matching `mem`". Critical design choice: no
+       implicit cross-namespace dedupe so `grep -c md` counts the
+       namespaces that contain that ext (`sort -u` is left to the
+       consumer if they want the unique set; we cannot rebuild
+       duplicates after the fact). Wins over --json / --tsv /
+       text when set — same precedent as search --paths-only
+       short-circuiting --json.
+    4. watch --debounce <ms>: forwards to the watcher's existing
+       `debounceMs` wiring. Zero / negative / NaN values rejected
+       up front rather than silently disabling the debounce —
+       `--debounce 0` would melt CPU during a `git checkout`
+       burst. Missing flag forwards as undefined so the watcher's
+       own `debounceMs ?? 800` fallback keeps working.
+    5. watch startup banner: one-line `{"kind":"banner","root","ts"}`
+       NDJSON document to stderr on each successful start. The
+       text-mode "Watching <root>" line stays on stdout for the
+       operator; the banner is the parallel log-scrape signal so
+       a stderr-tailing parser detects restarts without parsing
+       the (potentially noisy) stdout NDJSON event stream. Fires
+       UNCONDITIONALLY (text + --json) but NOT on the --debounce
+       validation error path — there is no half-started process
+       to mark.
+  Test approach for watch: a sentinel-throwing mock for
+  startWatcher captures the exact options the real watcher would
+  have received AND lets the action body unwind without hitting
+  the production `await new Promise(() => undefined)` deadlock.
+  Same `vi.mock('../src/runtime.js', ...)` pattern as status/ask/
+  search tests, plus a third mock for `@clawmind/config` so
+  expand() and loadEnv() resolve without touching the filesystem.
+  Verify-gate note: ran the full `pnpm typecheck` and
+  `pnpm -r test`. Same two pre-existing reds (telemetry +
+  rag/hybrid); neither was introduced by this tick. The
+  `@clawmind/cli` package is fully green (216 tests).
+  Note on stray build artifacts: at tick start the working tree
+  had untracked .js / .d.ts / .js.map / .d.ts.map sidecars under
+  apps/cli/src/commands/ (a previous stray `tsc` invocation
+  leaked them next to the .ts sources). Cleaned with
+  `git clean -f apps/cli/src/commands/` before any feature work
+  so they could not accidentally be committed. Worth adding
+  `apps/cli/src/**/*.js` to .gitignore in a future tick to make
+  the trap impossible.
