@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-20 18:51 PDT (current)
+### Tick 2026-06-20 22:01 PDT (current)
+
+- [x] feat(related): add --paths-only to dump deduped neighbour paths in rank order (5d6edcf)
+- [x] feat(stats): add --since to keep only namespaces whose newestIngestedAt is older than the cutoff (f9f81a4)
+- [x] feat(stale): add --since to filter the report to files whose last ingest predates an ISO cutoff (5db09c2)
+- [x] feat(digest): add show --since <iso-date> to bound the history window by absolute date (ca8f043)
+- [x] feat(feedback): add list --above/--below to filter entries by boost multiplier (a7ec554)
+
+### Tick 2026-06-20 18:51 PDT
 
 - [x] feat(ask): add --out option for saving long answers to a file (d7ab8a1)
 - [x] feat(status): add --check to exit non-zero when any probe is down (2762613)
@@ -72,24 +80,23 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 
 - [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved)
 - [ ] fix(rag/hybrid): hybridMerge test on packages/rag/test/hybrid.test.ts expects `out[0].id === 'b'` but the merge orders 'a' (bm25 score 10) above 'b' under alpha=0.5; either the test fixture or the hybrid blend has drifted. Pre-existing failure (verified by typechecking parent commit 3cc6fd1), NOT introduced by any cron tick — was simply unknown because earlier ticks only ran `--filter @clawmind/cli test`, not `pnpm -r test`. Either rewrite the test against the current alpha-blend semantics OR re-derive the expected order from first principles.
-- [ ] feat(digest): add --since <iso-date> to digest show to bound the history window
 - [ ] feat(watch): add --debounce <ms> option to coalesce rapid file events
 - [ ] feat(watch): print a one-line startup banner to stderr (kind=banner, ts) so log scrapers can spot a restart
 - [ ] feat(doctor): add --staleAfterDays <n> CLI flag that forwards to the API's staleAfterMs override
 - [ ] feat(status): add --watch <ms> to repoll periodically for terminal dashboards
-- [ ] feat(stats): add --since <iso-date> to filter namespaces whose newestIngestedAt is older than the cutoff
-- [ ] feat(feedback): add --json filter to list returning only paths above/below a boost multiplier
 - [ ] feat(reindex): add --dry-run that lists files that would be reindexed without touching the store
 - [ ] feat(ingest): add --since <iso-date> to only ingest files modified after the cutoff (incremental refresh from cron)
 - [ ] feat(ask): add --stream-json to emit one NDJSON event per token (kind=token/sources/done) for live UI piping
 - [ ] feat(status): add --json-watch that emits one NDJSON snapshot per poll cycle (pairs with --watch)
 - [ ] feat(pins/mutes): add --paths --since <iso> filter so cron snapshots only export recently-touched entries
-- [ ] feat(related): add --paths-only to dump a one-path-per-line stream (mirrors search --paths-only, completes the contract for the last list-style command)
-- [ ] feat(stale): add --since <iso-date> to filter the report to files older than the cutoff (complements existing staleness threshold)
 - [ ] feat(export): add --since <iso-date> to bound the export window for incremental dumps
 - [ ] feat(tags): add --counts mode listing namespaces with their tag-frequency totals (for "what tags are dominating my index" questions)
 - [ ] feat(search): add --rerank-off escape hatch to skip the rerank step for debugging fusion vs rerank effects
 - [ ] feat(forget): add --json --dry-run --paths-only shortcut so a script can preview removals without parsing the structured payload (currently a single-flag combo of existing flags but worth a smoke test)
+- [ ] feat(feedback): add `feedback prune --below <n>` to bulk-clear all paths whose boost falls below a threshold (natural sibling of `feedback list --below`; the cron use is "every Sunday morning, prune anything below 0.7 that has not been re-voted in 90d")
+- [ ] feat(stats): add --paths to emit the per-namespace `extensions[*].ext` flat list (one ext per line) so `clawmind stats --paths -q memory` answers "which file types live in this namespace" without --json + jq
+- [ ] feat(digest): add `digest show --last <n>` to cap the history rows returned (newest-first), pairs with --since for sliding-window views
+- [ ] feat(related): add -t/--threshold to drop neighbours below a relevance score (mirrors `search --threshold`)
 
 ## Conventions
 
@@ -241,3 +248,71 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   mid-tick (macOS quirk); switching to --no-isolate cleared it. No
   fix required — the normal `pnpm --filter @clawmind/cli test` path
   is unaffected outside of a stale-cache hiccup.
+
+- 2026-06-20 22:01 PDT (Cake/cron) — 5 features shipped on feature/autoship.
+  Features: 5d6edcf, f9f81a4, 5db09c2, ca8f043, a7ec554. Test gate:
+  `@clawmind/cli` 186/186 vitest pass (up from 160). 26 net new tests
+  spread across 4 files: related.test.ts (+4), stats.test.ts (+5),
+  stale.test.ts (+4), feedback-digest.test.ts (+13 — 5 digest --since
+  + 8 feedback --above/--below). Typecheck: `@clawmind/cli` clean.
+  Same two pre-existing reds outside cli (telemetry OpenTelemetry
+  1.x/2.x peer mismatch + rag/hybrid test alpha-blend drift); neither
+  introduced this tick.
+  Theme: complete the absolute-date filter family + finish the
+  paths-only contract.
+    1. related --paths-only: the last list-style command missing
+       the --paths-only / --paths contract that pins/mutes/aliases/
+       tags/search/forget/stale already had. Dedupes against a Set
+       in rank order (the API today returns one row per source but
+       the contract promises dedupe so a future change cannot
+       silently break callers). Zero matches yields a clean empty
+       stream — no header, no "no related sources" hint, no ANSI
+       — so `clawmind related foo.md --paths-only | xargs ls`
+       works without conditional skips. Short-circuits --json so
+       the contract is unambiguous when both flags are set.
+    2. stats --since <iso-date>: keeps only namespaces whose
+       newestIngestedAt predates the cutoff. The namespace-level
+       complement to per-file `stale`. Two intentional design
+       properties: (a) newestIngestedAt=null is KEPT (a
+       never-indexed namespace is the most extreme case of stale,
+       so dropping it would hide exactly the bug an operator
+       cares about); (b) totals are RECOMPUTED so a downstream
+       "stale namespaces account for X bytes" report still adds
+       up. Composes with -q for "stale memory-ish namespaces".
+       Invalid ISO date aborts cleanly.
+    3. stale --since <iso-date>: absolute-date complement to
+       --days <n>. The existing --days is a relative window
+       anchored to wall-clock; --since accepts an absolute anchor
+       which matters from cron where the cutoff often lives in a
+       config or env var. Composes with --days as an intersection.
+       Effective lastIngestedAt is derived from row.ageDays - the
+       API only exposes ageDays, but ageDays is computed from the
+       underlying timestamp so the round-trip is lossless to the
+       day. `total` is recomputed from the filtered length so the
+       text-mode "N stale, showing M" header stays accurate
+       post-filter. Filter applies to every output mode (--json,
+       --paths, --tsv, default text).
+    4. digest show --since <iso-date>: bound the history window
+       by absolute date. Pairs naturally with -q ("what did
+       saved-search X surface about path Y since date Z").
+       Cutoff is INCLUSIVE (>=) because a row with ts === cutoff
+       is "from the cutoff onwards" by every colloquial reading.
+       The text-mode empty-state hint was generalised — the old
+       "-q only" wording would have lied when --since was the
+       narrowing filter; new unified hint mentions whichever
+       filter(s) are active.
+    5. feedback list --above/--below: filter entries by boost
+       multiplier. Answers the cron-friendly questions
+       ("upvote-dominant paths", "strongest downvotes",
+       "almost-neutral band") without piping --json through jq.
+       STRICT comparisons (`>` and `<`) so boost === 1.0 is
+       excluded from both --above 1.0 and --below 1.0 — neutral
+       is excluded from signed-motion questions. Both flags
+       compose as an intersection so --above 0.95 --below 1.05
+       is the "almost neutral" band in a single invocation.
+       Filter applies BEFORE --json emit / text rendering so both
+       output modes see the same subset. -q forwards to API
+       unchanged; --above/--below apply client-side on top.
+  Verify-gate note: ran the full `pnpm typecheck` and `pnpm -r
+  test`. The only failures are the same two pre-existing reds
+  noted above. The `@clawmind/cli` build is clean.
