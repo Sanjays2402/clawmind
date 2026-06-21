@@ -6,5 +6,5 @@
   "exports": { ".": "./src/index.ts" },
   "scripts": { "typecheck": "tsc --noEmit", "build": "echo ok", "test": "vitest run", "lint": "echo ok" },
   "dependencies": { "envalid": "^8.0.0" },
-  "devDependencies": { "typescript": "^5.6.3", "vitest": "^2.1.9" }
+  "devDependencies": { "typescript": "^5.6.3", "vitest": "^3.2.6" }
 }
