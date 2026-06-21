@@ -15,7 +15,11 @@ export function compactCommand() {
         lance: rt.lance, dryRun: opts.dryRun,
       });
       if (opts.json) {
-        process.stdout.write(JSON.stringify({ dryRun: opts.dryRun, ...report }, null, 2) + '\n');
+        // `report` already carries its own dryRun flag (the same value we
+        // passed in), so spreading it after a literal dryRun key wins the
+        // duplicate-property race and tsc flags TS2783. Drop the literal —
+        // the spread is the single source of truth.
+        process.stdout.write(JSON.stringify(report, null, 2) + '\n');
         return;
       }
       const head = opts.dryRun ? kleur.yellow('dry run') : kleur.green('compacted');

@@ -83,6 +83,92 @@ describe('feedback cli', () => {
     expect(fetchCalls[0]?.url).toContain('/v1/feedback?q=a%20md');
   });
 
+  it('feedback list --above keeps only entries with boost strictly greater than the threshold', async () => {
+    // Default fixture returns boosts 1.15 (a.md) and 0.9 (b.md).
+    // --above 1.0 should keep only a.md; b.md is below 1.0.
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--above', '1.0']);
+    const out = captured.join('');
+    const parsed = JSON.parse(out) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/a.md']);
+  });
+
+  it('feedback list --below keeps only entries with boost strictly less than the threshold', async () => {
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--below', '1.0']);
+    const out = captured.join('');
+    const parsed = JSON.parse(out) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/b.md']);
+  });
+
+  it('feedback list --above is STRICTLY greater (excludes exact equality with threshold)', async () => {
+    // Override fetch with a fixture that has a boost === 1.0 row.
+    // --above 1.0 must drop it (strict inequality).
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/at.md', ups: 1, downs: 1, boost: 1.0 },
+        { path: '/over.md', ups: 2, downs: 0, boost: 1.10 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--above', '1.0']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/over.md']);
+  });
+
+  it('feedback list --above --below composes as an intersection (band filter)', async () => {
+    // The "almost neutral" band: 0.95 < boost < 1.05.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/strong-up.md', ups: 5, downs: 0, boost: 1.25 },
+        { path: '/mild-up.md', ups: 1, downs: 0, boost: 1.02 },
+        { path: '/neutral.md', ups: 1, downs: 1, boost: 1.0 },
+        { path: '/mild-down.md', ups: 0, downs: 1, boost: 0.98 },
+        { path: '/strong-down.md', ups: 0, downs: 5, boost: 0.75 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--above', '0.95', '--below', '1.05']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path).sort()).toEqual(['/mild-down.md', '/mild-up.md', '/neutral.md']);
+  });
+
+  it('feedback list --above with no matches yields an empty items array (json) / "no feedback yet" (text)', async () => {
+    // --above 99 leaves nothing — both items in the fixture are <= 99.
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--above', '99']);
+    const parsed = JSON.parse(captured.join('')) as { items: unknown[] };
+    expect(parsed.items).toEqual([]);
+  });
+
+  it('feedback list --above with text mode emits the empty-state hint when the filter empties everything', async () => {
+    captured.length = 0;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--above', '99']);
+    expect(captured.join('')).toContain('no feedback yet');
+  });
+
+  it('feedback list --above composes with -q (filter forwards to the API and post-filter applies on top)', async () => {
+    // -q is sent to the API (forwarded as q=...). --above is applied
+    // client-side AFTER the API responds. Both must fire.
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '-q', 'md', '--above', '1.0']);
+    // -q hit the API.
+    expect(fetchCalls[0]?.url).toContain('/v1/feedback?q=md');
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string }[] };
+    // The default fixture's --above 1.0 result (a.md with boost 1.15)
+    // survives the client-side filter.
+    expect(parsed.items.map((i) => i.path)).toEqual(['/a.md']);
+  });
+
+  it('feedback list --above with a non-numeric value errors cleanly', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await feedbackCommand().parseAsync(['node', 'cli', 'list', '--above', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('feedback list failed: --above value is not a number');
+    process.exitCode = 0;
+  });
+
   it('reports a clean message when the api is unreachable', async () => {
     const stderrBuf: string[] = [];
     const origErr = process.stderr.write.bind(process.stderr);
@@ -220,6 +306,173 @@ describe('digest cli', () => {
     expect(parsed.state.query).toBe('snip');
     expect(parsed.state.history).toHaveLength(2);
     expect(out).not.toContain('query: snip');
+  });
+
+  it('show -q keeps only history rows that touched a matching newSources path', async () => {
+    // The fixture has two rows: ts=2 touched /n1.md (new), ts=1
+    // touched /p1.md (new) and 'old' (removed). Filtering on 'n1'
+    // keeps only the first row.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '-q', 'n1']);
+    const out = captured.join('');
+    // The "query: snip" preamble stays so the operator still sees the
+    // saved-search context.
+    expect(out).toContain('query: snip');
+    // ts=2 row kept (timestamp formatted to ISO).
+    const lines = out.split('\n').filter((l) => l.includes('total'));
+    expect(lines).toHaveLength(1);
+  });
+
+  it('show -q keeps rows whose removedSources match (filter spans both lists)', async () => {
+    // 'old' is in removedSources of the ts=1 row only. The match is
+    // case-insensitive, so 'OLD' picks the same row.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '-q', 'OLD']);
+    const out = captured.join('');
+    const lines = out.split('\n').filter((l) => l.includes('total'));
+    expect(lines).toHaveLength(1);
+  });
+
+  it('show -q with no matches emits a "no history rows match" hint and skips history rendering', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '-q', 'nothing-matches']);
+    const out = captured.join('');
+    expect(out).toContain('no history rows match -q "nothing-matches"');
+    // No history table rows should be rendered.
+    expect(out.split('\n').filter((l) => l.includes('total'))).toHaveLength(0);
+  });
+
+  it('show --since drops rows older than the cutoff (intersected with -q when both are set)', async () => {
+    // Fixture rows are ts=2 and ts=1 (both ancient epoch ms — long
+    // before any sane ISO date). With --since 1970-01-01T00:00:00.001Z
+    // (cutoff = 1ms), the row with ts=2 stays and ts=1 is dropped.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--since', '1970-01-01T00:00:00.002Z']);
+    const parsed = JSON.parse(captured.join('')) as {
+      state: { history: { ts: number }[] };
+    };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2]);
+  });
+
+  it('show --since composes with -q (intersection: row must touch a matching path AND be at-or-after cutoff)', async () => {
+    // ts=2 touched /n1.md. ts=1 touched /p1.md + 'old'. With
+    // -q n1 we'd keep ts=2 alone; --since cutoff=2 also keeps ts=2.
+    // The intersection is still {ts=2}.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '-q', 'n1', '--since', '1970-01-01T00:00:00.002Z']);
+    const parsed = JSON.parse(captured.join('')) as {
+      state: { history: { ts: number }[] };
+    };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2]);
+  });
+
+  it('show --since with no rows passing the cutoff yields an empty history array', async () => {
+    // Cutoff far in the future leaves nothing.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--since', '2999-01-01T00:00:00Z']);
+    const parsed = JSON.parse(captured.join('')) as {
+      state: { history: { ts: number }[] };
+    };
+    expect(parsed.state.history).toEqual([]);
+  });
+
+  it('show --since text mode prints the unified empty hint mentioning --since', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--since', '2999-01-01T00:00:00Z']);
+    const out = captured.join('');
+    // Saved-search context still printed.
+    expect(out).toContain('query: snip');
+    // Hint includes --since so the operator knows which filter narrowed it.
+    expect(out).toContain('no history rows match --since 2999-01-01T00:00:00Z');
+    // No history rows rendered.
+    expect(out.split('\n').filter((l) => l.includes('total'))).toHaveLength(0);
+  });
+
+  it('show --since with an invalid ISO date errors cleanly', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--since', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('digest show failed: --since value "banana" is not a valid ISO date');
+    process.exitCode = 0;
+  });
+
+  it('show --last caps the history to the newest N rows (history is newest-first)', async () => {
+    // Fixture has two rows: ts=2 (newest) and ts=1. --last 1 keeps
+    // only the newest. The API returns history newest-first so the
+    // slice(0, N) shape is correct without re-sorting.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--last', '1']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2]);
+  });
+
+  it('show --last with a value larger than the natural length yields every row', async () => {
+    // Fixture has 2 rows; --last 99 is a no-op (slice(0, 99) keeps both).
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--last', '99']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2, 1]);
+  });
+
+  it('show --last composes with -q (filter first, then cap to newest N of the survivors)', async () => {
+    // -q "n1" keeps only the ts=2 row (which touched /n1.md).
+    // --last 5 is then applied on the single-row survivor list and
+    // is a no-op. The order is "filter then cap" so the cap is
+    // counted against the post-filter rows, never against the raw
+    // history (which would let -q widen the visible window).
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '-q', 'n1', '--last', '5']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2]);
+  });
+
+  it('show --last composes with --since (filter first, then cap to newest N of the survivors)', async () => {
+    // --since 0 keeps both rows; --last 1 then trims to the newest.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--since', '1970-01-01T00:00:00.000Z', '--last', '1']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2]);
+  });
+
+  it('show --last with --since narrowing to zero yields the unified empty hint mentioning --last and --since', async () => {
+    // --since cutoff in the future leaves no survivors; --last 3 then
+    // operates on an empty list. The text-mode hint must mention
+    // BOTH filters so the operator knows everything that narrowed
+    // the output.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--since', '2999-01-01T00:00:00Z', '--last', '3']);
+    const out = captured.join('');
+    expect(out).toContain('query: snip');
+    expect(out).toContain('no history rows match --since 2999-01-01T00:00:00Z + --last 3');
+    expect(out.split('\n').filter((l) => l.includes('total'))).toHaveLength(0);
+  });
+
+  it('show --last with a non-positive value errors cleanly (zero would silently look like an empty history)', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--last', '0']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('digest show failed: --last value must be a positive integer');
+    process.exitCode = 0;
+  });
+
+  it('show --last text mode prints exactly the capped subset (no extras)', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--last', '1']);
+    const out = captured.join('');
+    // Saved-search context still printed; exactly one history row rendered.
+    expect(out).toContain('query: snip');
+    expect(out.split('\n').filter((l) => l.includes('total'))).toHaveLength(1);
+  });
+
+  it('show --json -q emits filtered history in the JSON payload', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '-q', 'n1']);
+    const parsed = JSON.parse(captured.join('')) as {
+      state: { query: string; history: { ts: number; newSources: { path: string }[] }[] };
+    };
+    expect(parsed.state.query).toBe('snip');
+    expect(parsed.state.history).toHaveLength(1);
+    expect(parsed.state.history[0]?.newSources[0]?.path).toBe('/n1.md');
   });
 
   it('reports a clean message when the api is unreachable', async () => {

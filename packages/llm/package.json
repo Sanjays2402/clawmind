@@ -11,5 +11,5 @@
     "undici": "^6.21.0",
     "eventsource-parser": "^3.0.0"
   },
-  "devDependencies": { "typescript": "^5.6.3", "vitest": "^4.1.0" }
+  "devDependencies": { "typescript": "^5.6.3", "vitest": "^2.1.9" }
 }
