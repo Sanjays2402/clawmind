@@ -83,6 +83,92 @@ describe('feedback cli', () => {
     expect(fetchCalls[0]?.url).toContain('/v1/feedback?q=a%20md');
   });
 
+  it('feedback list --above keeps only entries with boost strictly greater than the threshold', async () => {
+    // Default fixture returns boosts 1.15 (a.md) and 0.9 (b.md).
+    // --above 1.0 should keep only a.md; b.md is below 1.0.
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--above', '1.0']);
+    const out = captured.join('');
+    const parsed = JSON.parse(out) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/a.md']);
+  });
+
+  it('feedback list --below keeps only entries with boost strictly less than the threshold', async () => {
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--below', '1.0']);
+    const out = captured.join('');
+    const parsed = JSON.parse(out) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/b.md']);
+  });
+
+  it('feedback list --above is STRICTLY greater (excludes exact equality with threshold)', async () => {
+    // Override fetch with a fixture that has a boost === 1.0 row.
+    // --above 1.0 must drop it (strict inequality).
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/at.md', ups: 1, downs: 1, boost: 1.0 },
+        { path: '/over.md', ups: 2, downs: 0, boost: 1.10 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--above', '1.0']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/over.md']);
+  });
+
+  it('feedback list --above --below composes as an intersection (band filter)', async () => {
+    // The "almost neutral" band: 0.95 < boost < 1.05.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/strong-up.md', ups: 5, downs: 0, boost: 1.25 },
+        { path: '/mild-up.md', ups: 1, downs: 0, boost: 1.02 },
+        { path: '/neutral.md', ups: 1, downs: 1, boost: 1.0 },
+        { path: '/mild-down.md', ups: 0, downs: 1, boost: 0.98 },
+        { path: '/strong-down.md', ups: 0, downs: 5, boost: 0.75 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--above', '0.95', '--below', '1.05']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path).sort()).toEqual(['/mild-down.md', '/mild-up.md', '/neutral.md']);
+  });
+
+  it('feedback list --above with no matches yields an empty items array (json) / "no feedback yet" (text)', async () => {
+    // --above 99 leaves nothing — both items in the fixture are <= 99.
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--above', '99']);
+    const parsed = JSON.parse(captured.join('')) as { items: unknown[] };
+    expect(parsed.items).toEqual([]);
+  });
+
+  it('feedback list --above with text mode emits the empty-state hint when the filter empties everything', async () => {
+    captured.length = 0;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--above', '99']);
+    expect(captured.join('')).toContain('no feedback yet');
+  });
+
+  it('feedback list --above composes with -q (filter forwards to the API and post-filter applies on top)', async () => {
+    // -q is sent to the API (forwarded as q=...). --above is applied
+    // client-side AFTER the API responds. Both must fire.
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '-q', 'md', '--above', '1.0']);
+    // -q hit the API.
+    expect(fetchCalls[0]?.url).toContain('/v1/feedback?q=md');
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string }[] };
+    // The default fixture's --above 1.0 result (a.md with boost 1.15)
+    // survives the client-side filter.
+    expect(parsed.items.map((i) => i.path)).toEqual(['/a.md']);
+  });
+
+  it('feedback list --above with a non-numeric value errors cleanly', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await feedbackCommand().parseAsync(['node', 'cli', 'list', '--above', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('feedback list failed: --above value is not a number');
+    process.exitCode = 0;
+  });
+
   it('reports a clean message when the api is unreachable', async () => {
     const stderrBuf: string[] = [];
     const origErr = process.stderr.write.bind(process.stderr);
