@@ -277,6 +277,115 @@ describe('stats cli', () => {
     expect(parsed.byNamespace[0].namespace).toBe('memory');
     expect(parsed.byNamespace[0].extensions).toHaveLength(2);
   });
+
+  it('--since keeps only namespaces whose newestIngestedAt predates the cutoff and recomputes totals', async () => {
+    // Override the default fetch with a payload that has real
+    // timestamps so we can exercise the filter. Two namespaces are
+    // older than the cutoff (memory: 2025-01-01, projects:
+    // 2025-06-15), one is newer (sessions: 2026-06-20). With
+    // --since 2026-01-01 the filter keeps memory + projects and
+    // drops sessions; totals recompute to reflect just those two.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 30, chunks: 300, bytes: 30_000, namespaces: 3 },
+      byNamespace: [
+        { namespace: 'memory', files: 10, chunks: 100, bytes: 10_000,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2025-01-01T00:00:00Z'),
+          extensions: [{ ext: 'md', count: 10 }] },
+        { namespace: 'sessions', files: 5, chunks: 50, bytes: 5_000,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2026-06-20T00:00:00Z'),
+          extensions: [{ ext: 'json', count: 5 }] },
+        { namespace: 'projects', files: 15, chunks: 150, bytes: 15_000,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2025-06-15T00:00:00Z'),
+          extensions: [{ ext: 'ts', count: 15 }] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--since', '2026-01-01']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace).sort()).toEqual(['memory', 'projects']);
+    // Totals must reflect the filtered subset (memory 10 + projects 15 = 25 files, etc.).
+    expect(out.totals).toEqual({ files: 25, chunks: 250, bytes: 25_000, namespaces: 2 });
+  });
+
+  it('--since keeps namespaces with newestIngestedAt=null (never indexed are trivially stale)', async () => {
+    // The whole point of --since is "find namespaces that have gone
+    // stale". A namespace that was never ingested is the most extreme
+    // case and must NOT be filtered out.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 2, chunks: 4, bytes: 1000, namespaces: 2 },
+      byNamespace: [
+        { namespace: 'fresh', files: 1, chunks: 2, bytes: 500,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2026-06-20T00:00:00Z'),
+          extensions: [{ ext: 'md', count: 1 }] },
+        { namespace: 'never', files: 1, chunks: 2, bytes: 500,
+          oldestIngestedAt: null, newestIngestedAt: null,
+          extensions: [{ ext: 'md', count: 1 }] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--since', '2026-01-01']);
+    const out = JSON.parse(captured.join(''));
+    // `never` (newestIngestedAt=null) stays in. `fresh` (post-cutoff)
+    // is filtered out.
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual(['never']);
+    expect(out.totals.namespaces).toBe(1);
+  });
+
+  it('--since with no matches yields empty list and zeroed totals (mirrors -q semantics)', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 5, chunks: 50, bytes: 5_000, namespaces: 1 },
+      byNamespace: [
+        { namespace: 'sessions', files: 5, chunks: 50, bytes: 5_000,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2026-06-20T00:00:00Z'),
+          extensions: [{ ext: 'json', count: 5 }] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--since', '2020-01-01']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.byNamespace).toHaveLength(0);
+    expect(out.totals).toEqual({ files: 0, chunks: 0, bytes: 0, namespaces: 0 });
+  });
+
+  it('--since composes with -q (intersection of name match and stale cutoff)', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 30, chunks: 300, bytes: 30_000, namespaces: 3 },
+      byNamespace: [
+        { namespace: 'memory', files: 10, chunks: 100, bytes: 10_000,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2025-01-01T00:00:00Z'),
+          extensions: [{ ext: 'md', count: 10 }] },
+        { namespace: 'memos', files: 5, chunks: 50, bytes: 5_000,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2026-06-20T00:00:00Z'),
+          extensions: [{ ext: 'md', count: 5 }] },
+        { namespace: 'projects', files: 15, chunks: 150, bytes: 15_000,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2025-06-15T00:00:00Z'),
+          extensions: [{ ext: 'ts', count: 15 }] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    // `-q mem` matches memory + memos; `--since 2026-01-01` keeps only
+    // namespaces older than the cutoff. The intersection is just
+    // memory (memos is too fresh).
+    await statsCommand().parseAsync(['node', 'cli', '--json', '-q', 'mem', '--since', '2026-01-01']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual(['memory']);
+    expect(out.totals).toEqual({ files: 10, chunks: 100, bytes: 10_000, namespaces: 1 });
+  });
+
+  it('--since with an invalid ISO date errors cleanly with a non-zero exit code', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await statsCommand().parseAsync(['node', 'cli', '--json', '--since', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('stats failed: --since value "banana" is not a valid ISO date');
+    process.exitCode = 0;
+  });
 });
 
 describe('stats cli error handling', () => {

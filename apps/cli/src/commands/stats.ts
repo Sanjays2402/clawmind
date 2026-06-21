@@ -81,15 +81,56 @@ export function statsCommand() {
     .option('-q, --query <substr>', 'only include namespaces whose name contains this substring (case-insensitive)')
     .option('--top <n>', 'cap the per-namespace extension breakdown at this many entries (default 4)', '4')
     .option('--sort <key>', 'sort namespaces descending by one of: files, chunks, bytes, namespace (default: namespace)', 'namespace')
+    .option('--since <iso-date>', 'keep only namespaces whose newestIngestedAt is older than this ISO date (i.e. have not been re-ingested since the cutoff). Useful for finding namespaces that have gone stale at the namespace level — complements `stale` which works at the per-file level. Namespaces with newestIngestedAt=null (never indexed) are KEPT because they are trivially older than any cutoff. The recomputed totals reflect the filtered subset so a downstream "stale namespaces dominate X bytes" report still adds up.')
     .option('--tsv', 'emit tab-separated rows (namespace<TAB>files<TAB>chunks<TAB>bytes<TAB>newestIngestedAt) for awk/cut pipelines')
     .option('--json', 'emit machine-readable JSON instead of a text table')
     .option('--compact', 'with --json: emit a single-line JSON document (no indentation) for easier diffing across cron snapshots. Ignored without --json.')
-    .action(async (opts: { json?: boolean; tsv?: boolean; query?: string; top: string; sort: string; compact?: boolean }) => {
+    .action(async (opts: { json?: boolean; tsv?: boolean; query?: string; top: string; sort: string; since?: string; compact?: boolean }) => {
       await runOrReport('stats', async () => {
         let report = (await apiFetch('GET', '/v1/stats')) as StatsReport;
         if (opts.query) {
           const needle = opts.query.toLowerCase();
           const byNamespace = report.byNamespace.filter((n) => n.namespace.toLowerCase().includes(needle));
+          const totals = byNamespace.reduce(
+            (acc, n) => {
+              acc.files += n.files;
+              acc.chunks += n.chunks;
+              acc.bytes += n.bytes;
+              return acc;
+            },
+            { files: 0, chunks: 0, bytes: 0, namespaces: byNamespace.length },
+          );
+          report = { ...report, byNamespace, totals };
+        }
+        // --since <iso-date> keeps only namespaces whose newestIngestedAt
+        // predates the cutoff. The intent is "show me namespaces that
+        // are stale at the namespace level" — a complement to `stale`
+        // which works at the per-file level. Two important design
+        // properties:
+        //   1. Namespaces with newestIngestedAt === null (never indexed
+        //      / no timestamp) are KEPT. They are trivially older than
+        //      any cutoff, so dropping them would hide exactly the
+        //      class of bug an operator running this filter cares
+        //      about (a namespace that exists but never got ingested).
+        //   2. Totals are RECOMPUTED to reflect the filtered subset so
+        //      a downstream "X bytes are dominated by stale
+        //      namespaces" report still adds up. Without this the
+        //      "namespaces" total would silently drift away from the
+        //      length of `byNamespace`, which breaks the invariant
+        //      every other filter in this command preserves (`-q`,
+        //      etc.). We reuse the same reduce shape as -q so the
+        //      math stays equivalent.
+        // Parse failures abort with the standard cli error path so a
+        // typo like `--since 2026-13-01` does not silently fall back to
+        // "no filter".
+        if (opts.since) {
+          const cutoff = Date.parse(opts.since);
+          if (!Number.isFinite(cutoff)) {
+            throw new StatsCliError(`--since value "${opts.since}" is not a valid ISO date`);
+          }
+          const byNamespace = report.byNamespace.filter(
+            (n) => n.newestIngestedAt === null || n.newestIngestedAt < cutoff,
+          );
           const totals = byNamespace.reduce(
             (acc, n) => {
               acc.files += n.files;
