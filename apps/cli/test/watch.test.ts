@@ -231,3 +231,137 @@ describe('watch cli startup banner', () => {
     expect(lastWatcherOpts?.root).toBe('/some/abs/path');
   });
 });
+
+describe('watch cli --quiet', () => {
+  // --quiet / -q suppresses the per-file event chatter (the gray
+  // `add /foo.md` / `change /bar.ts` chatter in text mode, and the
+  // per-event NDJSON documents in --json mode) while keeping the
+  // startup banner on stderr AND the "Watching <root>" stdout line.
+  // The natural cron use is a watcher restarted by cron whose
+  // journal only needs the restart marker, not the 100/sec event
+  // chatter from a tight `npm install` burst.
+  //
+  // We exercise the option by reaching into the onEvent callback
+  // that startWatcher captured in lastWatcherOpts, invoking it
+  // directly, and asserting the resulting stdout. This is the
+  // cleanest way to test the suppression: the production code path
+  // (chokidar -> debounce -> onEvent) is the same in test and in
+  // production, and the only thing the cli owns is what onEvent
+  // writes when called.
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    lastWatcherOpts = null;
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes --quiet on the command surface', () => {
+    const flags = watchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--quiet');
+  });
+
+  it('exposes -q as the short form (mirrors the substring-filter -q used elsewhere in the cli)', () => {
+    const short = watchCommand().options.map((o) => o.short).filter(Boolean);
+    expect(short).toContain('-q');
+  });
+
+  it('suppresses the text-mode per-file event line when --quiet is set', async () => {
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--quiet']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    // Reset stdout AFTER the parseAsync so the test only observes
+    // what the simulated onEvent writes, not the startup line.
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    expect(typeof onEvent).toBe('function');
+    onEvent!('change', '/tmp/r/foo.md');
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('suppresses the --json per-event NDJSON document when --quiet is set', async () => {
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--json', '--quiet']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    // Drop the startup "watching" line so the assertion below only
+    // observes the per-event window.
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    expect(typeof onEvent).toBe('function');
+    onEvent!('add', '/tmp/r/bar.ts');
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('still emits the startup banner on stderr when --quiet is set (restart marker stays)', async () => {
+    // The whole point of --quiet is to suppress the chatter while
+    // keeping the restart marker. We assert the stderr banner fired
+    // exactly like the no-quiet path.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--quiet']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    const banner = JSON.parse(stderr.join('').trim());
+    expect(banner.kind).toBe('banner');
+    expect(banner.root).toBe('/tmp/r');
+  });
+
+  it('still prints the operator-facing "Watching <root>" stdout line when --quiet is set (text mode)', async () => {
+    // The startup line is the visual confirmation an interactive
+    // operator gets that the watcher came up. --quiet only kills
+    // the per-file chatter — NOT the startup line.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--quiet']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    expect(stdout.join('')).toContain('Watching /tmp/r');
+  });
+
+  it('without --quiet, the per-file event line DOES fire (regression: --quiet must not be the default)', async () => {
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('change', '/tmp/r/baz.md');
+    // Default text mode writes "<kind> <path>\n" in gray (the
+    // styling is mocked-away in this test environment but the
+    // content is the assertion that matters).
+    expect(stdout.join('')).toContain('change /tmp/r/baz.md');
+  });
+
+  it('-q is the short alias for --quiet (suppresses text-mode chatter)', async () => {
+    // The -q short form is what an operator types in a shell
+    // pipeline; we verify it carries the same suppression contract.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '-q']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('change', '/tmp/r/foo.md');
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('--quiet composes with --debounce (forwards debounce verbatim, suppresses chatter)', async () => {
+    // The two flags address orthogonal concerns: --debounce shapes
+    // re-ingest cadence, --quiet shapes the operator-facing stream.
+    // They should compose cleanly — verify debounceMs still arrives
+    // at the watcher and that the chatter is still suppressed.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--debounce', '1500', '--quiet']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    expect(lastWatcherOpts?.debounceMs).toBe(1500);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('change', '/tmp/r/baz.md');
+    expect(stdout.join('')).toBe('');
+  });
+});
