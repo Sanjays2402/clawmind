@@ -125,8 +125,9 @@ export function digestCommand() {
   cmd.command('show <id>')
     .description('Show full run history for one saved search')
     .option('-q, --q <text>', 'case-insensitive substring filter; keep only history rows that touched a matching path (in newSources or removedSources)')
+    .option('--since <iso-date>', 'bound the history window by absolute date; keep only rows whose ts is at-or-after the cutoff. Pairs naturally with -q for "what did saved-search X surface about path Y after date Z" queries from cron. Composes with -q (intersection: row must both touch a matching path AND be at-or-after the cutoff). Parse failures abort cleanly.')
     .option('--json', 'emit the history as JSON for scripting')
-    .action(async (id: string, opts: { q?: string; json?: boolean }) => {
+    .action(async (id: string, opts: { q?: string; since?: string; json?: boolean }) => {
      await runAction('digest show', async () => {
       const out = (await apiFetch('GET', `/v1/digests/${id}`)) as {
         state: { query: string; history: { ts: number; newSources: { path: string }[]; removedSources: string[]; totalSources: number }[] };
@@ -151,6 +152,23 @@ export function digestCommand() {
           h.removedSources.some((p) => p.toLowerCase().includes(needle)),
         );
       }
+      // --since <iso-date> bounds the history window by absolute
+      // wall-clock. We compose AFTER -q so the intersection is
+      // "row must both touch a matching path AND be at-or-after
+      // the cutoff" — that's the question an operator asks when
+      // they want "what did this saved search find about path Y
+      // since date Z". The cutoff is inclusive (>=) because a row
+      // with ts === cutoff is "from the cutoff onwards" by every
+      // colloquial reading. Parse failures abort cleanly through
+      // the existing apiFetch error path so a typo does not
+      // silently degrade into "no filter".
+      if (opts.since) {
+        const cutoff = Date.parse(opts.since);
+        if (!Number.isFinite(cutoff)) {
+          throw new ApiError(`--since value "${opts.since}" is not a valid ISO date`);
+        }
+        filteredHistory = filteredHistory.filter((h) => h.ts >= cutoff);
+      }
       const payload = {
         state: { ...out.state, history: filteredHistory },
       };
@@ -159,11 +177,16 @@ export function digestCommand() {
         return;
       }
       process.stdout.write(kleur.gray(`query: ${out.state.query}\n`));
-      if (opts.q && filteredHistory.length === 0) {
+      if ((opts.q || opts.since) && filteredHistory.length === 0) {
         // Tell the operator we found nothing without making them dig.
         // The "query: <q>" line above stays so they still see the
-        // saved search context.
-        process.stdout.write(kleur.gray(`no history rows touched a path matching "${opts.q}"\n`));
+        // saved search context. The hint mentions whichever filter(s)
+        // narrowed the result set so it's clear what they need to
+        // relax to see more rows.
+        const filterParts: string[] = [];
+        if (opts.q) filterParts.push(`-q "${opts.q}"`);
+        if (opts.since) filterParts.push(`--since ${opts.since}`);
+        process.stdout.write(kleur.gray(`no history rows match ${filterParts.join(' + ')}\n`));
         return;
       }
       for (const h of filteredHistory) {

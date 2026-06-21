@@ -245,12 +245,69 @@ describe('digest cli', () => {
     expect(lines).toHaveLength(1);
   });
 
-  it('show -q with no matches emits the "no history rows touched" hint and skips history rendering', async () => {
+  it('show -q with no matches emits a "no history rows match" hint and skips history rendering', async () => {
     await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '-q', 'nothing-matches']);
     const out = captured.join('');
-    expect(out).toContain('no history rows touched a path matching "nothing-matches"');
+    expect(out).toContain('no history rows match -q "nothing-matches"');
     // No history table rows should be rendered.
     expect(out.split('\n').filter((l) => l.includes('total'))).toHaveLength(0);
+  });
+
+  it('show --since drops rows older than the cutoff (intersected with -q when both are set)', async () => {
+    // Fixture rows are ts=2 and ts=1 (both ancient epoch ms — long
+    // before any sane ISO date). With --since 1970-01-01T00:00:00.001Z
+    // (cutoff = 1ms), the row with ts=2 stays and ts=1 is dropped.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--since', '1970-01-01T00:00:00.002Z']);
+    const parsed = JSON.parse(captured.join('')) as {
+      state: { history: { ts: number }[] };
+    };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2]);
+  });
+
+  it('show --since composes with -q (intersection: row must touch a matching path AND be at-or-after cutoff)', async () => {
+    // ts=2 touched /n1.md. ts=1 touched /p1.md + 'old'. With
+    // -q n1 we'd keep ts=2 alone; --since cutoff=2 also keeps ts=2.
+    // The intersection is still {ts=2}.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '-q', 'n1', '--since', '1970-01-01T00:00:00.002Z']);
+    const parsed = JSON.parse(captured.join('')) as {
+      state: { history: { ts: number }[] };
+    };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2]);
+  });
+
+  it('show --since with no rows passing the cutoff yields an empty history array', async () => {
+    // Cutoff far in the future leaves nothing.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--since', '2999-01-01T00:00:00Z']);
+    const parsed = JSON.parse(captured.join('')) as {
+      state: { history: { ts: number }[] };
+    };
+    expect(parsed.state.history).toEqual([]);
+  });
+
+  it('show --since text mode prints the unified empty hint mentioning --since', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--since', '2999-01-01T00:00:00Z']);
+    const out = captured.join('');
+    // Saved-search context still printed.
+    expect(out).toContain('query: snip');
+    // Hint includes --since so the operator knows which filter narrowed it.
+    expect(out).toContain('no history rows match --since 2999-01-01T00:00:00Z');
+    // No history rows rendered.
+    expect(out.split('\n').filter((l) => l.includes('total'))).toHaveLength(0);
+  });
+
+  it('show --since with an invalid ISO date errors cleanly', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--since', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('digest show failed: --since value "banana" is not a valid ISO date');
+    process.exitCode = 0;
   });
 
   it('show --json -q emits filtered history in the JSON payload', async () => {
