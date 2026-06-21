@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-21 04:13 PDT (current)
+### Tick 2026-06-21 07:05 PDT (current)
+
+- [x] chore(repo): ignore stray .js/.d.ts sidecars next to apps/cli/src/*.ts (d951f11)
+- [x] feat(doctor): add --stale-after-days <n> end-to-end (API + CLI) (d9f9dda)
+- [x] feat(ingest): add --dry-run + --paths-only rehearsal preview (fc6e3f2)
+- [x] feat(tags): add list --sort <count|tag> and --top <n> (d589255)
+- [x] feat(feedback): add prune --below <n> with --apply safety pattern (216077b)
+
+### Tick 2026-06-21 04:13 PDT
 
 - [x] feat(watch): add -q/--quiet to suppress per-file event chatter (3b48fdd)
 - [x] feat(stale): add --paths-only as an alias for --paths to unify the flag family (6ac5d2b)
@@ -96,25 +104,24 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 
 - [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved)
 - [ ] fix(rag/hybrid): hybridMerge test on packages/rag/test/hybrid.test.ts expects `out[0].id === 'b'` but the merge orders 'a' (bm25 score 10) above 'b' under alpha=0.5; either the test fixture or the hybrid blend has drifted. Pre-existing failure (verified by typechecking parent commit 3cc6fd1), NOT introduced by any cron tick — was simply unknown because earlier ticks only ran `--filter @clawmind/cli test`, not `pnpm -r test`. Either rewrite the test against the current alpha-blend semantics OR re-derive the expected order from first principles.
-- [ ] feat(doctor): add --staleAfterDays <n> CLI flag that forwards to the API's staleAfterMs override
 - [ ] feat(status): add --watch <ms> to repoll periodically for terminal dashboards
 - [ ] feat(ask): add --stream-json to emit one NDJSON event per token (kind=token/sources/done) for live UI piping
 - [ ] feat(status): add --json-watch that emits one NDJSON snapshot per poll cycle (pairs with --watch)
 - [ ] feat(pins/mutes): add --paths --since <iso> filter so cron snapshots only export recently-touched entries
 - [ ] feat(export): add --since <iso-date> to bound the export window for incremental dumps
-- [ ] feat(tags): add --counts mode listing namespaces with their tag-frequency totals (for "what tags are dominating my index" questions)
 - [ ] feat(search): add --rerank-off escape hatch to skip the rerank step for debugging fusion vs rerank effects
 - [ ] feat(forget): add --json --dry-run --paths-only shortcut so a script can preview removals without parsing the structured payload (currently a single-flag combo of existing flags but worth a smoke test)
-- [ ] feat(feedback): add `feedback prune --below <n>` to bulk-clear all paths whose boost falls below a threshold (natural sibling of `feedback list --below`; the cron use is "every Sunday morning, prune anything below 0.7 that has not been re-voted in 90d")
 - [ ] feat(watch): add --once flag that processes the initial scan + ingests current files once, then exits cleanly (lets cron use the same code path as a normal ingest for parity between scheduled refresh and live watching)
 - [ ] feat(digest): add `digest show --since-last` shortcut — bound to the saved-search's previous run timestamp ("what has this saved search surfaced since the last time I read it") without an explicit cutoff arg
 - [ ] feat(related): add -n/--namespaces filter forwarded to the API (the option already exists; verify it's honoured end-to-end and add a regression test)
 - [ ] feat(reindex): add --since <iso-date> that combines the new --dry-run discovery with mtime filtering (mirrors `ingest --since` semantics but threads through the manifest-wipe gate so a partial reindex is possible)
-- [ ] feat(ingest): add --paths-only --dry-run preview shortcut on the ingest command itself (the discovery list is exactly what --since would walk, so a `clawmind ingest --since X --dry-run` preview is the natural cron rehearsal flow before authorising a refresh)
-- [ ] chore(repo): add `apps/cli/src/**/*.js` to .gitignore so a stray `tsc` invocation cannot leak .js / .d.ts sidecars next to .ts sources (caught and cleaned in the 2026-06-21 00:40 PDT tick; trap is still active)
 - [ ] feat(watch): add a `--debounce` companion that decays based on idle time (so a quiet workspace re-ingests fast but a noisy `npm install` burst still rides the debounce up to the cap)
 - [ ] feat(ingest): wire --since into the ingestRoot path too so downstream consumers (reindex, web) can pass the same flag without restructuring the code (currently only the cli command surfaces it; the @clawmind/ingest API stays unchanged)
 - [ ] feat(stats): add --json --slim --tsv shortcut that emits `<namespace>\t<total>` rows for awk pipelines (mirrors the --tsv contract on the full stats but on the slim shape)
+- [ ] feat(tags): add --counts mode listing namespaces with their tag-frequency totals (for "what tags are dominating my index" questions) — the new `tags list --sort count --top N` covers the lookup but a per-namespace breakdown is still missing
+- [ ] feat(feedback): expose --above on `feedback prune` too — currently only --below is supported. The cron use is narrower ("clear ALL boosts >= 1.45 because the cap has been recalibrated downward") but the symmetry is worth completing once a real use shows up
+- [ ] feat(doctor): add --json --quiet mode that emits ONLY the findings count + ok flag for tight cron dashboards (the full report already exists in --json; --quiet would be a shape-reducer pairs with --severity error for "fail nightly CI if any error finding exists")
+- [ ] feat(reindex): add --since <iso-date> that combines manifest-wipe with mtime-filtered re-ingest so a partial-reindex flow exists (currently --dry-run shows the discovery set but the live path still wipes and re-walks everything)
 
 ## Conventions
 
@@ -511,3 +518,102 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   two pre-existing reds (telemetry typecheck + rag hybrid test);
   neither introduced by this tick. The `@clawmind/cli` package
   is fully green (254 tests, +38 from prior tick).
+
+- 2026-06-21 07:05 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: d951f11, d9f9dda, fc6e3f2, d589255, 216077b. Test gate:
+  `@clawmind/cli` 292/292 vitest pass (up from 254). 38 net new tests
+  spread across 4 files: doctor.test.ts (+6 → 15), ingest.test.ts
+  (+10 → 18), tags.test.ts (+10 → 14), feedback-digest.test.ts
+  (+11 → 52). Also added a new prune-cli describe block. `@clawmind/api`
+  tests pass 1223/1223 (the doctor route schema change is backwards
+  compatible because the new querystring parameter is optional).
+  `@clawmind/cli` typecheck: clean. Same two pre-existing reds outside
+  cli (telemetry OpenTelemetry 1.x/2.x peer mismatch + rag/hybrid test
+  alpha-blend drift); both verified pre-existing in this tick by
+  running `pnpm --filter @clawmind/telemetry typecheck` and `pnpm -r
+  test` on a clean working tree before the diff was committed —
+  identical errors, neither introduced here.
+  Theme: knock out THREE explicitly-queued items (the doctor
+  --staleAfterDays flag the queued list called out by name; the
+  ingest --paths-only --dry-run rehearsal shortcut the queued list
+  called out by name; the .gitignore trap the queued list called
+  out by name) PLUS two scripting-ergonomics features that mirror
+  contracts already in the cli (tags list --sort/--top mirrors
+  stats; feedback prune --below mirrors feedback list --below +
+  forget --apply).
+    1. chore(repo) .gitignore: four new globs — `apps/cli/src/**/*.js`,
+       `*.d.ts`, `*.js.map`, `*.d.ts.map` — so a stray `tsc`
+       invocation inside apps/cli (instead of through `pnpm build`,
+       which writes to apps/cli/dist) cannot leak build artifacts
+       into the source tree. The `.d.ts.map` glob is the subtle one:
+       tsc's --declarationMap emits .d.ts.map alongside .d.ts and
+       the bare `*.d.ts` glob does NOT match it. Caught and cleaned
+       in the 2026-06-21 00:40 PDT tick; this makes the trap
+       impossible going forward.
+    2. doctor --stale-after-days end-to-end (API + CLI):
+       /v1/doctor route grew an optional ?staleAfterDays=<n> query
+       string. CLI grew a matching --stale-after-days flag that
+       forwards as the query string. Server-side bound 0..3650 days
+       (zero is a valid tripwire for "any age counts as stale";
+       3650 is ~10 years cap to catch typos). Client-side bound-
+       check fires BEFORE the fetch so a negative / out-of-range /
+       non-numeric value aborts with a single crisp message instead
+       of wasting a round-trip on the API's generic 400. The
+       natural cron use is `clawmind doctor --severity error
+       --stale-after-days 1` for a nightly CI freshness SLO.
+       Without the flag the URL is byte-for-byte legacy /v1/doctor
+       so every existing dashboard works unchanged (regression
+       pinned).
+    3. ingest --dry-run + --paths-only: a natural cron pre-flight.
+       Previews the set of files an incremental refresh WOULD
+       touch (composes with --since so the preview matches the
+       refresh) without reading, hashing, or upserting anything.
+       Output shapes match `reindex --dry-run` byte-for-byte
+       (--paths-only > --json > text). The --since validation
+       fires BEFORE the dry-run branch so a typo'd cutoff still
+       kills the run cleanly (no silent degrade to a misleading
+       "full discovery" preview). Empty dry-run yields a clean
+       count-zero header in text mode and a clean empty stream
+       in --paths-only mode. The --paths-only contract now spans
+       every list-style command in the cli: search, forget,
+       stale, related, pins, mutes, aliases, tags, reindex, and
+       ingest all emit the same byte layout for xargs/wc -l.
+    4. tags list --sort <count|tag> and --top <n>: shapers that
+       mirror `stats --sort` / `stats --top` byte-for-byte so the
+       muscle memory carries between the two. --sort count
+       (default) keeps the API order verbatim; --sort tag re-sorts
+       alphabetical (diff-stable for cron snapshots). --top is the
+       final shaper (slices the head off the sorted list AFTER
+       --sort). Non-positive or NaN --top clamps to "no cap"
+       rather than yielding a surprising empty table (mirrors
+       stats --top clamping). --top 0 falls back to the full
+       list. The `count` field in --json reflects the post-cap
+       length (every other --top in the cli already honours
+       this).
+    5. feedback prune --below <n> --apply: destructive sibling of
+       `feedback list --below`. The cron answer to "every Sunday
+       morning, clear feedback entries whose boost has decayed
+       below 0.7". --below is REQUIRED (no "prune everything"
+       shorthand — an auto-completed `feedback prune --apply`
+       must never wipe the map). Strict comparison (matches the
+       `feedback list --below` semantic, pinned with a /neutral.md
+       row at boost === 1.0 that --below 1.0 must NOT match).
+       Mirrors the `forget --apply` safety pattern: dry-run by
+       default, --apply for the destructive run. The dry-run is
+       byte-identical to the apply call MINUS the DELETE so the
+       operator copy-pastes their preview + " --apply" to move
+       from rehearsal to destruction. Partial failures do NOT
+       abort the rest of the prune; failed paths are surfaced in
+       report.errors[] and exit code is set BEFORE the --json
+       early-return so JSON and text consumers agree on the
+       failure signal.
+  Verify-gate note: ran `pnpm run ci:verify` which hit the same
+  two pre-existing reds (telemetry OpenTelemetry 1.x/2.x +
+  rag/hybrid alpha-blend) — both verified pre-existing in THIS
+  tick by running the failing commands on a clean working tree
+  before the diff was committed. `@clawmind/cli` package is
+  fully green (292 tests, +38 from prior tick) AND `@clawmind/cli`
+  typecheck is clean. `@clawmind/api` tests pass 1223/1223
+  including all 6 doctor route tests with the new query schema.
+  Push: 504d92a..216077b main -> main. All five commits authored
+  as `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
