@@ -264,4 +264,150 @@ describe('doctor cli', () => {
     expect(seenUrl).not.toContain('staleAfterDays');
     expect(seenUrl).not.toContain('?');
   });
+
+  // ---------------------------------------------------------------
+  // --quiet tests — slim per-severity tallies for tight cron
+  // dashboards. Mirrors the precedent set by stats --slim: shape
+  // reducer that wins over the full --json payload when both are
+  // set. Single-line JSON for clean NDJSON snapshots. `ok` flag
+  // and exit code preserved from the full report.
+  // ---------------------------------------------------------------
+
+  it('exposes --quiet on the command surface', () => {
+    const flags = doctorCommand().options.map((o) => o.long);
+    expect(flags).toContain('--quiet');
+  });
+
+  it('--json --quiet emits a slim {ok, findingsCount, errors, warnings, infos} document', async () => {
+    const report = {
+      ok: false,
+      counts: { manifestDocs: 1, manifestChunks: 2, bm25Chunks: 2, lanceChunks: 2 },
+      findings: [
+        { severity: 'info', code: 'A', message: 'a' },
+        { severity: 'warn', code: 'B', message: 'b' },
+        { severity: 'warn', code: 'B2', message: 'b2' },
+        { severity: 'error', code: 'C', message: 'c' },
+      ],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--json', '--quiet']);
+    const parsed = JSON.parse(stdoutChunks.join('')) as {
+      ok: boolean; findingsCount: number; errors: number; warnings: number; infos: number;
+    };
+    expect(parsed.ok).toBe(false);
+    expect(parsed.findingsCount).toBe(4);
+    expect(parsed.errors).toBe(1);
+    expect(parsed.warnings).toBe(2);
+    expect(parsed.infos).toBe(1);
+    // The full per-finding payload is NOT carried — that's the
+    // entire point of the flag.
+    expect(stdoutChunks.join('')).not.toContain('"message"');
+    expect(stdoutChunks.join('')).not.toContain('MISSING_VEC');
+    // Exit code still reflects the full report's ok flag.
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('--json --quiet output is a single-line JSON document (no indentation, trailing newline)', async () => {
+    // Mirrors the stats --slim contract: the document is one line so
+    // cron snapshots diff cleanly when appended to an NDJSON log.
+    const report = {
+      ok: true,
+      counts: { manifestDocs: 0, manifestChunks: 0, bm25Chunks: 0, lanceChunks: 0 },
+      findings: [],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--json', '--quiet']);
+    const raw = stdoutChunks.join('');
+    expect(raw.endsWith('\n')).toBe(true);
+    // Exactly one newline at the end; nothing internal.
+    expect(raw.slice(0, -1)).not.toContain('\n');
+    // Sanity: parses cleanly.
+    expect(() => JSON.parse(raw)).not.toThrow();
+  });
+
+  it('--json --quiet with zero findings yields all-zero tallies (clean dashboard panel)', async () => {
+    const report = {
+      ok: true,
+      counts: { manifestDocs: 0, manifestChunks: 0, bm25Chunks: 0, lanceChunks: 0 },
+      findings: [],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--json', '--quiet']);
+    const parsed = JSON.parse(stdoutChunks.join(''));
+    expect(parsed.ok).toBe(true);
+    expect(parsed.findingsCount).toBe(0);
+    expect(parsed.errors).toBe(0);
+    expect(parsed.warnings).toBe(0);
+    expect(parsed.infos).toBe(0);
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it('--quiet uses the FULL findings tally even when --severity hides some rows from view', async () => {
+    // The slim shape exists for an "are we ok?" question that needs
+    // the unconditional tally, not the filtered count. We pass
+    // --severity error to hide info/warn from the regular --json
+    // payload, but the slim tallies must still report all 3 tiers.
+    const report = {
+      ok: false,
+      counts: { manifestDocs: 1, manifestChunks: 2, bm25Chunks: 2, lanceChunks: 2 },
+      findings: [
+        { severity: 'info', code: 'A', message: 'a' },
+        { severity: 'warn', code: 'B', message: 'b' },
+        { severity: 'error', code: 'C', message: 'c' },
+      ],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--json', '--quiet', '--severity', 'error']);
+    const parsed = JSON.parse(stdoutChunks.join(''));
+    // All three tallies reported, regardless of the display filter.
+    expect(parsed.findingsCount).toBe(3);
+    expect(parsed.errors).toBe(1);
+    expect(parsed.warnings).toBe(1);
+    expect(parsed.infos).toBe(1);
+  });
+
+  it('--quiet wins over the full --json payload when both are set (no findings[] leak)', async () => {
+    const report = {
+      ok: false,
+      counts: { manifestDocs: 1, manifestChunks: 2, bm25Chunks: 2, lanceChunks: 2 },
+      findings: [
+        { severity: 'error', code: 'BIG_PROBLEM', message: 'something broke' },
+      ],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--json', '--quiet']);
+    const raw = stdoutChunks.join('');
+    // No per-finding message body leaked through.
+    expect(raw).not.toContain('BIG_PROBLEM');
+    expect(raw).not.toContain('something broke');
+    // No `"findings":[` array (the substring "findings" appears in
+    // "findingsCount" so we match the exact array opener instead).
+    expect(raw).not.toContain('"findings":');
+    // findingsTotal field is also absent — --quiet is the strict
+    // reshape, not a partial filter on top of the existing payload.
+    expect(raw).not.toContain('findingsTotal');
+    // The slim shape's required keys ARE present.
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    expect(Object.keys(parsed).sort()).toEqual(['errors', 'findingsCount', 'infos', 'ok', 'warnings']);
+  });
+
+  it('--quiet without --json is a no-op (text mode still renders the regular body)', async () => {
+    // --quiet is a JSON-only contract. Used without --json it must
+    // NOT silently degrade or render an empty payload — text mode
+    // continues to emit the normal "ClawMind doctor: ..." report.
+    const report = {
+      ok: true,
+      counts: { manifestDocs: 1, manifestChunks: 2, bm25Chunks: 2, lanceChunks: 2 },
+      findings: [
+        { severity: 'info', code: 'A', message: 'a' },
+      ],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--quiet']);
+    const out = stdoutChunks.join('');
+    // Text header still present.
+    expect(out).toContain('ClawMind doctor');
+    // The finding body still rendered (not a slim payload).
+    expect(out).toContain('A');
+  });
 });
