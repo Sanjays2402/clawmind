@@ -91,8 +91,9 @@ export function digestCommand() {
 
   cmd.command('run [id]')
     .description('Run one saved search by id, or all if no id given')
+    .option('--since <iso-date>', 'with no id: skip saved searches whose lastRunTs is at-or-after this ISO date. The natural cron use is "re-run only the digests that have not run in the last hour": `clawmind digest run --since "$(date -u -d \'1 hour ago\' +%FT%TZ)"` lets a frequent cron tick (every 5min) catch newly-added digests AND digests that have drifted past their refresh budget, while skipping anything a slower tick (every hour) already covered. Critical contract: a digest with lastRunTs === null (never run) is ALWAYS INCLUDED (a never-run digest is the most extreme case of "needs running" — a filter that hid never-runs would be unsafe for a saved search the operator just added). The cutoff comparison uses strict less-than: a digest whose lastRunTs is exactly the cutoff IS SKIPPED — it ran AT the cutoff so re-running it now would breach the operator\'s "leave alone if it ran within the last hour" intent. Parse failures abort cleanly. Ignored when an id is passed (a single-id `digest run X --since Y` would either skip the only thing it was asked to do or always run it; both are confusing).')
     .option('--json', 'emit the run report as JSON for scripting')
-    .action(async (id: string | undefined, opts: { json?: boolean }) => {
+    .action(async (id: string | undefined, opts: { json?: boolean; since?: string }) => {
      await runAction('digest run', async () => {
       if (id) {
         const out = (await apiFetch('POST', `/v1/digests/${id}/run`)) as {
@@ -106,6 +107,90 @@ export function digestCommand() {
         for (const s of out.entry.newSources) process.stdout.write(`  + ${s.path}\n`);
         process.stdout.write(kleur.red(`removed (${out.entry.removedSources.length}):\n`));
         for (const r of out.entry.removedSources) process.stdout.write(`  - ${r}\n`);
+      } else if (opts.since) {
+        // --since narrows the batch to saved searches whose
+        // lastRunTs predates the cutoff. The natural cron use is
+        // a frequent tick (every 5min) that catches newly-added
+        // digests + digests drifted past their refresh budget,
+        // while skipping anything a slower tick already covered.
+        //
+        // We invoke the per-id run endpoint for each surviving
+        // digest rather than calling /v1/digests/run (which
+        // unconditionally runs every saved search) so the batch
+        // honours the filter. This is a few extra HTTP round-
+        // trips for the operator but the savings on the
+        // skipped-digests path (each saved search runs a full
+        // retrieve() so the LLM/embed budget skipped is
+        // significant) dominate.
+        //
+        // Contract details:
+        //   - cutoff parse failures abort with exit 1 via the
+        //     standard ApiError path
+        //   - lastRunTs === null (never-run digest) is ALWAYS
+        //     INCLUDED — that's the most extreme case of "needs
+        //     running" and a filter that hid never-runs would
+        //     be unsafe for a new saved search the operator
+        //     just added
+        //   - strict less-than (<) so a digest at exactly the
+        //     cutoff is SKIPPED — it ran AT the cutoff, which
+        //     means it satisfies the operator's "leave alone if
+        //     it ran within the last hour" intent (re-running
+        //     would be more eager than asked)
+        //   - errors on a single digest run do NOT abort the
+        //     batch (other digests proceed); the report's
+        //     `results` only carries successful runs
+        const cutoff = Date.parse(opts.since);
+        if (!Number.isFinite(cutoff)) {
+          throw new ApiError(`--since value "${opts.since}" is not a valid ISO date`);
+        }
+        const listed = (await apiFetch('GET', '/v1/digests')) as {
+          items: { savedSearchId: string; title: string; query: string; lastRunTs: number | null }[];
+        };
+        const candidates = listed.items.filter((it) => {
+          if (it.lastRunTs === null) return true; // never run -> always include
+          return it.lastRunTs < cutoff;            // ran before cutoff -> include
+        });
+        const results: { savedSearchId: string; newCount: number; removedCount: number }[] = [];
+        const skipped = listed.items.length - candidates.length;
+        for (const c of candidates) {
+          try {
+            const out = (await apiFetch('POST', `/v1/digests/${c.savedSearchId}/run`)) as {
+              entry: { newSources: { path: string }[]; removedSources: string[] };
+            };
+            results.push({
+              savedSearchId: c.savedSearchId,
+              newCount: out.entry.newSources.length,
+              removedCount: out.entry.removedSources.length,
+            });
+          } catch {
+            // A single digest failure must not abort the batch.
+            // The cron tick that fires every 5min cannot afford
+            // to crash on one broken saved search and leave the
+            // other N digests un-refreshed. The skipped digest
+            // will be re-attempted on the next tick anyway.
+            // Intentionally leave the failure out of results[]
+            // so a consumer counting successful runs gets the
+            // honest number.
+          }
+        }
+        const report = {
+          ran: results.length,
+          skipped,
+          since: opts.since,
+          results,
+        };
+        if (opts.json) {
+          process.stdout.write(JSON.stringify(report, null, 2) + '\n');
+          return;
+        }
+        process.stdout.write(kleur.gray(
+          `ran ${report.ran} saved search${report.ran === 1 ? '' : 'es'}`
+          + (skipped > 0 ? `, skipped ${skipped} not stale enough (--since ${opts.since})` : '')
+          + '\n',
+        ));
+        for (const r of report.results) {
+          process.stdout.write(`  ${r.savedSearchId}  ${kleur.green(`+${r.newCount}`)} ${kleur.red(`-${r.removedCount}`)}\n`);
+        }
       } else {
         const out = (await apiFetch('POST', '/v1/digests/run')) as {
           ran: number; results: { savedSearchId: string; newCount: number; removedCount: number }[];

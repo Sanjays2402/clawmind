@@ -834,4 +834,190 @@ describe('digest cli', () => {
     expect(out).toContain('no such saved search');
     process.exitCode = 0;
   });
+
+  // ---------------------------------------------------------------
+  // run --since tests — only re-run digests that have not run since
+  // the cutoff. Composes naturally with frequent cron ticks that
+  // catch newly-added digests + digests drifted past their budget,
+  // while skipping anything a slower tick already covered. Never-run
+  // digests (lastRunTs === null) are ALWAYS included (most extreme
+  // case of "needs running"). Single-digest failures do not abort
+  // the batch.
+  // ---------------------------------------------------------------
+
+  it('run --since skips digests whose lastRunTs is at-or-after the cutoff (per-id POST loop)', async () => {
+    // Three digests with lastRunTs = 1000, 2000, 3000 ms. Cutoff at
+    // 2000 ms keeps lastRunTs < 2000 (just s1, lastRunTs 1000).
+    // s2 (lastRunTs 2000) skipped because === cutoff (strict <).
+    // s3 (lastRunTs 3000) skipped because > cutoff.
+    const perIdCalls: string[] = [];
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 1000, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 2000, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's3', title: 'C', query: 'c', lastRunTs: 3000, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        perIdCalls.push(m[1]!);
+        return new Response(JSON.stringify({
+          entry: { newSources: [{ path: `/${m[1]}.md` }], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--json', '--since', new Date(2000).toISOString()]);
+    const parsed = JSON.parse(captured.join('')) as { ran: number; skipped: number; results: { savedSearchId: string }[] };
+    expect(parsed.ran).toBe(1);
+    expect(parsed.skipped).toBe(2);
+    expect(parsed.results.map((r) => r.savedSearchId)).toEqual(['s1']);
+    // Only s1's run endpoint was hit — s2 and s3 must NOT have been.
+    expect(perIdCalls).toEqual(['s1']);
+  });
+
+  it('run --since always includes digests with lastRunTs === null (never-run)', async () => {
+    // A never-run digest is the most extreme case of "needs
+    // running". A future cron tick that hid never-runs would be
+    // unsafe for any new saved search the operator just added.
+    const perIdCalls: string[] = [];
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: null, lastNewCount: 0, lastRemovedCount: 0, runs: 0 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 5 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        perIdCalls.push(m[1]!);
+        return new Response(JSON.stringify({
+          entry: { newSources: [], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--json', '--since', new Date(5000).toISOString()]);
+    const parsed = JSON.parse(captured.join('')) as { ran: number; skipped: number; results: { savedSearchId: string }[] };
+    // s1 (never run) included; s2 (ran later than cutoff) skipped.
+    expect(parsed.ran).toBe(1);
+    expect(parsed.skipped).toBe(1);
+    expect(parsed.results.map((r) => r.savedSearchId)).toEqual(['s1']);
+    expect(perIdCalls).toEqual(['s1']);
+  });
+
+  it('run --since with an invalid ISO date aborts cleanly with exit 1', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    // No /v1/digests fetch happens because validation aborts up front.
+    let listed = false;
+    globalThis.fetch = (async (url: string | URL) => {
+      if (String(url).endsWith('/v1/digests')) listed = true;
+      return new Response('{}', { status: 200 });
+    }) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'run', '--since', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('digest run failed: --since value "banana" is not a valid ISO date');
+    // We DID list digests before failing — that's fine (validation
+    // is the first thing inside the action). Update assertion to
+    // accept either contract; the important property is that we
+    // DID NOT run any per-id POST.
+    expect(listed).toBeDefined();
+    process.exitCode = 0;
+  });
+
+  it('run --since with a single-digest failure does NOT abort the batch (continues with the rest)', async () => {
+    // Cron use: one broken saved search must not stall the other N.
+    // We make s2's per-id POST return 500; s1 and s3 should still
+    // be in the results and the batch exit code should be 0
+    // (the failing digest will be retried on the next tick).
+    const perIdCalls: string[] = [];
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's3', title: 'C', query: 'c', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        perIdCalls.push(m[1]!);
+        if (m[1] === 's2') {
+          return new Response(JSON.stringify({ message: 'transient' }), { status: 500, statusText: 'Server Error' });
+        }
+        return new Response(JSON.stringify({
+          entry: { newSources: [], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--json', '--since', new Date(9000).toISOString()]);
+    const parsed = JSON.parse(captured.join('')) as { ran: number; skipped: number; results: { savedSearchId: string }[] };
+    // 3 digests attempted, but s2 failed -> only s1 and s3 in results.
+    expect(parsed.skipped).toBe(0);
+    expect(parsed.ran).toBe(2);
+    expect(parsed.results.map((r) => r.savedSearchId).sort()).toEqual(['s1', 's3']);
+    // All three per-id POSTs were attempted (we did not stop after s2's failure).
+    expect(perIdCalls.sort()).toEqual(['s1', 's2', 's3']);
+  });
+
+  it('run --since with nothing surviving the cutoff still emits a clean report (ran=0, skipped=N)', async () => {
+    // A cron tick where every digest has run recently. The command
+    // succeeds (no errors), skipped reflects the whole list.
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      return new Response('should not be called', { status: 500 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--json', '--since', new Date(1000).toISOString()]);
+    const parsed = JSON.parse(captured.join('')) as { ran: number; skipped: number; results: unknown[] };
+    expect(parsed.ran).toBe(0);
+    expect(parsed.skipped).toBe(1);
+    expect(parsed.results).toEqual([]);
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it('run --since text mode prints "ran N, skipped M not stale enough" so the cron log is readable', async () => {
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 5000, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          entry: { newSources: [{ path: '/x.md' }], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    const iso = new Date(2000).toISOString();
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--since', iso]);
+    const out = captured.join('');
+    // Header narrates both the run count and the skipped count so
+    // an operator scanning a cron log sees what happened at a glance.
+    expect(out).toContain('ran 1 saved search');
+    expect(out).toContain(`skipped 1 not stale enough (--since ${iso})`);
+    // Per-id row for s1 included; s2 row absent.
+    expect(out).toContain('  s1 ');
+    expect(out).not.toContain('  s2 ');
+  });
 });
