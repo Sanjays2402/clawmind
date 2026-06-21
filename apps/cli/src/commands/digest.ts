@@ -92,8 +92,9 @@ export function digestCommand() {
   cmd.command('run [id]')
     .description('Run one saved search by id, or all if no id given')
     .option('--since <iso-date>', 'with no id: skip saved searches whose lastRunTs is at-or-after this ISO date. The natural cron use is "re-run only the digests that have not run in the last hour": `clawmind digest run --since "$(date -u -d \'1 hour ago\' +%FT%TZ)"` lets a frequent cron tick (every 5min) catch newly-added digests AND digests that have drifted past their refresh budget, while skipping anything a slower tick (every hour) already covered. Critical contract: a digest with lastRunTs === null (never run) is ALWAYS INCLUDED (a never-run digest is the most extreme case of "needs running" — a filter that hid never-runs would be unsafe for a saved search the operator just added). The cutoff comparison uses strict less-than: a digest whose lastRunTs is exactly the cutoff IS SKIPPED — it ran AT the cutoff so re-running it now would breach the operator\'s "leave alone if it ran within the last hour" intent. Parse failures abort cleanly. Ignored when an id is passed (a single-id `digest run X --since Y` would either skip the only thing it was asked to do or always run it; both are confusing).')
+    .option('--max <n>', 'with no id: cap how many saved searches are run in this batch. Surviving candidates after --since narrowing are kept in API order (newest-first) and the head N are run; the remainder roll over to the next tick. Pairs naturally with --since for a tight cron budget: `digest run --since "..." --max 10` caps both wall-clock AND LLM/embed cost when a tick catches a big stale wave. The skipped count in the report covers BOTH the --since-skipped and the --max-deferred digests, but the text-mode summary narrates them separately so the cron log is auditable ("ran 10, deferred 3, not stale enough 2"). A non-positive or NaN value is rejected cleanly — a typo cannot silently become an empty batch. Ignored when an id is passed (single-id runs always run that one digest regardless of cap).', (v) => Number.parseInt(v, 10))
     .option('--json', 'emit the run report as JSON for scripting')
-    .action(async (id: string | undefined, opts: { json?: boolean; since?: string }) => {
+    .action(async (id: string | undefined, opts: { json?: boolean; since?: string; max?: number }) => {
      await runAction('digest run', async () => {
       if (id) {
         const out = (await apiFetch('POST', `/v1/digests/${id}/run`)) as {
@@ -107,25 +108,35 @@ export function digestCommand() {
         for (const s of out.entry.newSources) process.stdout.write(`  + ${s.path}\n`);
         process.stdout.write(kleur.red(`removed (${out.entry.removedSources.length}):\n`));
         for (const r of out.entry.removedSources) process.stdout.write(`  - ${r}\n`);
-      } else if (opts.since) {
+      } else if (opts.since || opts.max !== undefined) {
         // --since narrows the batch to saved searches whose
         // lastRunTs predates the cutoff. The natural cron use is
         // a frequent tick (every 5min) that catches newly-added
         // digests + digests drifted past their refresh budget,
         // while skipping anything a slower tick already covered.
         //
-        // We invoke the per-id run endpoint for each surviving
+        // --max caps how many of the survivors actually run in
+        // this batch. Pairs naturally with --since for a tight
+        // cron budget: a 5min tick that catches a big stale wave
+        // (say 30 digests need running) can ride out the wave
+        // across multiple ticks instead of blowing the LLM/embed
+        // budget on a single one. The deferred digests roll over
+        // to the next tick because they STILL satisfy --since
+        // next time it fires.
+        //
+        // We invoke the per-id run endpoint for each chosen
         // digest rather than calling /v1/digests/run (which
         // unconditionally runs every saved search) so the batch
-        // honours the filter. This is a few extra HTTP round-
-        // trips for the operator but the savings on the
-        // skipped-digests path (each saved search runs a full
-        // retrieve() so the LLM/embed budget skipped is
-        // significant) dominate.
+        // honours both filters.
         //
-        // Contract details:
-        //   - cutoff parse failures abort with exit 1 via the
-        //     standard ApiError path
+        // Validation:
+        //   - --since: parse failures abort cleanly via ApiError
+        //   - --max: non-positive / NaN aborts BEFORE the list
+        //     fetch — a typo cannot silently become an empty
+        //     batch (which a real "nothing to run" tick is
+        //     indistinguishable from in the report)
+        //
+        // Contract details (unchanged from the pre-existing --since path):
         //   - lastRunTs === null (never-run digest) is ALWAYS
         //     INCLUDED — that's the most extreme case of "needs
         //     running" and a filter that hid never-runs would
@@ -139,19 +150,38 @@ export function digestCommand() {
         //   - errors on a single digest run do NOT abort the
         //     batch (other digests proceed); the report's
         //     `results` only carries successful runs
-        const cutoff = Date.parse(opts.since);
-        if (!Number.isFinite(cutoff)) {
-          throw new ApiError(`--since value "${opts.since}" is not a valid ISO date`);
+        if (opts.max !== undefined && (!Number.isFinite(opts.max) || opts.max <= 0)) {
+          throw new ApiError(`--max value must be a positive integer (got "${opts.max}")`);
+        }
+        let cutoff: number | null = null;
+        if (opts.since) {
+          const parsed = Date.parse(opts.since);
+          if (!Number.isFinite(parsed)) {
+            throw new ApiError(`--since value "${opts.since}" is not a valid ISO date`);
+          }
+          cutoff = parsed;
         }
         const listed = (await apiFetch('GET', '/v1/digests')) as {
           items: { savedSearchId: string; title: string; query: string; lastRunTs: number | null }[];
         };
-        const candidates = listed.items.filter((it) => {
+        const sinceFiltered = listed.items.filter((it) => {
+          if (cutoff === null) return true;
           if (it.lastRunTs === null) return true; // never run -> always include
           return it.lastRunTs < cutoff;            // ran before cutoff -> include
         });
+        // --max caps the surviving set. API returns items
+        // newest-first (insertion order or recency depending on
+        // the route, but stable for repeated calls); slice(0, N)
+        // is the right shape and the deferred suffix rolls over
+        // to the next tick. The `deferred` count is surfaced
+        // separately from --since-skipped so the cron log can
+        // narrate the two reasons distinctly.
+        const candidates = opts.max !== undefined
+          ? sinceFiltered.slice(0, opts.max)
+          : sinceFiltered;
+        const sinceSkipped = listed.items.length - sinceFiltered.length;
+        const deferred = sinceFiltered.length - candidates.length;
         const results: { savedSearchId: string; newCount: number; removedCount: number }[] = [];
-        const skipped = listed.items.length - candidates.length;
         for (const c of candidates) {
           try {
             const out = (await apiFetch('POST', `/v1/digests/${c.savedSearchId}/run`)) as {
@@ -175,19 +205,28 @@ export function digestCommand() {
         }
         const report = {
           ran: results.length,
-          skipped,
+          // Combined "skipped" preserves the legacy --since contract
+          // — every digest not in `results` is a skip from the
+          // caller's POV. The text body breaks it down into the
+          // two reasons so the cron log is readable, and we also
+          // surface them as separate keys in the JSON payload so a
+          // dashboard can distinguish "we hit the cap" from "the
+          // operator's cutoff caught everything".
+          skipped: sinceSkipped + deferred,
+          sinceSkipped,
+          deferred,
           since: opts.since,
+          max: opts.max,
           results,
         };
         if (opts.json) {
           process.stdout.write(JSON.stringify(report, null, 2) + '\n');
           return;
         }
-        process.stdout.write(kleur.gray(
-          `ran ${report.ran} saved search${report.ran === 1 ? '' : 'es'}`
-          + (skipped > 0 ? `, skipped ${skipped} not stale enough (--since ${opts.since})` : '')
-          + '\n',
-        ));
+        const fragments: string[] = [`ran ${report.ran} saved search${report.ran === 1 ? '' : 'es'}`];
+        if (deferred > 0) fragments.push(`deferred ${deferred} over --max ${opts.max}`);
+        if (sinceSkipped > 0) fragments.push(`skipped ${sinceSkipped} not stale enough (--since ${opts.since})`);
+        process.stdout.write(kleur.gray(fragments.join(', ') + '\n'));
         for (const r of report.results) {
           process.stdout.write(`  ${r.savedSearchId}  ${kleur.green(`+${r.newCount}`)} ${kleur.red(`-${r.removedCount}`)}\n`);
         }

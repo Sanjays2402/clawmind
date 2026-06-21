@@ -1020,4 +1020,219 @@ describe('digest cli', () => {
     expect(out).toContain('  s1 ');
     expect(out).not.toContain('  s2 ');
   });
+
+  // ---------------------------------------------------------------
+  // run --max <n> tests — cap how many digests run in a single
+  // batch tick. Pairs naturally with --since for a tight cron
+  // budget. The deferred suffix rolls over to the next tick. We
+  // assert the cap is honoured, the deferred count surfaces
+  // separately in the JSON payload, the text body narrates both
+  // skip reasons, validation aborts on a typo, and the combined
+  // `skipped` key preserves the legacy --since contract.
+  // ---------------------------------------------------------------
+
+  it('run --max caps the batch size to the head N of the surviving candidates', async () => {
+    // Five digests, all stale enough. --max 2 should run the first
+    // two (in API order) and defer the remaining three. Per-id POST
+    // count must equal exactly 2 — the cap is enforced at the call
+    // site, not via post-filtering after wasted requests.
+    const perIdCalls: string[] = [];
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's3', title: 'C', query: 'c', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's4', title: 'D', query: 'd', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's5', title: 'E', query: 'e', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        perIdCalls.push(m[1]!);
+        return new Response(JSON.stringify({
+          entry: { newSources: [], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--json', '--max', '2']);
+    const parsed = JSON.parse(captured.join('')) as {
+      ran: number; skipped: number; sinceSkipped: number; deferred: number;
+      max: number; results: { savedSearchId: string }[];
+    };
+    expect(parsed.ran).toBe(2);
+    // sinceSkipped is zero because --since was not passed; the
+    // remaining 3 are all in `deferred`. Combined `skipped` sums.
+    expect(parsed.sinceSkipped).toBe(0);
+    expect(parsed.deferred).toBe(3);
+    expect(parsed.skipped).toBe(3);
+    expect(parsed.max).toBe(2);
+    expect(parsed.results.map((r) => r.savedSearchId)).toEqual(['s1', 's2']);
+    // Exactly 2 per-id POSTs were fired — NOT 5.
+    expect(perIdCalls).toEqual(['s1', 's2']);
+  });
+
+  it('run --max composes with --since (cutoff narrows first, cap then trims the survivors)', async () => {
+    // Five digests, only three stale enough under --since. --max 2
+    // caps THOSE survivors to 2 — the two non-stale digests are
+    // sinceSkipped, the one --max-bumped survivor is deferred.
+    const perIdCalls: string[] = [];
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 200, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's3', title: 'C', query: 'c', lastRunTs: 300, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's4', title: 'D', query: 'd', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's5', title: 'E', query: 'e', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        perIdCalls.push(m[1]!);
+        return new Response(JSON.stringify({
+          entry: { newSources: [], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--json', '--since', new Date(1000).toISOString(), '--max', '2']);
+    const parsed = JSON.parse(captured.join('')) as {
+      ran: number; sinceSkipped: number; deferred: number; skipped: number;
+      results: { savedSearchId: string }[];
+    };
+    expect(parsed.ran).toBe(2);
+    expect(parsed.sinceSkipped).toBe(2); // s4 + s5
+    expect(parsed.deferred).toBe(1);     // s3 was stale enough but capped
+    expect(parsed.skipped).toBe(3);
+    expect(parsed.results.map((r) => r.savedSearchId)).toEqual(['s1', 's2']);
+    expect(perIdCalls).toEqual(['s1', 's2']);
+  });
+
+  it('run --max with N >= candidate count is a no-op (no deferred, all run)', async () => {
+    // A cap larger than the surviving set should not cause any
+    // deferred entries. This guards against an off-by-one in the
+    // slice arithmetic when --max overshoots.
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          entry: { newSources: [], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--json', '--max', '99']);
+    const parsed = JSON.parse(captured.join('')) as {
+      ran: number; sinceSkipped: number; deferred: number;
+    };
+    expect(parsed.ran).toBe(2);
+    expect(parsed.deferred).toBe(0);
+    expect(parsed.sinceSkipped).toBe(0);
+  });
+
+  it('run --max 0 is rejected (non-positive cap cannot silently become an empty batch)', async () => {
+    // The whole point of --max is "run SOME of them" — a value of
+    // 0 means "run none", which is identical to "do not call this
+    // command". A typo (e.g. `--max $UNSET`) silently becoming an
+    // empty batch is the worst possible failure mode because the
+    // operator's intent (cap the batch) is lost in the noise.
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    let listed = false;
+    globalThis.fetch = (async (url: string | URL) => {
+      if (String(url).endsWith('/v1/digests')) listed = true;
+      return new Response('{}', { status: 200 });
+    }) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'run', '--max', '0']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('digest run failed: --max value must be a positive integer');
+    // Validation MUST fire BEFORE the list fetch — wasting a
+    // round-trip on a typo'd cap is sloppy.
+    expect(listed).toBe(false);
+    process.exitCode = 0;
+  });
+
+  it('run --max with a non-numeric value is rejected (NaN cannot silently become 0 batch)', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'run', '--max', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    expect(stderrBuf.join('')).toContain('digest run failed: --max value must be a positive integer');
+    process.exitCode = 0;
+  });
+
+  it('run --max text mode narrates the deferred count separately from --since skips', async () => {
+    // The text body breaks the skip reasons down so a cron log
+    // makes it clear WHY 5 of the 10 candidates did not run
+    // (vs an opaque "skipped 5"). Asserts both fragments are
+    // present in the gray summary line.
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's3', title: 'C', query: 'c', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's4', title: 'D', query: 'd', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          entry: { newSources: [{ path: '/x.md' }], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    const iso = new Date(1000).toISOString();
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--since', iso, '--max', '1']);
+    const out = captured.join('');
+    expect(out).toContain('ran 1 saved search');
+    expect(out).toContain('deferred 2 over --max 1');
+    expect(out).toContain(`skipped 1 not stale enough (--since ${iso})`);
+  });
+
+  it('run --max is ignored when an id is passed (single-id runs always run that one digest)', async () => {
+    // A `digest run X --max 1` is conceptually nonsense — the user
+    // asked for ONE specific digest by id. We honour that intent
+    // and ignore --max entirely. This mirrors the existing
+    // --since contract on the same path.
+    let postUrl = '';
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests/X/run') && init?.method === 'POST') {
+        postUrl = u;
+        return new Response(JSON.stringify({
+          entry: { newSources: [{ path: '/x.md' }], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('unexpected', { status: 500 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'run', 'X', '--max', '99', '--json']);
+    expect(postUrl).toContain('/v1/digests/X/run');
+    const parsed = JSON.parse(captured.join('')) as { entry: { newSources: { path: string }[] } };
+    expect(parsed.entry.newSources[0]?.path).toBe('/x.md');
+  });
 });
