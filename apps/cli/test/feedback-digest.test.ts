@@ -396,6 +396,75 @@ describe('digest cli', () => {
     process.exitCode = 0;
   });
 
+  it('show --last caps the history to the newest N rows (history is newest-first)', async () => {
+    // Fixture has two rows: ts=2 (newest) and ts=1. --last 1 keeps
+    // only the newest. The API returns history newest-first so the
+    // slice(0, N) shape is correct without re-sorting.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--last', '1']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2]);
+  });
+
+  it('show --last with a value larger than the natural length yields every row', async () => {
+    // Fixture has 2 rows; --last 99 is a no-op (slice(0, 99) keeps both).
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--last', '99']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2, 1]);
+  });
+
+  it('show --last composes with -q (filter first, then cap to newest N of the survivors)', async () => {
+    // -q "n1" keeps only the ts=2 row (which touched /n1.md).
+    // --last 5 is then applied on the single-row survivor list and
+    // is a no-op. The order is "filter then cap" so the cap is
+    // counted against the post-filter rows, never against the raw
+    // history (which would let -q widen the visible window).
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '-q', 'n1', '--last', '5']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2]);
+  });
+
+  it('show --last composes with --since (filter first, then cap to newest N of the survivors)', async () => {
+    // --since 0 keeps both rows; --last 1 then trims to the newest.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--since', '1970-01-01T00:00:00.000Z', '--last', '1']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2]);
+  });
+
+  it('show --last with --since narrowing to zero yields the unified empty hint mentioning --last and --since', async () => {
+    // --since cutoff in the future leaves no survivors; --last 3 then
+    // operates on an empty list. The text-mode hint must mention
+    // BOTH filters so the operator knows everything that narrowed
+    // the output.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--since', '2999-01-01T00:00:00Z', '--last', '3']);
+    const out = captured.join('');
+    expect(out).toContain('query: snip');
+    expect(out).toContain('no history rows match --since 2999-01-01T00:00:00Z + --last 3');
+    expect(out.split('\n').filter((l) => l.includes('total'))).toHaveLength(0);
+  });
+
+  it('show --last with a non-positive value errors cleanly (zero would silently look like an empty history)', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--last', '0']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('digest show failed: --last value must be a positive integer');
+    process.exitCode = 0;
+  });
+
+  it('show --last text mode prints exactly the capped subset (no extras)', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--last', '1']);
+    const out = captured.join('');
+    // Saved-search context still printed; exactly one history row rendered.
+    expect(out).toContain('query: snip');
+    expect(out.split('\n').filter((l) => l.includes('total'))).toHaveLength(1);
+  });
+
   it('show --json -q emits filtered history in the JSON payload', async () => {
     await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '-q', 'n1']);
     const parsed = JSON.parse(captured.join('')) as {

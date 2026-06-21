@@ -126,8 +126,9 @@ export function digestCommand() {
     .description('Show full run history for one saved search')
     .option('-q, --q <text>', 'case-insensitive substring filter; keep only history rows that touched a matching path (in newSources or removedSources)')
     .option('--since <iso-date>', 'bound the history window by absolute date; keep only rows whose ts is at-or-after the cutoff. Pairs naturally with -q for "what did saved-search X surface about path Y after date Z" queries from cron. Composes with -q (intersection: row must both touch a matching path AND be at-or-after the cutoff). Parse failures abort cleanly.')
+    .option('--last <n>', 'cap the history rows returned to the newest N. Applied AFTER -q / --since so the cap is "the newest N rows that pass the other filters". Useful as a sliding-window companion to --since for cron snapshots ("the 5 most recent runs in the last week") and as a quick "tail" for big histories without --json | jq slicing. A non-positive or non-numeric value is rejected cleanly.', (v) => Number.parseInt(v, 10))
     .option('--json', 'emit the history as JSON for scripting')
-    .action(async (id: string, opts: { q?: string; since?: string; json?: boolean }) => {
+    .action(async (id: string, opts: { q?: string; since?: string; last?: number; json?: boolean }) => {
      await runAction('digest show', async () => {
       const out = (await apiFetch('GET', `/v1/digests/${id}`)) as {
         state: { query: string; history: { ts: number; newSources: { path: string }[]; removedSources: string[]; totalSources: number }[] };
@@ -169,6 +170,27 @@ export function digestCommand() {
         }
         filteredHistory = filteredHistory.filter((h) => h.ts >= cutoff);
       }
+      // --last <n> caps the history to the newest N rows. We apply it
+      // LAST (after -q and --since) so the semantics are "the newest
+      // N rows that pass every other filter" — that is the question
+      // an operator asks ("the 5 most recent runs about path Y in
+      // the last week" composes the three flags naturally). The
+      // history rows arrive newest-first from the API, so slice(0, N)
+      // is the right shape and we do not need to re-sort. A
+      // non-positive or NaN value is rejected through the standard
+      // apiFetch error path so a typo like `--last 0` does not
+      // silently produce an empty result that an operator would
+      // misread as "nothing to report" (a real possibility because
+      // a sparse history is normal). Forwarding zero through to a
+      // slice(0, 0) would also break the empty-state hint logic
+      // below — it can't distinguish "filter narrowed to zero" from
+      // "history was empty to begin with".
+      if (opts.last !== undefined) {
+        if (!Number.isFinite(opts.last) || opts.last <= 0) {
+          throw new ApiError(`--last value must be a positive integer (got "${opts.last}")`);
+        }
+        filteredHistory = filteredHistory.slice(0, opts.last);
+      }
       const payload = {
         state: { ...out.state, history: filteredHistory },
       };
@@ -177,7 +199,7 @@ export function digestCommand() {
         return;
       }
       process.stdout.write(kleur.gray(`query: ${out.state.query}\n`));
-      if ((opts.q || opts.since) && filteredHistory.length === 0) {
+      if ((opts.q || opts.since || opts.last !== undefined) && filteredHistory.length === 0) {
         // Tell the operator we found nothing without making them dig.
         // The "query: <q>" line above stays so they still see the
         // saved search context. The hint mentions whichever filter(s)
@@ -186,6 +208,7 @@ export function digestCommand() {
         const filterParts: string[] = [];
         if (opts.q) filterParts.push(`-q "${opts.q}"`);
         if (opts.since) filterParts.push(`--since ${opts.since}`);
+        if (opts.last !== undefined) filterParts.push(`--last ${opts.last}`);
         process.stdout.write(kleur.gray(`no history rows match ${filterParts.join(' + ')}\n`));
         return;
       }
