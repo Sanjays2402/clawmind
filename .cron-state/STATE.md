@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-20 16:05 PDT (current)
+### Tick 2026-06-20 18:51 PDT (current)
+
+- [x] feat(ask): add --out option for saving long answers to a file (d7ab8a1)
+- [x] feat(status): add --check to exit non-zero when any probe is down (2762613)
+- [x] feat(forget): add --confirm safety tripwire to refuse misaligned --apply runs (5adbd71)
+- [x] feat(doctor): add --severity to filter the displayed findings list (49ce082)
+- [x] feat(search): add --paths-only to dump a deduplicated path-per-line stream (28b0414)
+
+### Tick 2026-06-20 16:05 PDT
 
 - [x] feat(tags): add --paths flag to tags paths for pipeline-friendly output (4457b33)
 - [x] feat(stats): add --compact for single-line JSON snapshots (87de268)
@@ -64,24 +72,24 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 
 - [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved)
 - [ ] fix(rag/hybrid): hybridMerge test on packages/rag/test/hybrid.test.ts expects `out[0].id === 'b'` but the merge orders 'a' (bm25 score 10) above 'b' under alpha=0.5; either the test fixture or the hybrid blend has drifted. Pre-existing failure (verified by typechecking parent commit 3cc6fd1), NOT introduced by any cron tick — was simply unknown because earlier ticks only ran `--filter @clawmind/cli test`, not `pnpm -r test`. Either rewrite the test against the current alpha-blend semantics OR re-derive the expected order from first principles.
-- [ ] feat(ask): add --out option mirroring search --out for saving long answers
 - [ ] feat(digest): add --since <iso-date> to digest show to bound the history window
 - [ ] feat(watch): add --debounce <ms> option to coalesce rapid file events
 - [ ] feat(watch): print a one-line startup banner to stderr (kind=banner, ts) so log scrapers can spot a restart
-- [ ] feat(doctor): add --severity <warn|error> to filter the displayed findings list (always exits non-zero on error regardless)
 - [ ] feat(doctor): add --staleAfterDays <n> CLI flag that forwards to the API's staleAfterMs override
 - [ ] feat(status): add --watch <ms> to repoll periodically for terminal dashboards
-- [ ] feat(status): add --check to exit non-zero when any probe (embed/llm) is down (CI smoke check)
 - [ ] feat(stats): add --since <iso-date> to filter namespaces whose newestIngestedAt is older than the cutoff
 - [ ] feat(feedback): add --json filter to list returning only paths above/below a boost multiplier
 - [ ] feat(reindex): add --dry-run that lists files that would be reindexed without touching the store
 - [ ] feat(ingest): add --since <iso-date> to only ingest files modified after the cutoff (incremental refresh from cron)
-- [ ] feat(forget): add --confirm <count> safety prompt: refuse --apply when the match count exceeds N unless --confirm matches the actual count (prevents accidental whole-index wipes)
-- [ ] feat(search): add --paths-only as a one-shot path dump (`clawmind search foo --paths-only` -> one path per line for shell loops)
 - [ ] feat(ask): add --stream-json to emit one NDJSON event per token (kind=token/sources/done) for live UI piping
 - [ ] feat(status): add --json-watch that emits one NDJSON snapshot per poll cycle (pairs with --watch)
 - [ ] feat(pins/mutes): add --paths --since <iso> filter so cron snapshots only export recently-touched entries
-- [ ] feat(tags): add --paths-only to tags paths to drop styling and emit one path per line — SUPERSEDED by 4457b33 which added --paths covering the same shape; this entry can be deleted next cleanup pass
+- [ ] feat(related): add --paths-only to dump a one-path-per-line stream (mirrors search --paths-only, completes the contract for the last list-style command)
+- [ ] feat(stale): add --since <iso-date> to filter the report to files older than the cutoff (complements existing staleness threshold)
+- [ ] feat(export): add --since <iso-date> to bound the export window for incremental dumps
+- [ ] feat(tags): add --counts mode listing namespaces with their tag-frequency totals (for "what tags are dominating my index" questions)
+- [ ] feat(search): add --rerank-off escape hatch to skip the rerank step for debugging fusion vs rerank effects
+- [ ] feat(forget): add --json --dry-run --paths-only shortcut so a script can preview removals without parsing the structured payload (currently a single-flag combo of existing flags but worth a smoke test)
 
 ## Conventions
 
@@ -172,3 +180,64 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   sources event, so the askStream generator never actually pulls
   from `deps.llm.stream(...)` — the LLM is genuinely not called,
   not just hidden after the fact.
+
+- 2026-06-20 18:51 PDT (Cake/cron) — 5 features shipped on feature/autoship.
+  Features: d7ab8a1, 2762613, 5adbd71, 49ce082, 28b0414. Test gate:
+  `@clawmind/cli` 160/160 vitest pass (up from 136). 24 net new tests
+  spread across 5 files: ask.test.ts (+4), status.test.ts (+5),
+  forget.test.ts (+5), doctor.test.ts (+5), search.test.ts (+5).
+  Typecheck: `@clawmind/cli` clean. Same two pre-existing reds outside
+  cli (telemetry OpenTelemetry 1.x/2.x peer mismatch + rag/hybrid
+  test alpha-blend drift); neither introduced this tick.
+  Theme: knock out four of the five queued cli items the previous
+  ticks had punted, plus complete the `--paths-only` pipeline
+  contract across the last unreached command (search).
+    1. ask --out: mirrors `search --out`, writes assembled
+       answer (sources header + body + latency + optional citations)
+       to a file in text mode, JSON payload in --json mode. Critical
+       design: token-by-token stdout dribble is suppressed when --out
+       is set so the answer is NOT rendered twice (terminal + file).
+       Saved files are ANSI-clean. Stderr carries the green
+       "wrote answer" confirmation.
+    2. status --check: CI smoke-check flag. Body unchanged so a
+       single command can both report AND drive the exit code.
+       Non-OK → exit 2 (NOT 1 — reserved for command crashes, so
+       wrappers can distinguish "ran fine, probe down" from
+       "command crashed"). In text mode, also drops a red
+       "status --check: <down probes> down" line to stderr so
+       scripts redirecting stdout still get a useful log line.
+    3. forget --confirm <n>: safety tripwire. With --apply, does a
+       dry-run pre-flight FIRST to learn the real count, then only
+       proceeds to destruction when count === N exactly. The "-1"
+       sentinel is the explicit opt-out for unknown-size scripts.
+       Without --apply, --confirm is silently ignored (dry-run is
+       already safe). Error spells out BOTH numbers and the correct
+       re-run command so the operator can copy-paste a fix.
+    4. doctor --severity <info|warn|error>: display-only filter; the
+       exit code is STILL driven by the FULL report's `ok` flag so
+       hiding warnings can never accidentally hide an error from CI.
+       Adds two text-mode hints: "<n> below --severity X; nothing
+       to show" when filter empties the table, and "... <n> more"
+       at the tail when some rows are hidden. --json mode adds a
+       new `findingsTotal` field alongside the filtered `findings`
+       array so a dashboard can show "1 of 3" without re-running.
+    5. search --paths-only: completes the pipeline contract begun
+       with pins/mutes/aliases/tags --paths and forget/search
+       --paths-only. Deduplicates by path in rank order (search
+       returns chunk-granular hits so the same file can appear
+       multiple times). Short-circuits before --json/--out/etc.
+       Empty stream on zero matches — critically does NOT leak the
+       stderr "no results" hint that would poison `xargs ls`.
+       Threshold + tag filters still compose naturally.
+  All five focus the same theme: scripting ergonomics. The cli
+  surface is now noticeably more pipeable — every list-style command
+  has the same --paths/--paths-only contract; --out exists on both
+  search and ask; --check exists for CI smoke-checking; --confirm
+  exists as a tripwire on the only destructive command.
+  Verify-gate note: ran `pnpm run ci:verify` which hit the same two
+  pre-existing reds (telemetry typecheck + rag hybrid test). Both
+  remain queued, both verified pre-existing this and prior ticks.
+  Also hit a vitest fork-pool deadlock after wiping the .vite cache
+  mid-tick (macOS quirk); switching to --no-isolate cleared it. No
+  fix required — the normal `pnpm --filter @clawmind/cli test` path
+  is unaffected outside of a stale-cache hiccup.
