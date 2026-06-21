@@ -139,16 +139,18 @@ export function feedbackCommand() {
     });
 
   cmd.command('prune')
-    .description('Bulk-clear feedback entries whose boost falls below a threshold')
-    .option('--below <n>', 'clear every entry whose boost multiplier is strictly less than this value (typical: --below 0.7 to drop the strongest downvotes that no longer earn their boost). Required — there is no "prune everything" shorthand because that would be `feedback clear *` and a misclick should never wipe the whole map.', (v) => Number.parseFloat(v))
-    .option('-q, --q <text>', 'narrow the candidate set by case-insensitive substring on the source path BEFORE the --below threshold is applied. Use to limit the prune to a specific directory subtree (e.g. `--q /archive --below 0.7` only touches feedback on archived paths).')
+    .description('Bulk-clear feedback entries whose boost falls below (or above) a threshold')
+    .option('--below <n>', 'clear every entry whose boost multiplier is strictly less than this value (typical: --below 0.7 to drop the strongest downvotes that no longer earn their boost). At least one of --below / --above is REQUIRED — there is no "prune everything" shorthand because that would be `feedback clear *` and a misclick should never wipe the whole map.', (v) => Number.parseFloat(v))
+    .option('--above <n>', 'symmetric sibling of --below: clear every entry whose boost multiplier is strictly GREATER than this value. The natural cron use is "the upvote cap has been recalibrated downward and every old boost above the new ceiling should be cleared so re-vote pressure restarts from neutral" (e.g. `--above 1.45 --apply` after lowering MAX_BOOST from 1.5 to 1.45). Strict comparison (`>`) so an entry at exactly the threshold is preserved (it is ON the new ceiling, not above it). Composes with --below as an intersection (the "almost neutral" prune band: `--above 1.05 --below 0.95 --apply` clears every non-neutral entry). At least one of --below / --above is required.', (v) => Number.parseFloat(v))
+    .option('-q, --q <text>', 'narrow the candidate set by case-insensitive substring on the source path BEFORE the --below / --above threshold is applied. Use to limit the prune to a specific directory subtree (e.g. `--q /archive --below 0.7` only touches feedback on archived paths).')
     .option('--apply', 'actually clear the matched entries. Without --apply this is a dry-run that lists what WOULD be cleared without touching the feedback store. Matches the forget --apply safety pattern: destructive by default off, never silent.')
     .option('--json', 'emit the prune report as JSON for scripting')
-    .action(async (opts: { below?: number; q?: string; apply?: boolean; json?: boolean }) => {
+    .action(async (opts: { below?: number; above?: number; q?: string; apply?: boolean; json?: boolean }) => {
       await runOrReport('feedback prune', async () => {
-        // The bulk-prune flow. The natural cron use is:
+        // The bulk-prune flow. The natural cron uses are:
         //   clawmind feedback prune --below 0.7              # dry-run, lists candidates
         //   clawmind feedback prune --below 0.7 --apply      # actually clears them
+        //   clawmind feedback prune --above 1.45 --apply     # cap recalibration
         // This mirrors the forget --apply safety pattern: the
         // command is destructive when --apply is set, dry-run
         // otherwise, and the dry-run is byte-identical to the
@@ -156,21 +158,31 @@ export function feedbackCommand() {
         // copy-paste their preview command, add --apply, and get
         // exactly the rows they previewed cleared.
         //
-        // Why --below required, no "prune everything" shorthand:
-        // a misclick or auto-completed `clawmind feedback prune
-        // --apply` should NEVER wipe the whole feedback map.
-        // Requiring --below makes the operator declare their
-        // intent and gives us a single number to validate. There
-        // is no `--above` variant because high boosts are the
-        // operator's curated work — `--above 1.5` only matches
-        // entries that hit the boost cap, and "clear the things
-        // I worked hardest to upvote" is not a question worth
-        // automating.
-        if (opts.below === undefined) {
-          throw new FeedbackCliError(`--below <n> is required (no shorthand to prune the entire map; use \`feedback clear <path>\` for individual entries)`);
+        // Why at least one of --below / --above required, no
+        // "prune everything" shorthand: a misclick or auto-
+        // completed `clawmind feedback prune --apply` should
+        // NEVER wipe the whole feedback map. Requiring an
+        // explicit threshold makes the operator declare their
+        // intent and gives us a number to validate.
+        //
+        // --above was added in a later tick once a real use-case
+        // surfaced: a cap recalibration ("we lowered MAX_BOOST
+        // from 1.5 to 1.45 — clear every entry above 1.45 so
+        // re-vote pressure restarts cleanly"). The semantics
+        // mirror --below byte-for-byte (strict comparison, same
+        // dry-run/apply UX) so the muscle memory carries.
+        // Composes with --below as an intersection for the
+        // "almost neutral" band: `--above 1.05 --below 0.95
+        // --apply` clears every non-neutral entry but preserves
+        // the curated entries in the band of indifference.
+        if (opts.below === undefined && opts.above === undefined) {
+          throw new FeedbackCliError(`at least one of --below <n> or --above <n> is required (no shorthand to prune the entire map; use \`feedback clear <path>\` for individual entries)`);
         }
-        if (!Number.isFinite(opts.below)) {
+        if (opts.below !== undefined && !Number.isFinite(opts.below)) {
           throw new FeedbackCliError(`--below value is not a number`);
+        }
+        if (opts.above !== undefined && !Number.isFinite(opts.above)) {
+          throw new FeedbackCliError(`--above value is not a number`);
         }
         // Step 1: fetch the candidate set. Forwards -q to the API
         // server-side (so the operator's substring filter does
@@ -180,15 +192,29 @@ export function feedbackCommand() {
         const list = (await apiFetch('GET', `/v1/feedback${qs}`)) as {
           items: { path: string; ups: number; downs: number; boost: number }[];
         };
-        // Step 2: client-side filter to the rows strictly below
-        // the threshold. Strict comparison (`<`) so boost === N
-        // is EXCLUDED — an entry exactly at the threshold is
-        // ON the line, not below it. The operator who passes
-        // --below 0.7 to mean "everything strongly downvoted"
-        // does not want to also clear a path that is exactly at
-        // boost 0.7 (the symmetric edge case is `--above 1.0` in
-        // `feedback list` which is also strict).
-        const candidates = list.items.filter((it) => it.boost < opts.below!);
+        // Step 2: client-side filter. Strict comparisons (`<`, `>`)
+        // so an entry exactly at the threshold is EXCLUDED — an
+        // entry exactly at --below 0.7 is ON the line not below
+        // it, and an entry exactly at --above 1.45 is ON the new
+        // ceiling not above it. Mirrors the strict-comparison
+        // semantics in `feedback list --above` / `--below`.
+        // When both --below and --above are passed they compose
+        // as an intersection (boost must be EITHER below the
+        // floor OR above the ceiling) — no wait, that's the
+        // SYMMETRIC use ("clear all extremes"), which is the
+        // natural meaning of "the operator declared both ends".
+        // So the predicate is OR: an entry matches if it satisfies
+        // EITHER condition. That gives the "trim both tails"
+        // shape `--above 1.05 --below 0.95 --apply` (clear
+        // everything outside the [0.95, 1.05] neutral band).
+        // An entry only one of the two conditions matches is
+        // still cleared — that's what "I want both tails gone"
+        // means.
+        const candidates = list.items.filter((it) => {
+          const belowMatch = opts.below !== undefined && it.boost < opts.below;
+          const aboveMatch = opts.above !== undefined && it.boost > opts.above;
+          return belowMatch || aboveMatch;
+        });
         // Step 3: with --apply, actually clear each matched path.
         // We do this serially rather than in parallel because the
         // /v1/feedback DELETE endpoint mutates the same feedback
@@ -218,6 +244,7 @@ export function feedbackCommand() {
         }
         const report = {
           threshold: opts.below,
+          thresholdAbove: opts.above,
           dryRun: !opts.apply,
           matched: candidates.length,
           cleared,
@@ -240,7 +267,17 @@ export function feedbackCommand() {
           return;
         }
         const verb = opts.apply ? 'cleared' : 'would clear';
-        const head = `${verb} ${candidates.length} feedback entr${candidates.length === 1 ? 'y' : 'ies'} below boost ${opts.below}`;
+        // Build a "below boost X" / "above boost Y" / "below X or above Y"
+        // suffix that matches the operator's invocation exactly, so the
+        // header line in the cron log narrates precisely the predicate
+        // that ran. The suffix is the only piece that changes with the
+        // new --above flag; the verb / count / pluralisation logic is
+        // identical to the --below-only path.
+        const parts: string[] = [];
+        if (opts.below !== undefined) parts.push(`below boost ${opts.below}`);
+        if (opts.above !== undefined) parts.push(`above boost ${opts.above}`);
+        const predicate = parts.join(' or ');
+        const head = `${verb} ${candidates.length} feedback entr${candidates.length === 1 ? 'y' : 'ies'} ${predicate}`;
         process.stdout.write((opts.apply ? kleur.red(head) : kleur.yellow(head)) + '\n');
         for (const it of candidates) {
           process.stdout.write(kleur.gray(`  ${it.boost.toFixed(2)}x  ${it.path}\n`));

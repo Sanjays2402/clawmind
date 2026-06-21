@@ -269,23 +269,24 @@ describe('feedback prune cli', () => {
     process.exitCode = 0;
   });
 
-  it('exposes prune as a subcommand with --below, --apply, -q, --json on the surface', () => {
+  it('exposes prune as a subcommand with --below, --above, --apply, -q, --json on the surface', () => {
     const prune = feedbackCommand().commands.find((c) => c.name() === 'prune');
     expect(prune).toBeDefined();
     const flags = prune!.options.map((o) => o.long);
     expect(flags).toContain('--below');
+    expect(flags).toContain('--above');
     expect(flags).toContain('--apply');
     expect(flags).toContain('--q');
     expect(flags).toContain('--json');
   });
 
-  it('--below required: omitting it aborts cleanly without touching the API', async () => {
-    // The whole point of --below being required is that a misclick
-    // like `feedback prune --apply` does NOT silently wipe the map.
-    // We assert the error fires AND no DELETE was issued.
+  it('--below / --above required: omitting BOTH aborts cleanly without touching the API', async () => {
+    // The whole point of requiring an explicit threshold is that a
+    // misclick like `feedback prune --apply` does NOT silently wipe
+    // the map. We assert the error fires AND no DELETE was issued.
     await feedbackCommand().parseAsync(['node', 'cli', 'prune']);
     expect(process.exitCode).toBe(1);
-    expect(stderr.join('')).toContain('feedback prune failed: --below <n> is required');
+    expect(stderr.join('')).toContain('feedback prune failed: at least one of --below <n> or --above <n> is required');
     // Critically: no DELETE calls were issued.
     expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
   });
@@ -414,6 +415,118 @@ describe('feedback prune cli', () => {
     // first failure).
     expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(2);
     expect(process.exitCode).toBe(1);
+  });
+
+  // ---------------------------------------------------------------
+  // --above tests — the symmetric sibling of --below. The classic
+  // cron use is a cap recalibration: "we lowered MAX_BOOST from 1.5
+  // to 1.45, clear every entry above 1.45 so re-vote pressure
+  // restarts cleanly". Strict comparison (`>`) so an entry at the
+  // threshold is preserved. Composes with --below as an OR
+  // predicate for "trim both tails" pruning.
+  // ---------------------------------------------------------------
+
+  it('--above with a non-numeric value aborts cleanly (NaN cannot silently match everything)', async () => {
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('feedback prune failed: --above value is not a number');
+    expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+  });
+
+  it('--above dry-run: lists candidates strictly greater than the threshold without DELETE', async () => {
+    // Fixture has strong-up=1.25 and mild-up=1.05. --above 1.0 picks
+    // both. Dry-run (no --apply) emits the report without DELETE.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '1.0', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      thresholdAbove?: number; dryRun: boolean; matched: number; cleared: number; paths: string[];
+    };
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.thresholdAbove).toBe(1.0);
+    expect(parsed.matched).toBe(2);
+    expect(parsed.cleared).toBe(0);
+    expect(parsed.paths.sort()).toEqual(['/mild-up.md', '/strong-up.md']);
+    expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+  });
+
+  it('--above --apply actually clears each matched entry (one DELETE per path)', async () => {
+    // --above 1.2 matches strong-up only (boost 1.25). With --apply
+    // we expect exactly one DELETE and a cleared count of 1.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '1.2', '--apply', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      dryRun: boolean; matched: number; cleared: number; errors: unknown[]; paths: string[];
+    };
+    expect(parsed.dryRun).toBe(false);
+    expect(parsed.matched).toBe(1);
+    expect(parsed.cleared).toBe(1);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.paths).toEqual(['/strong-up.md']);
+    const deletes = fetchCalls.filter((c) => c.method === 'DELETE');
+    expect(deletes).toHaveLength(1);
+    expect((deletes[0]!.body as { path: string }).path).toBe('/strong-up.md');
+  });
+
+  it('--above is STRICT: boost === threshold is EXCLUDED from the prune', async () => {
+    // /strong-up.md is at boost 1.25 exactly. --above 1.25 must NOT
+    // match it (the entry is ON the ceiling, not above it). This
+    // mirrors the strict-comparison contract that `feedback list
+    // --above` already honours.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '1.25', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as { paths: string[] };
+    expect(parsed.paths).not.toContain('/strong-up.md');
+    // Nothing else in the fixture is above 1.25 either.
+    expect(parsed.paths).toEqual([]);
+  });
+
+  it('--above + --below compose as OR (trim both tails: clear everything outside the neutral band)', async () => {
+    // The "almost neutral" prune: --above 1.04 --below 0.95 clears
+    // every entry whose boost is outside the [0.95, 1.04] window.
+    // Fixture: strong-up=1.25 (above 1.04 -> clear), mild-up=1.05
+    // (above 1.04 -> clear), neutral=1.0 (in band -> keep),
+    // mild-down=0.9 (below 0.95 -> clear), strong-down=0.65 (below
+    // 0.95 -> clear). 4 cleared, 1 kept.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '1.04', '--below', '0.95', '--apply', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      matched: number; cleared: number; paths: string[];
+    };
+    expect(parsed.matched).toBe(4);
+    expect(parsed.cleared).toBe(4);
+    expect(parsed.paths.sort()).toEqual([
+      '/mild-down.md', '/mild-up.md', '/strong-down.md', '/strong-up.md',
+    ]);
+    // /neutral.md (boost 1.0) is in the band -> NOT in the paths list.
+    expect(parsed.paths).not.toContain('/neutral.md');
+  });
+
+  it('--above dry-run text mode prints "would clear ... above boost X" header AND a rerun nudge', async () => {
+    // The text-mode header narrates the predicate that ran so the
+    // cron log makes the operation auditable at a glance.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '1.2']);
+    const out = stdout.join('');
+    expect(out).toContain('would clear 1 feedback entry above boost 1.2');
+    expect(out).toContain('/strong-up.md');
+    expect(out).toContain('rerun with --apply');
+  });
+
+  it('--above + --below text mode header narrates BOTH predicates joined with " or "', async () => {
+    // When both flags are set the header reads "below X or above Y"
+    // so the operator scanning a cron log sees exactly which tails
+    // were trimmed.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '1.04', '--below', '0.95']);
+    const out = stdout.join('');
+    expect(out).toMatch(/would clear 4 feedback entries below boost 0\.95 or above boost 1\.04/);
+  });
+
+  it('--above with zero matches yields a clean empty report (no DELETE, no error)', async () => {
+    // --above 99 above the highest boost in the fixture: nothing
+    // qualifies. The command succeeds with matched=0 / cleared=0 so
+    // the cron tick is not reported as a failure.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '99', '--apply', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as { matched: number; cleared: number; paths: string[] };
+    expect(parsed.matched).toBe(0);
+    expect(parsed.cleared).toBe(0);
+    expect(parsed.paths).toEqual([]);
+    expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
+    expect(process.exitCode).toBeFalsy();
   });
 });
 
