@@ -21,9 +21,26 @@ export function exportCommand() {
     .argument('<id>', 'conversation id')
     .option('-o, --out <file>', 'write to file instead of stdout')
     .option('-f, --format <fmt>', `output format (${FORMATS.join('|')})`, parseFormat, 'md' as Format)
+    .option('--since <iso-date>', 'narrow the export to turns whose `ts` is at-or-after this ISO date. The natural cron use is an incremental dump: `clawmind export <id> --since "$(date -u -d \'1 day ago\' +%FT%TZ)" -o today.md` produces a daily delta without re-downloading the whole thread each tick. Cutoff is INCLUSIVE (>=) — mirrors --since semantics across stale / stats / digest show / pins / mutes / ingest / reindex byte-for-byte. Forwarded as ?since=<value> to the API; parse failures abort with the API\'s 400 surfaced through the normal error path (so a typo cannot silently degrade to the full export and double-bill the bandwidth budget). Empty windows yield a well-formed export with zero turns — NOT a 404 — so a cron polling a quiet conversation does not alarm.')
     .option('--api <url>', 'API base URL', process.env.CLAWMIND_API_URL ?? 'http://127.0.0.1:7410')
-    .action(async (id: string, opts: { out?: string; format: Format; api: string }) => {
-      const url = `${opts.api.replace(/\/+$/, '')}/v1/conversations/${encodeURIComponent(id)}/export.${opts.format}`;
+    .action(async (id: string, opts: { out?: string; format: Format; since?: string; api: string }) => {
+      // Validate --since up front so a typo aborts BEFORE any
+      // network round-trip. The API would also reject it (the route
+      // returns 400 on a non-numeric Date.parse) but a client-side
+      // hard-fail keeps the error message crisp ("invalid ISO date")
+      // instead of leaking the API's generic "400 Bad Request" wrap
+      // when the actual problem is a shell-level $MAYBE expansion
+      // typo. Matches the validation precedent set by ingest --since
+      // / reindex --since / digest run --since.
+      if (opts.since !== undefined && !Number.isFinite(Date.parse(opts.since))) {
+        process.stderr.write(kleur.red(`export failed: --since value "${opts.since}" is not a valid ISO date\n`));
+        process.exitCode = 1;
+        return;
+      }
+      const baseUrl = `${opts.api.replace(/\/+$/, '')}/v1/conversations/${encodeURIComponent(id)}/export.${opts.format}`;
+      const url = opts.since !== undefined
+        ? `${baseUrl}?since=${encodeURIComponent(opts.since)}`
+        : baseUrl;
       let res: Response;
       try {
         res = await fetch(url);

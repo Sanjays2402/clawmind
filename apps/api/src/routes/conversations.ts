@@ -138,12 +138,43 @@ export const conversationRoutes: FastifyPluginAsyncZod = async (app) => {
     });
   }
 
-  app.get<{ Params: { id: string } }>('/conversations/:id/export.md', {
+  // Per-conversation export. The optional ?since=<iso-date> querystring
+  // narrows the export to turns whose `ts` is at-or-after the cutoff so
+  // a downstream consumer can produce an incremental dump (e.g. cron
+  // "what got said today" backups) without re-downloading the whole
+  // thread. The filter is INCLUSIVE (>=) so a turn at exactly the
+  // cutoff is kept — matches the --since semantics used everywhere
+  // else in the cli (stale / stats / digest show / pins / mutes /
+  // ingest / reindex). Empty windows return a well-formed export with
+  // zero turns, NOT a 404, so a cron script that polls hourly does not
+  // alarm on a quiet conversation. Validation aborts with 400 on a
+  // typo'd ISO date so a misconfigured cron does not silently degrade
+  // to the full export and double-bill the bandwidth budget.
+  const SinceQuery = z.object({ since: z.string().min(1).optional() });
+  function parseSinceCutoff(raw: string | undefined): number | undefined {
+    if (raw === undefined) return undefined;
+    const cutoff = Date.parse(raw);
+    if (!Number.isFinite(cutoff)) return Number.NaN;
+    return cutoff;
+  }
+  function narrowTurns<T extends { turns: Array<{ ts: number }> }>(
+    conv: T,
+    cutoff: number | undefined,
+  ): T {
+    if (cutoff === undefined) return conv;
+    return { ...conv, turns: conv.turns.filter((t) => t.ts >= cutoff) };
+  }
+
+  app.get<{ Params: { id: string }; Querystring: { since?: string } }>('/conversations/:id/export.md', {
+    schema: { querystring: SinceQuery },
     preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
     handler: async (req, reply) => {
+      const cutoff = parseSinceCutoff(req.query.since);
+      if (Number.isNaN(cutoff)) return reply.code(400).send({ error: `invalid since "${req.query.since}"` });
       const conv = await loadConversation(app.clawmind.dataDir, req.params.id);
       if (!conv || conv.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });
-      const md = conversationToMarkdown(conv, {
+      const narrowed = narrowTurns(conv, cutoff);
+      const md = conversationToMarkdown(narrowed, {
         stripBasePath: expand(app.clawmind.env.CLAWMIND_WORKSPACE),
       });
       reply
@@ -153,12 +184,16 @@ export const conversationRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   });
 
-  app.get<{ Params: { id: string } }>('/conversations/:id/export.json', {
+  app.get<{ Params: { id: string }; Querystring: { since?: string } }>('/conversations/:id/export.json', {
+    schema: { querystring: SinceQuery },
     preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
     handler: async (req, reply) => {
+      const cutoff = parseSinceCutoff(req.query.since);
+      if (Number.isNaN(cutoff)) return reply.code(400).send({ error: `invalid since "${req.query.since}"` });
       const conv = await loadConversation(app.clawmind.dataDir, req.params.id);
       if (!conv || conv.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });
-      const payload = conversationToJson(conv, {
+      const narrowed = narrowTurns(conv, cutoff);
+      const payload = conversationToJson(narrowed, {
         stripBasePath: expand(app.clawmind.env.CLAWMIND_WORKSPACE),
       });
       reply
@@ -168,12 +203,16 @@ export const conversationRoutes: FastifyPluginAsyncZod = async (app) => {
     },
   });
 
-  app.get<{ Params: { id: string } }>('/conversations/:id/export.csv', {
+  app.get<{ Params: { id: string }; Querystring: { since?: string } }>('/conversations/:id/export.csv', {
+    schema: { querystring: SinceQuery },
     preHandler: [app.requireAuth, app.requireScope(Scopes.ConversationsRead)],
     handler: async (req, reply) => {
+      const cutoff = parseSinceCutoff(req.query.since);
+      if (Number.isNaN(cutoff)) return reply.code(400).send({ error: `invalid since "${req.query.since}"` });
       const conv = await loadConversation(app.clawmind.dataDir, req.params.id);
       if (!conv || conv.userId !== req.user!.id) return reply.code(404).send({ error: 'not found' });
-      const csv = conversationToCsv(conv, {
+      const narrowed = narrowTurns(conv, cutoff);
+      const csv = conversationToCsv(narrowed, {
         stripBasePath: expand(app.clawmind.env.CLAWMIND_WORKSPACE),
       });
       reply
