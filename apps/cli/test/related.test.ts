@@ -168,4 +168,123 @@ describe('related cli', () => {
     expect(out.trim().startsWith('{')).toBe(false);
     expect(out.trim().startsWith('[')).toBe(false);
   });
+
+  it('-t/--threshold drops neighbours with score strictly below the bar in text mode', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 4,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.91, hits: 3, excerpt: 'aa' },
+            { path: 'b.md', namespace: 'memory', score: 0.55, hits: 2, excerpt: 'bb' },
+            { path: 'c.md', namespace: 'projects', score: 0.42, hits: 1, excerpt: 'cc' },
+          ],
+          count: 3,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '-t', '0.5']);
+    const out = stdout.join('');
+    // Only a.md (0.91) and b.md (0.55) clear the bar; c.md (0.42) is gone.
+    expect(out).toContain('a.md');
+    expect(out).toContain('b.md');
+    expect(out).not.toContain('c.md');
+  });
+
+  it('--threshold filter is reflected in --json (count + items shrink to the kept subset)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 7,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.95, hits: 3, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.50, hits: 2, excerpt: 'b' },
+            { path: 'c.md', namespace: 'memory', score: 0.10, hits: 1, excerpt: 'c' },
+          ],
+          count: 3,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--threshold', '0.5']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      items: { path: string; score: number }[];
+      count: number;
+      sourceChunkCount: number;
+    };
+    // Inclusive lower bound: score === 0.5 stays in.
+    expect(parsed.items.map((i) => i.path)).toEqual(['a.md', 'b.md']);
+    // `count` reflects the kept items, not the API total.
+    expect(parsed.count).toBe(2);
+    // `sourceChunkCount` is a property of the source itself and is
+    // preserved verbatim — the filter does not touch it.
+    expect(parsed.sourceChunkCount).toBe(7);
+  });
+
+  it('--threshold composes with --paths-only (filter applies BEFORE the paths-only emit)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 3,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.91, hits: 3, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.40, hits: 2, excerpt: 'b' },
+            { path: 'c.md', namespace: 'projects', score: 0.20, hits: 1, excerpt: 'c' },
+          ],
+          count: 3,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--paths-only', '-t', '0.5']);
+    // Only a.md clears 0.5; the pipeline-friendly contract is
+    // honoured (no header, no ANSI, no "no related sources" hint).
+    expect(stdout.join('')).toBe('a.md\n');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--threshold with a non-numeric value is silently ignored (mirrors search --threshold)', async () => {
+    // `--threshold $MAYBE` in a shell script with an empty env var
+    // would forward "" here. The contract is "no filter" so the
+    // command stays useful when the variable is unset.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 2,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.91, hits: 3, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.10, hits: 1, excerpt: 'b' },
+          ],
+          count: 2,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--threshold', '']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    // Both items kept; the empty value is treated as "no filter".
+    expect(parsed.items).toHaveLength(2);
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--threshold above every score yields an empty subset (json: items=[], count=0; text: "no related sources" hint)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 2,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.50, hits: 1, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.30, hits: 1, excerpt: 'b' },
+          ],
+          count: 2,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--threshold', '0.99']);
+    const parsed = JSON.parse(stdout.join('')) as { items: unknown[]; count: number };
+    expect(parsed.items).toEqual([]);
+    expect(parsed.count).toBe(0);
+  });
 });

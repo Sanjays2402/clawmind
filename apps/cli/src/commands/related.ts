@@ -11,11 +11,12 @@ export function relatedCommand() {
     .argument('<path>', 'indexed source path to find neighbours for')
     .option('-k, --k <n>', 'how many related sources to return', (v) => parseInt(v, 10), 8)
     .option('-n, --namespaces <list>', 'comma-separated namespaces to restrict to')
+    .option('-t, --threshold <n>', 'drop neighbours with score strictly below this value (0..1 typical). Mirrors `search --threshold` semantics: a missing or non-numeric value is silently treated as "no filter" so `--threshold $MAYBE` in a shell script does not break when the env var is empty. The filter applies BEFORE --paths-only / --json / text rendering so every output mode sees the same subset, and the `count` in --json reflects the filtered length.')
     .option('--paths-only', 'pipeline-friendly: emit ONLY the neighbour paths, one per line, in rank order. No styling, no header, no "no related sources" hint. Zero matches yields a clean empty stream so xargs/wc keep working. Mirrors the contract used by search --paths-only, forget --paths-only, and the pins/mutes/aliases/tags --paths family.')
     .option('--json', 'emit results as JSON for scripting')
     .description('Find sources semantically similar to a given indexed path');
 
-  cmd.action(async (path: string, opts: { k: number; namespaces?: string; pathsOnly?: boolean; json?: boolean }) => {
+  cmd.action(async (path: string, opts: { k: number; namespaces?: string; threshold?: string; pathsOnly?: boolean; json?: boolean }) => {
     const env = loadEnv();
     const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
     const url = new URL(`${base}/v1/related`);
@@ -46,12 +47,35 @@ export function relatedCommand() {
       process.exitCode = 1;
       return;
     }
-    const out = (await res.json()) as {
+    const raw = (await res.json()) as {
       path: string;
       sourceChunkCount: number;
       items: { path: string; namespace: string; score: number; hits: number; excerpt: string }[];
       count: number;
     };
+    // --threshold is a post-retrieval client-side filter. We apply it
+    // BEFORE the --paths-only / --json / text branches so every output
+    // mode sees the same filtered subset and the `count` in --json
+    // reflects the kept items (not the API-returned total). Semantics
+    // mirror `search --threshold` exactly:
+    //   - missing flag => no filter (default behaviour preserved)
+    //   - non-numeric value (`--threshold $MAYBE` with empty env var)
+    //     is silently ignored rather than thrown so shell scripts that
+    //     conditionally set the var do not break
+    //   - score >= minScore is kept (inclusive lower bound, same as
+    //     `search --threshold`)
+    // The API does not currently accept a `minScore` query parameter,
+    // so doing this client-side is the only way to expose the knob
+    // without an API change. The `sourceChunkCount` field is preserved
+    // verbatim from the response so an operator still sees how many
+    // chunks the source actually contributed to retrieval — that count
+    // is not narrowed by the filter (it is a property of the source,
+    // not of the returned set).
+    const minScore = opts.threshold !== undefined ? Number.parseFloat(opts.threshold) : NaN;
+    const filteredItems = Number.isFinite(minScore)
+      ? raw.items.filter((it) => it.score >= minScore)
+      : raw.items;
+    const out = { ...raw, items: filteredItems, count: filteredItems.length };
     // --paths-only is the pipeline-friendly twin of search --paths-only
     // / forget --paths-only / pins-mutes-aliases-tags --paths. We emit
     // one path per line in rank order (the API already returns items
