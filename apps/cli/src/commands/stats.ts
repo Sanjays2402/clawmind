@@ -86,7 +86,8 @@ export function statsCommand() {
     .option('--paths', 'pipeline-friendly: emit ONLY the per-namespace `extensions[*].ext` flat list, one extension per line, in API order. Answers "which file types live in this namespace" without --json + jq. Composes with -q (filter by namespace name first) and --top (cap each namespace contribution before emit) for "the top 3 extensions in namespaces matching `mem`". Zero matches yields a clean empty stream so xargs/wc keep working. Wins over --json / --tsv / text when set (short-circuits the contract is unambiguous).')
     .option('--json', 'emit machine-readable JSON instead of a text table')
     .option('--compact', 'with --json: emit a single-line JSON document (no indentation) for easier diffing across cron snapshots. Ignored without --json.')
-    .action(async (opts: { json?: boolean; tsv?: boolean; paths?: boolean; query?: string; top: string; sort: string; since?: string; compact?: boolean }) => {
+    .option('--slim', 'with --json: emit a slimmed `{stale: [<namespace>], total: N}` shape carrying only the names of namespaces in the report instead of the full per-namespace metric blocks. The classic cron use is `clawmind stats --json --slim --since <iso>` to answer "which namespaces have gone stale at the namespace level" without piping the full report through `jq` for the namespace names. The `stale` key is the name (the operator already asked the question — they want a clean array of strings, not nested objects). `total` is the length of `stale` so a downstream `jq .total` can branch on emptiness without inspecting the array. Without --since the payload is "all namespaces matching the other filters", which is still a useful cron-snapshot shape (it tracks namespace presence over time). Ignored without --json. Wins over --compact when both are set because --slim already implies single-line output.')
+    .action(async (opts: { json?: boolean; tsv?: boolean; paths?: boolean; query?: string; top: string; sort: string; since?: string; compact?: boolean; slim?: boolean }) => {
       await runOrReport('stats', async () => {
         let report = (await apiFetch('GET', '/v1/stats')) as StatsReport;
         if (opts.query) {
@@ -204,6 +205,29 @@ export function statsCommand() {
           return;
         }
         if (opts.json) {
+          // --slim emits a `{stale: [<namespace>], total: N}` shape
+          // — just the namespace names that survived every prior
+          // filter (-q, --since, etc.), plus a total for easy
+          // `jq .total > 0` branching. The classic cron use is
+          // `clawmind stats --json --slim --since <iso>` to answer
+          // "which namespaces have gone stale at the namespace
+          // level" without piping the full report through `jq` for
+          // the namespace names. The key is `stale` because the
+          // operator running this filter pair is asking the
+          // staleness question — the array is a "needs attention"
+          // list. Without --since the same payload is just "all
+          // namespaces matching the other filters" which is still a
+          // useful cron-snapshot shape (it tracks namespace
+          // presence over time). --slim wins over --compact when
+          // both are passed because --slim already implies a
+          // single-line single-pass shape; no further pretty/compact
+          // toggling matters. We keep total === stale.length so a
+          // downstream consumer never has to reconcile the two.
+          if (opts.slim) {
+            const stale = report.byNamespace.map((n) => n.namespace);
+            process.stdout.write(JSON.stringify({ stale, total: stale.length }) + '\n');
+            return;
+          }
           // --compact swaps the pretty-printed (indent=2) document for a
           // single-line JSON document. This is the right shape for
           // `clawmind stats --json --compact > stats.ndjson` scripts

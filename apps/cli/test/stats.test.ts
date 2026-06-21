@@ -517,3 +517,120 @@ describe('stats cli error handling', () => {
     expect(out).toContain('plain text error');
   });
 });
+
+describe('stats cli --slim', () => {
+  // --slim is a JSON-only shape switch: instead of the full
+  // per-namespace metric blocks, emit a tight
+  // `{stale: [<namespace>], total: N}` payload. The classic cron
+  // use is `clawmind stats --json --slim --since <iso>` to answer
+  // "which namespaces have gone stale at the namespace level"
+  // without piping the full report through `jq` for the names.
+  let originalFetch: typeof globalThis.fetch;
+  let captured: string[];
+  let originalWrite: typeof process.stdout.write;
+  beforeEach(() => {
+    captured = [];
+    originalFetch = globalThis.fetch;
+    originalWrite = process.stdout.write.bind(process.stdout);
+    process.stdout.write = ((c: string) => { captured.push(String(c)); return true; }) as never;
+    globalThis.fetch = (async () => new Response(JSON.stringify(sampleReport), { status: 200 })) as never;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    process.stdout.write = originalWrite;
+  });
+
+  it('emits {stale, total} carrying just the namespace names from byNamespace', async () => {
+    // The sample report has three namespaces: memory, sessions,
+    // projects. --slim should pluck just the names and report the
+    // length as total.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.stale).toEqual(['memory', 'sessions', 'projects']);
+    expect(out.total).toBe(3);
+    // Critically the slim payload does NOT carry the per-namespace
+    // metric blocks — that is the entire point of the flag.
+    expect(out.byNamespace).toBeUndefined();
+    expect(out.totals).toBeUndefined();
+    expect(out.generatedAt).toBeUndefined();
+  });
+
+  it('emits a single-line JSON document (no indentation) so cron snapshots diff cleanly', async () => {
+    // Cron pipelines append slim snapshots over time; each row must
+    // be a single line so `diff`/`comm`/line-oriented tools work.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim']);
+    const raw = captured.join('');
+    expect(raw.endsWith('\n')).toBe(true);
+    // Exactly one newline at the very end — no internal newlines.
+    expect(raw.slice(0, -1)).not.toContain('\n');
+  });
+
+  it('total === stale.length (invariant the slim contract pins)', async () => {
+    // A downstream consumer must never have to reconcile the two —
+    // total is the length of stale, end of story. We exercise it
+    // both with the default report and with a -q-narrowed report.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '-q', 'mem']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.stale).toEqual(['memory']);
+    expect(out.total).toBe(out.stale.length);
+    expect(out.total).toBe(1);
+  });
+
+  it('emits a clean {stale: [], total: 0} payload when no namespaces survive (jq .total branches on emptiness)', async () => {
+    // The branching contract a cron pipeline relies on:
+    //   `clawmind stats --json --slim --since X | jq -e '.total > 0'`
+    // must produce a clean zero-total payload when nothing is
+    // stale, not an empty array with the rest of the report shape
+    // still attached. Pair with -q nope so we know the filter is
+    // what eliminated everything (the underlying sample has 3).
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '-q', 'nope']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.stale).toEqual([]);
+    expect(out.total).toBe(0);
+  });
+
+  it('composes with --since (intersection: -q + --since narrow first, then slim emits the survivors)', async () => {
+    // The natural cron pair. We supply a sample where some
+    // namespaces have a real newestIngestedAt and some are null,
+    // and assert the slim output reflects the post-filter survivors
+    // (memory: null kept; sessions: 2025-12-31 kept; projects:
+    // 2026-02-01 dropped).
+    const payload = {
+      totals: { files: 30, chunks: 300, bytes: 30_000, namespaces: 3 },
+      byNamespace: [
+        { namespace: 'memory', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'sessions', files: 5, chunks: 50, bytes: 5_000, oldestIngestedAt: null, newestIngestedAt: Date.parse('2025-12-31T00:00:00Z'), extensions: [] },
+        { namespace: 'projects', files: 15, chunks: 150, bytes: 15_000, oldestIngestedAt: null, newestIngestedAt: Date.parse('2026-02-01T00:00:00Z'), extensions: [] },
+      ],
+      generatedAt: 0,
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--since', '2026-01-01']);
+    const out = JSON.parse(captured.join(''));
+    // memory (null) and sessions (Dec 2025) kept; projects (Feb 2026) dropped.
+    expect(out.stale).toEqual(['memory', 'sessions']);
+    expect(out.total).toBe(2);
+  });
+
+  it('--slim wins when both --slim and --compact are passed (slim already implies single-line output)', async () => {
+    // Both flags ask for the JSON-on-one-line shape; --slim is the
+    // stricter contract (it also reshapes the payload), so the slim
+    // path wins. The output must be the slim shape, not the
+    // compact-full-report shape.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--compact']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.stale).toEqual(['memory', 'sessions', 'projects']);
+    // No byNamespace block leaked through from the --compact path.
+    expect(out.byNamespace).toBeUndefined();
+  });
+
+  it('--slim without --json is ignored (text mode still renders the table)', async () => {
+    // --slim is a JSON-only contract. Used without --json it must
+    // not break anything — text mode still emits the table.
+    await statsCommand().parseAsync(['node', 'cli', '--slim']);
+    const text = captured.join('');
+    // Header line still emitted; --slim was a no-op in text mode.
+    expect(text).toContain('files,');
+    expect(text).toContain('namespaces');
+  });
+});
