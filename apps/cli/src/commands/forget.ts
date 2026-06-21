@@ -61,11 +61,45 @@ export function forgetCommand() {
     .option('--apply', 'actually delete the matches; default is a dry-run preview')
     .option('--quiet', 'do not list every matched path')
     .option('--paths-only', 'emit only the matched paths, one per line, for piping into other commands')
+    .option('--confirm <n>', 'safety tripwire: with --apply, refuse to run unless the dry-run match count exactly equals N. Prevents an unintended `clawmind forget /tmp/foo --apply` from wiping the whole index when the glob accidentally matches everything. Specify the expected number of sources; supply -1 to allow any (explicit opt-out).')
     .option('--json', 'emit the forget report as JSON for scripting')
-    .action(async (patterns: string[], opts: { apply?: boolean; quiet?: boolean; pathsOnly?: boolean; json?: boolean }) => {
+    .action(async (patterns: string[], opts: { apply?: boolean; quiet?: boolean; pathsOnly?: boolean; confirm?: string; json?: boolean }) => {
       await runOrReport('forget', async () => {
         const dryRun = !opts.apply;
-        const report = await callForget(patterns, dryRun);
+        // --confirm is only meaningful with --apply (a dry-run is
+        // already safe). When set, we do a dry-run FIRST regardless of
+        // what the operator asked for, compare the match count to the
+        // declared expectation, and only proceed to the apply call if
+        // the numbers agree. The "-1" sentinel means "any count is
+        // fine" — that is the explicit opt-out for cases where the
+        // operator wants to script forget across an unknown-size
+        // result set but still benefits from the validation that
+        // --confirm was passed at all (catches typo'd flags). The
+        // sentinel matches the convention used elsewhere in the cli
+        // where -1 means "no limit".
+        let report: ForgetReport;
+        if (opts.apply && opts.confirm !== undefined) {
+          const expected = Number.parseInt(opts.confirm, 10);
+          if (!Number.isFinite(expected)) {
+            throw new ForgetCliError(`--confirm value "${opts.confirm}" is not a number`);
+          }
+          // Probe with a dry-run first so we know the real match count
+          // without touching the store.
+          const preview = await callForget(patterns, true);
+          if (expected !== -1 && preview.matched !== expected) {
+            // Refuse loudly. The error explicitly tells the operator
+            // BOTH numbers so they can re-run with the right value or
+            // refine the glob. We do NOT proceed with the apply.
+            throw new ForgetCliError(
+              `--confirm ${expected} does not match actual count ${preview.matched}; ` +
+              `re-run with --confirm ${preview.matched} (or --confirm -1 to bypass) if this is correct`,
+            );
+          }
+          // Numbers agree (or operator passed -1): now actually apply.
+          report = await callForget(patterns, false);
+        } else {
+          report = await callForget(patterns, dryRun);
+        }
 
         if (opts.json) {
           process.stdout.write(
