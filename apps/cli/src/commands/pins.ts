@@ -82,15 +82,45 @@ export function pinsCommand() {
   cmd.command('list')
     .description('List currently pinned sources, newest first')
     .option('-q, --q <text>', 'case-insensitive substring filter across path and note')
+    .option('--since <iso-date>', 'keep only pins whose pinnedAt is at-or-after this ISO date. The natural cron use is a daily snapshot of "what got pinned in the last 24h" without scrolling through every entry: `clawmind pins list --since "$(date -u -d \'1 day ago\' +%FT%TZ)" --paths`. Composes with -q (intersection: pin must both match the substring AND be recent enough). Cutoff is INCLUSIVE (>=) so a pin created exactly at the cutoff is kept — matches the existing --since semantics on stale / stats / digest show. Parse failures abort cleanly with exit code 1.')
     .option('--paths', 'emit only the pinned paths, one per line, with no styling or notes (pipe-friendly)')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; paths?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; paths?: boolean; json?: boolean }) => {
       await runOrReport('pins list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
-        const out = (await apiFetch('GET', `/v1/pins${qs}`)) as {
+        let out = (await apiFetch('GET', `/v1/pins${qs}`)) as {
           items: { path: string; note?: string; pinnedAt: number; pinnedBy: string }[];
           count: number;
         };
+        // --since <iso-date> is a client-side post-filter on
+        // pinnedAt. The /v1/pins endpoint already returns items
+        // newest-first (sorted by pinnedAt descending) so the
+        // filter just slices the suffix off — but doing it
+        // client-side is the right shape because the API does not
+        // currently accept a `since` parameter and exposing the
+        // dial on the cli avoids an API change for a presentational
+        // narrowing.
+        //
+        // Cutoff is INCLUSIVE (>=) so a pin created at exactly the
+        // cutoff timestamp is KEPT — matches the existing --since
+        // semantics on stale / stats / digest show. Parse failures
+        // abort with exit code 1 via the standard PinsCliError
+        // path so a typo cannot silently degrade to "no filter"
+        // (which would defeat the cron use of "show me only the
+        // recent pins" — falling back to the full list is the
+        // exact wrong answer).
+        //
+        // Filter applies BEFORE --paths / --json / text rendering
+        // so every output mode sees the same subset and the
+        // recomputed count below reflects the filtered length.
+        if (opts.since) {
+          const cutoff = Date.parse(opts.since);
+          if (!Number.isFinite(cutoff)) {
+            throw new PinsCliError(`--since value "${opts.since}" is not a valid ISO date`);
+          }
+          const items = out.items.filter((it) => it.pinnedAt >= cutoff);
+          out = { ...out, items, count: items.length };
+        }
         if (opts.json) {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
           return;

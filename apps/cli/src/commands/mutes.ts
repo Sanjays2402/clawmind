@@ -82,15 +82,36 @@ export function mutesCommand() {
   cmd.command('list')
     .description('List currently muted sources, newest first')
     .option('-q, --q <text>', 'case-insensitive substring filter across path and reason')
+    .option('--since <iso-date>', 'keep only mutes whose mutedAt is at-or-after this ISO date. Mirrors `pins list --since` byte-for-byte (cron snapshot of "what got muted in the last 24h"). Composes with -q as an intersection. Cutoff is INCLUSIVE (>=). Parse failures abort cleanly with exit code 1.')
     .option('--paths', 'emit only the muted paths, one per line, with no styling or reasons (pipe-friendly)')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; paths?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; paths?: boolean; json?: boolean }) => {
       await runOrReport('mutes list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
-        const out = (await apiFetch('GET', `/v1/mutes${qs}`)) as {
+        let out = (await apiFetch('GET', `/v1/mutes${qs}`)) as {
           items: { path: string; reason?: string; mutedAt: number; mutedBy: string }[];
           count: number;
         };
+        // --since <iso-date> is a client-side post-filter on
+        // mutedAt. Same shape as `pins list --since` — the API
+        // returns items newest-first sorted by mutedAt, so the
+        // filter just slices the suffix off. Cutoff INCLUSIVE
+        // (>=); parse failures throw a MutesCliError that the
+        // standard error path surfaces with exit code 1; filter
+        // applies BEFORE --paths / --json / text rendering so
+        // every output mode sees the same filtered subset and
+        // the recomputed count reflects the filtered length.
+        // The symmetry with `pins list --since` is intentional —
+        // a cron operator scripting daily snapshots wants the
+        // same flag on both sides of the pin/mute pair.
+        if (opts.since) {
+          const cutoff = Date.parse(opts.since);
+          if (!Number.isFinite(cutoff)) {
+            throw new MutesCliError(`--since value "${opts.since}" is not a valid ISO date`);
+          }
+          const items = out.items.filter((it) => it.mutedAt >= cutoff);
+          out = { ...out, items, count: items.length };
+        }
         if (opts.json) {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
           return;
