@@ -386,6 +386,75 @@ describe('stats cli', () => {
     expect(err).toContain('stats failed: --since value "banana" is not a valid ISO date');
     process.exitCode = 0;
   });
+
+  it('--paths emits per-namespace extensions one per line in API order with no styling or header', async () => {
+    // sampleReport: memory has 6 exts (but --top defaults to 4 so we
+    // see md, txt, json, yaml), sessions has 1 (json), projects has
+    // 1 (ts). The walk is namespace order (memory, sessions,
+    // projects), then ext order per namespace.
+    await statsCommand().parseAsync(['node', 'cli', '--paths']);
+    const out = captured.join('');
+    expect(out).toBe('md\ntxt\njson\nyaml\njson\nts\n');
+    // No ANSI, no banner ("30 files, 300 chunks ..."), no namespace
+    // labels — just the bare extensions.
+    expect(out).not.toMatch(/\x1b\[/);
+    expect(out).not.toContain('30 files');
+    expect(out).not.toContain('memory');
+  });
+
+  it('--paths composes with -q (filter by namespace name first, then walk extensions)', async () => {
+    // -q "mem" matches only the memory namespace, which has 4 ext
+    // rows after the default --top=4 cap.
+    await statsCommand().parseAsync(['node', 'cli', '--paths', '-q', 'mem']);
+    expect(captured.join('')).toBe('md\ntxt\njson\nyaml\n');
+  });
+
+  it('--paths composes with --top (cap each namespace contribution before emit)', async () => {
+    // --top 1 keeps the single dominant ext per namespace; the
+    // composite stream becomes md / json / ts (the highest count in
+    // each of memory, sessions, projects respectively).
+    await statsCommand().parseAsync(['node', 'cli', '--paths', '--top', '1']);
+    expect(captured.join('')).toBe('md\njson\nts\n');
+  });
+
+  it('--paths surfaces duplicate extensions across namespaces (no implicit dedupe)', async () => {
+    // Both `memory` and `sessions` have a json extension in the
+    // sample. --paths must emit `json` twice so a downstream
+    // `grep -c json` counts the namespaces that contain that type.
+    // (`sort -u` is left to the consumer if they want the unique
+    // set.)
+    await statsCommand().parseAsync(['node', 'cli', '--paths']);
+    const lines = captured.join('').trim().split('\n');
+    const jsonCount = lines.filter((l) => l === 'json').length;
+    expect(jsonCount).toBe(2);
+  });
+
+  it('--paths with -q matching nothing yields a clean empty stream (no header, no ANSI)', async () => {
+    // The contract mirrors --paths-only on the other commands: zero
+    // matches means an empty stdout AND an empty stderr so `xargs`,
+    // `wc -l`, etc. work without conditional skips.
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await statsCommand().parseAsync(['node', 'cli', '--paths', '-q', 'nope']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(captured.join('')).toBe('');
+    expect(stderrBuf.join('')).toBe('');
+  });
+
+  it('--paths short-circuits --json and --tsv (the pipeline-friendly contract wins when set)', async () => {
+    // --paths takes precedence so an accidental combination still
+    // yields the bare extension stream, not a JSON document or a
+    // TSV table.
+    await statsCommand().parseAsync(['node', 'cli', '--paths', '--json']);
+    const out = captured.join('');
+    expect(out).toBe('md\ntxt\njson\nyaml\njson\nts\n');
+    expect(out.trim().startsWith('{')).toBe(false);
+    expect(out.trim().startsWith('[')).toBe(false);
+  });
 });
 
 describe('stats cli error handling', () => {

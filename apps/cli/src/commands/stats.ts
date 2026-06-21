@@ -83,9 +83,10 @@ export function statsCommand() {
     .option('--sort <key>', 'sort namespaces descending by one of: files, chunks, bytes, namespace (default: namespace)', 'namespace')
     .option('--since <iso-date>', 'keep only namespaces whose newestIngestedAt is older than this ISO date (i.e. have not been re-ingested since the cutoff). Useful for finding namespaces that have gone stale at the namespace level — complements `stale` which works at the per-file level. Namespaces with newestIngestedAt=null (never indexed) are KEPT because they are trivially older than any cutoff. The recomputed totals reflect the filtered subset so a downstream "stale namespaces dominate X bytes" report still adds up.')
     .option('--tsv', 'emit tab-separated rows (namespace<TAB>files<TAB>chunks<TAB>bytes<TAB>newestIngestedAt) for awk/cut pipelines')
+    .option('--paths', 'pipeline-friendly: emit ONLY the per-namespace `extensions[*].ext` flat list, one extension per line, in API order. Answers "which file types live in this namespace" without --json + jq. Composes with -q (filter by namespace name first) and --top (cap each namespace contribution before emit) for "the top 3 extensions in namespaces matching `mem`". Zero matches yields a clean empty stream so xargs/wc keep working. Wins over --json / --tsv / text when set (short-circuits the contract is unambiguous).')
     .option('--json', 'emit machine-readable JSON instead of a text table')
     .option('--compact', 'with --json: emit a single-line JSON document (no indentation) for easier diffing across cron snapshots. Ignored without --json.')
-    .action(async (opts: { json?: boolean; tsv?: boolean; query?: string; top: string; sort: string; since?: string; compact?: boolean }) => {
+    .action(async (opts: { json?: boolean; tsv?: boolean; paths?: boolean; query?: string; top: string; sort: string; since?: string; compact?: boolean }) => {
       await runOrReport('stats', async () => {
         let report = (await apiFetch('GET', '/v1/stats')) as StatsReport;
         if (opts.query) {
@@ -168,6 +169,39 @@ export function statsCommand() {
           report = { ...report, byNamespace: sorted };
         } else if (sortKey !== 'namespace') {
           throw new StatsCliError(`unknown --sort key "${opts.sort}" (expected: files, chunks, bytes, namespace)`);
+        }
+        // --paths is the pipeline-friendly flat-extension stream. It
+        // emits ONLY the per-namespace `extensions[*].ext` field, one
+        // ext per line, walked in API order (namespace order from the
+        // server, then extension order from the server's per-namespace
+        // ranking). It answers "which file types live in this
+        // namespace" without --json + jq. The natural call sites:
+        //
+        //   clawmind stats --paths -q memory          # exts in `memory` namespace
+        //   clawmind stats --paths --top 1            # the dominant ext per namespace
+        //   clawmind stats --paths -q mem --top 3     # top 3 in matching namespaces
+        //
+        // All prior filters (-q, --since, --top, --sort) have already
+        // narrowed `report` above, so we just walk what is left. Zero
+        // matches yields a clean empty stream — no header, no "no
+        // namespaces" hint, no ANSI — so downstream `sort -u`,
+        // `xargs`, `wc -l` keep working without conditional skips.
+        // We do NOT dedupe across namespaces: two namespaces with the
+        // same `.md` extension surface `md` twice. A consumer that
+        // wants the unique set can `| sort -u`; surfacing duplicates
+        // by default is the only way to count "which namespaces
+        // contain md files" via `clawmind stats --paths | grep -c md`.
+        // --paths is checked BEFORE --json/--tsv/text so the contract
+        // is unambiguous: pipeline-friendly trumps pretty output, the
+        // same precedent set by `search --paths-only` short-circuiting
+        // `--json`.
+        if (opts.paths) {
+          for (const ns of report.byNamespace) {
+            for (const e of ns.extensions) {
+              process.stdout.write(`${e.ext}\n`);
+            }
+          }
+          return;
         }
         if (opts.json) {
           // --compact swaps the pretty-printed (indent=2) document for a
