@@ -128,3 +128,106 @@ describe('watch cli --debounce', () => {
     expect(lastWatcherOpts?.debounceMs).toBe(3000);
   });
 });
+
+describe('watch cli startup banner', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    lastWatcherOpts = null;
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('emits an NDJSON banner to stderr in text mode', async () => {
+    // The text-mode startup line ("Watching /tmp/r") still goes to
+    // stdout for the operator; the banner is the parallel
+    // log-scrape signal on stderr.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    const errLines = stderr.join('').trim().split('\n');
+    // One line on stderr — the banner — exactly one JSON document
+    // with kind=banner.
+    expect(errLines).toHaveLength(1);
+    const parsed = JSON.parse(errLines[0]!);
+    expect(parsed.kind).toBe('banner');
+    expect(parsed.root).toBe('/tmp/r');
+    expect(typeof parsed.ts).toBe('string');
+    // Sanity: the ts is a parseable ISO date.
+    expect(Number.isFinite(Date.parse(parsed.ts))).toBe(true);
+    // The text-mode operator line stays on stdout — not stderr.
+    expect(stdout.join('')).toContain('Watching /tmp/r');
+  });
+
+  it('emits the banner to stderr in --json mode too (so log scrapers see restarts regardless of stdout format)', async () => {
+    // --json mode dumps the "watching" event to stdout as NDJSON.
+    // The banner must STILL fire on stderr so a stderr-tailing
+    // scraper detects restarts without having to parse the
+    // (potentially noisy) stdout NDJSON stream.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--json']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    const errLines = stderr.join('').trim().split('\n');
+    expect(errLines).toHaveLength(1);
+    const banner = JSON.parse(errLines[0]!);
+    expect(banner.kind).toBe('banner');
+    expect(banner.root).toBe('/tmp/r');
+    // Stdout still carries the existing "watching" event (separate
+    // shape, kind=watching, NOT kind=banner).
+    const stdoutLine = stdout.join('').trim();
+    const stdoutParsed = JSON.parse(stdoutLine);
+    expect(stdoutParsed.kind).toBe('watching');
+  });
+
+  it('banner is a single complete line (trailing newline, no internal newlines, parseable JSON)', async () => {
+    // The line-oriented contract: exactly one '\n' at the end,
+    // nothing else. A scraper splitting on '\n' must get one row
+    // per banner — never a partial line.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    const err = stderr.join('');
+    // Exactly one newline at the end.
+    expect(err.endsWith('\n')).toBe(true);
+    // Strip the trailing newline; nothing internal.
+    expect(err.slice(0, -1)).not.toContain('\n');
+    // The body parses cleanly.
+    expect(() => JSON.parse(err.trim())).not.toThrow();
+  });
+
+  it('banner does NOT fire on the --debounce validation error path (no half-started process to mark)', async () => {
+    // A misconfigured invocation should not pollute the journal
+    // with a banner event — there is no actual process to
+    // correlate the restart marker against, the command just
+    // exits non-zero before the runtime even spins up.
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--debounce', '0']);
+    expect(process.exitCode).toBe(1);
+    // The only stderr writes here are the validation error line —
+    // no banner JSON document should be present.
+    expect(stderr.join('')).not.toContain('"kind":"banner"');
+  });
+
+  it('banner respects an absolute root argument (uses the resolved target, not the raw argv)', async () => {
+    // expand() is mocked to be identity, but the contract we test
+    // here is that the banner carries the SAME resolved root that
+    // was used to start the watcher — so a log correlator sees
+    // the same path in both the banner and the per-file events.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/some/abs/path']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    const banner = JSON.parse(stderr.join('').trim());
+    expect(banner.root).toBe('/some/abs/path');
+    expect(lastWatcherOpts?.root).toBe('/some/abs/path');
+  });
+});

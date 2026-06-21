@@ -26,6 +26,29 @@ export function watchCommand() {
       }
       const rt = await buildRuntime();
       const target = root ? expand(root) : rt.workspace;
+      // A one-line startup banner to stderr — separate from the
+      // operator-facing "Watching <root>" stdout line — so a log
+      // scraper consuming stdout (and discarding it because the live
+      // events are noisy) can still detect a process restart by
+      // tailing stderr alone. Crucial properties:
+      //   - the banner is NDJSON shape with kind=banner so an
+      //     stderr-tailing parser sees the same event-stream shape
+      //     it sees on stdout for the per-file events; a script
+      //     watching for restarts can just `grep '"kind":"banner"'`
+      //   - it carries the resolved root and ISO ts so a log
+      //     correlator knows which watcher restarted and when
+      //   - it fires UNCONDITIONALLY (text mode AND --json mode)
+      //     because the use-case is "scrape the journal for restart
+      //     markers" which has to work regardless of the stdout
+      //     format the operator chose
+      //   - it goes to stderr explicitly so it does not pollute the
+      //     stdout NDJSON stream that --json mode emits (mixing the
+      //     banner into stdout would force every --json consumer to
+      //     special-case kind=banner; keeping it on stderr means
+      //     existing consumers do not have to change)
+      process.stderr.write(
+        JSON.stringify({ kind: 'banner', root: target, ts: new Date().toISOString() }) + '\n',
+      );
       if (opts.json) {
         process.stdout.write(
           JSON.stringify({ kind: 'watching', root: target, ts: new Date().toISOString() }) + '\n',
