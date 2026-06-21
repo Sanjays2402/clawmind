@@ -220,3 +220,147 @@ describe('ingest cli --since', () => {
     expect(out.chunks).toBe(10);
   });
 });
+
+describe('ingest cli --dry-run', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    lastDiscoverArg = null;
+    lastIngestPathsArg = null;
+    lastIngestRootArg = null;
+    mockDiscovered = [];
+    mockMtimes = {};
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes --dry-run and --paths-only on the command surface', () => {
+    const flags = ingestCommand().options.map((o) => o.long);
+    expect(flags).toContain('--dry-run');
+    expect(flags).toContain('--paths-only');
+  });
+
+  it('--dry-run text mode emits the count header and gray path list (matches reindex --dry-run UX)', async () => {
+    mockDiscovered = ['/tmp/workspace/a.md', '/tmp/workspace/b.ts'];
+    await ingestCommand().parseAsync(['node', 'cli', '--dry-run']);
+    const out = stdout.join('');
+    expect(out).toContain('would ingest 2 file(s) under /tmp/workspace');
+    expect(out).toContain('/tmp/workspace/a.md');
+    expect(out).toContain('/tmp/workspace/b.ts');
+    // Rerun nudge so the operator knows the next step.
+    expect(out).toContain('rerun without --dry-run');
+    // Critically: neither ingest helper was called — the dry-run
+    // path short-circuits before any I/O.
+    expect(lastIngestPathsArg).toBeNull();
+    expect(lastIngestRootArg).toBeNull();
+  });
+
+  it('--dry-run --paths-only emits exactly one path per line (xargs-safe, no header, no ANSI)', async () => {
+    mockDiscovered = ['/tmp/workspace/a.md', '/tmp/workspace/b.ts'];
+    await ingestCommand().parseAsync(['node', 'cli', '--dry-run', '--paths-only']);
+    const out = stdout.join('');
+    expect(out).toBe('/tmp/workspace/a.md\n/tmp/workspace/b.ts\n');
+    expect(out).not.toMatch(/\x1b\[/);
+    expect(out).not.toContain('would ingest');
+    expect(out).not.toContain('rerun without --dry-run');
+  });
+
+  it('--dry-run --json emits {root, count, files} with the discovered list', async () => {
+    mockDiscovered = ['/tmp/workspace/a.md', '/tmp/workspace/b.ts', '/tmp/workspace/c.json'];
+    await ingestCommand().parseAsync(['node', 'cli', '--dry-run', '--json']);
+    const out = JSON.parse(stdout.join(''));
+    expect(out.root).toBe('/tmp/workspace');
+    expect(out.count).toBe(3);
+    expect(out.files).toEqual([
+      '/tmp/workspace/a.md',
+      '/tmp/workspace/b.ts',
+      '/tmp/workspace/c.json',
+    ]);
+  });
+
+  it('--dry-run composes with --since (preview the same set the live --since refresh would touch)', async () => {
+    // This is the critical cron contract: a preview of an
+    // incremental refresh has to show the incremental file set,
+    // not the full discovery walk. We anchor the cutoff so old.md
+    // gets dropped client-side and the dry-run prints only the
+    // surviving file.
+    mockDiscovered = ['/tmp/workspace/new.md', '/tmp/workspace/old.md'];
+    mockMtimes = {
+      '/tmp/workspace/new.md': Date.parse('2026-06-15T00:00:00Z'),
+      '/tmp/workspace/old.md': Date.parse('2026-05-01T00:00:00Z'),
+    };
+    await ingestCommand().parseAsync(['node', 'cli', '--dry-run', '--paths-only', '--since', '2026-06-01T00:00:00Z']);
+    expect(stdout.join('')).toBe('/tmp/workspace/new.md\n');
+    // The live ingest helpers must NOT have been called — dry-run
+    // is read-only.
+    expect(lastIngestPathsArg).toBeNull();
+    expect(lastIngestRootArg).toBeNull();
+  });
+
+  it('--dry-run with zero discovered files yields the count-zero header AND no rerun nudge', async () => {
+    mockDiscovered = [];
+    await ingestCommand().parseAsync(['node', 'cli', '--dry-run']);
+    const out = stdout.join('');
+    expect(out).toContain('would ingest 0 file(s) under /tmp/workspace');
+    // No rerun nudge — there is nothing to rerun, and offering one
+    // would imply the empty set was a problem the operator can fix.
+    expect(out).not.toContain('rerun without --dry-run');
+  });
+
+  it('--dry-run --paths-only with zero files yields a clean empty stream (xargs-safe)', async () => {
+    mockDiscovered = [];
+    await ingestCommand().parseAsync(['node', 'cli', '--dry-run', '--paths-only']);
+    // Mirrors the reindex --dry-run --paths-only contract: empty
+    // stream so `clawmind ingest --dry-run --paths-only | xargs ls`
+    // does not poison ls.
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--dry-run --paths-only wins over --json when both are set (mirrors reindex precedence)', async () => {
+    // Same precedent as search --paths-only / reindex --paths-only:
+    // pipeline-friendly trumps pretty output.
+    mockDiscovered = ['/tmp/workspace/a.md', '/tmp/workspace/b.ts'];
+    await ingestCommand().parseAsync(['node', 'cli', '--dry-run', '--paths-only', '--json']);
+    expect(stdout.join('')).toBe('/tmp/workspace/a.md\n/tmp/workspace/b.ts\n');
+  });
+
+  it('--dry-run honours --since invalid date (aborts with the standard --since error, no dry-run output)', async () => {
+    // The --since validation fires BEFORE the dry-run branch so a
+    // typo still kills the run cleanly. This means the dry-run
+    // path inherits the same "no silent degrade" property the
+    // live --since path has — if the cutoff is wrong, the preview
+    // never runs at all.
+    mockDiscovered = ['/tmp/workspace/a.md'];
+    await ingestCommand().parseAsync(['node', 'cli', '--dry-run', '--since', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('ingest failed: --since value "banana" is not a valid ISO date');
+    // Critically: the dry-run header should NOT have printed. The
+    // error is the only thing the operator sees.
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('without --dry-run, --paths-only is ignored (live ingest runs as normal)', async () => {
+    // The --paths-only flag only makes sense paired with --dry-run.
+    // Without --dry-run the live ingest helpers run and the regular
+    // report is emitted. We assert ingestRoot got called (the
+    // no-flag path) and that --paths-only did NOT silently
+    // short-circuit the run.
+    mockDiscovered = ['/tmp/workspace/a.md'];
+    await ingestCommand().parseAsync(['node', 'cli', '--paths-only', '--json']);
+    expect(lastIngestRootArg).toBe('/tmp/workspace');
+    const out = JSON.parse(stdout.join(''));
+    expect(out.processed).toBe(1);
+  });
+});
