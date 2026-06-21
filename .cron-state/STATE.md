@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-21 07:05 PDT (current)
+### Tick 2026-06-21 10:11 PDT (current)
+
+- [x] feat(feedback): add prune --above <n> for cap-recalibration prunes (2ef0c8b)
+- [x] feat(pins/mutes): add list --since <iso-date> for recent-only snapshots (51092d2)
+- [x] feat(doctor): add --json --quiet slim shape for tight cron dashboards (41b383c)
+- [x] feat(reindex): add --since <iso-date> for partial-reindex flow (becae0c)
+- [x] feat(digest): add run --since <iso-date> to skip recently-run saved searches (c40a2ec)
+
+### Tick 2026-06-21 07:05 PDT
 
 - [x] chore(repo): ignore stray .js/.d.ts sidecars next to apps/cli/src/*.ts (d951f11)
 - [x] feat(doctor): add --stale-after-days <n> end-to-end (API + CLI) (d9f9dda)
@@ -107,21 +115,21 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(status): add --watch <ms> to repoll periodically for terminal dashboards
 - [ ] feat(ask): add --stream-json to emit one NDJSON event per token (kind=token/sources/done) for live UI piping
 - [ ] feat(status): add --json-watch that emits one NDJSON snapshot per poll cycle (pairs with --watch)
-- [ ] feat(pins/mutes): add --paths --since <iso> filter so cron snapshots only export recently-touched entries
 - [ ] feat(export): add --since <iso-date> to bound the export window for incremental dumps
 - [ ] feat(search): add --rerank-off escape hatch to skip the rerank step for debugging fusion vs rerank effects
 - [ ] feat(forget): add --json --dry-run --paths-only shortcut so a script can preview removals without parsing the structured payload (currently a single-flag combo of existing flags but worth a smoke test)
 - [ ] feat(watch): add --once flag that processes the initial scan + ingests current files once, then exits cleanly (lets cron use the same code path as a normal ingest for parity between scheduled refresh and live watching)
 - [ ] feat(digest): add `digest show --since-last` shortcut — bound to the saved-search's previous run timestamp ("what has this saved search surfaced since the last time I read it") without an explicit cutoff arg
 - [ ] feat(related): add -n/--namespaces filter forwarded to the API (the option already exists; verify it's honoured end-to-end and add a regression test)
-- [ ] feat(reindex): add --since <iso-date> that combines the new --dry-run discovery with mtime filtering (mirrors `ingest --since` semantics but threads through the manifest-wipe gate so a partial reindex is possible)
 - [ ] feat(watch): add a `--debounce` companion that decays based on idle time (so a quiet workspace re-ingests fast but a noisy `npm install` burst still rides the debounce up to the cap)
 - [ ] feat(ingest): wire --since into the ingestRoot path too so downstream consumers (reindex, web) can pass the same flag without restructuring the code (currently only the cli command surfaces it; the @clawmind/ingest API stays unchanged)
 - [ ] feat(stats): add --json --slim --tsv shortcut that emits `<namespace>\t<total>` rows for awk pipelines (mirrors the --tsv contract on the full stats but on the slim shape)
 - [ ] feat(tags): add --counts mode listing namespaces with their tag-frequency totals (for "what tags are dominating my index" questions) — the new `tags list --sort count --top N` covers the lookup but a per-namespace breakdown is still missing
-- [ ] feat(feedback): expose --above on `feedback prune` too — currently only --below is supported. The cron use is narrower ("clear ALL boosts >= 1.45 because the cap has been recalibrated downward") but the symmetry is worth completing once a real use shows up
-- [ ] feat(doctor): add --json --quiet mode that emits ONLY the findings count + ok flag for tight cron dashboards (the full report already exists in --json; --quiet would be a shape-reducer pairs with --severity error for "fail nightly CI if any error finding exists")
-- [ ] feat(reindex): add --since <iso-date> that combines manifest-wipe with mtime-filtered re-ingest so a partial-reindex flow exists (currently --dry-run shows the discovery set but the live path still wipes and re-walks everything)
+- [ ] feat(digest): add run --max <n> to cap how many digests fire in a single batch tick (pairs with the new --since to bound CPU usage on a tick that catches a big stale wave)
+- [ ] feat(doctor): add --since <iso-date> for filtering findings by ts (cron dashboards want only the recent ones); pairs naturally with --json --quiet
+- [ ] feat(pins/mutes): add `--by <user>` filter on list to scope cron snapshots to a specific creator (multi-user workspaces grow these maps fast)
+- [ ] feat(reindex): add --since combined with --paths-only that pipes the filtered set into a single reindex call without touching the live path (preview-only, partial-reindex companion to the new --since)
+- [ ] feat(stale): add --tsv --since composition test (pin the byte layout when both flags fire on the same invocation)
 
 ## Conventions
 
@@ -617,3 +625,112 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   including all 6 doctor route tests with the new query schema.
   Push: 504d92a..216077b main -> main. All five commits authored
   as `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+
+- 2026-06-21 10:11 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: 2ef0c8b, 51092d2, 41b383c, becae0c, c40a2ec. Test gate:
+  `@clawmind/cli` 329/329 vitest pass (up from 292). 37 net new tests
+  spread across 5 files: feedback-digest.test.ts (+14 → 66), pins.test.ts
+  (+5 → 9), mutes.test.ts (+4 → 8), doctor.test.ts (+7 → 22),
+  reindex.test.ts (+7 → 17). `@clawmind/cli` typecheck: clean.
+  Same two pre-existing reds outside cli (telemetry OpenTelemetry 1.x/
+  2.x peer mismatch + rag/hybrid alpha-blend drift); neither
+  introduced this tick (verified by running ci:verify which hit the
+  identical telemetry red as every prior tick, and by running
+  `pnpm --filter @clawmind/api test` against my head AND against the
+  parent — `@clawmind/api` 1223/1223 in both, the 2 flakes on one
+  parallel run dropped to 0 on the second run; not my changes).
+  Theme: knock out four explicitly-queued items + complete the
+  --above/--below symmetry on feedback prune that the queued list
+  had explicitly carved out.
+    1. feedback prune --above: symmetric sibling of --below. The
+       classic cron use is a cap recalibration ("we lowered
+       MAX_BOOST from 1.5 to 1.45, clear every entry above 1.45 so
+       re-vote pressure restarts cleanly"). Strict comparison (`>`)
+       so an entry at exactly the threshold is preserved (it is ON
+       the new ceiling, not above it). Composes with --below as an
+       OR predicate so a single invocation can trim both tails
+       (`--above 1.05 --below 0.95 --apply` clears everything
+       outside the [0.95, 1.05] neutral band). At least one of
+       --below/--above is now required (the existing tripwire
+       generalises). Text mode header narrates the predicate that
+       ran ("below boost 0.95 or above boost 1.04") so the cron
+       log is auditable.
+    2. pins/mutes list --since <iso-date>: client-side post-filter
+       on pinnedAt / mutedAt. The natural cron use is a daily
+       snapshot of "what got pinned (or muted) in the last 24h"
+       without scrolling through every entry. Mirrors the --since
+       semantics on stale/stats/digest show byte-for-byte (cutoff
+       INCLUSIVE >=; composes with -q as intersection; recomputed
+       count reflects filtered length; filter applies BEFORE
+       --paths short-circuit; typo'd cutoff aborts cleanly with
+       exit 1 instead of silently degrading to "no filter").
+       Single feature touching both files because the symmetry is
+       what makes the cron use real (`pins list --since X --paths`
+       and `mutes list --since X --paths` must behave identically).
+    3. doctor --json --quiet: slim 5-field shape for tight cron
+       dashboards. `{ok, findingsCount, errors, warnings, infos}`
+       instead of the full per-finding payload. The classic cron
+       use is a dashboard panel that needs "is the index ok? how
+       many errors?" in five fields without piping the full report
+       through jq for the count. Pairs naturally with --severity
+       error for a nightly CI freshness gate:
+         clawmind doctor --json --quiet | jq -e '.errors == 0'
+       Design properties: `ok` mirrors the FULL report's flag so
+       hiding findings via --severity never accidentally hides an
+       unhealthy report from the slim shape; `findingsCount` is
+       the TOTAL count (not the filtered visible count); per-
+       severity tallies use the API's vocabulary verbatim; single-
+       line JSON for clean NDJSON snapshot diffing; exit code
+       still reflects r.ok; --quiet without --json is a no-op
+       (text mode unchanged); --quiet wins over the full --json
+       payload when both set.
+    4. reindex --since <iso-date>: mtime filter for a partial-
+       reindex flow. Composes with both --dry-run (preview the
+       narrowed set without mutating) AND the destructive path
+       (when set without --dry-run, the wipe still happens, then
+       ingest is called with --since so only the recently-modified
+       files are re-ingested; sources older than the cutoff stay
+       MISSING from the rebuilt index until the next full reindex).
+       The natural use: `clawmind reindex --since "$(date -u -d
+       '1 week ago' +%FT%TZ)"` rebuilds from scratch but only
+       walks the files that changed recently. CRITICAL SAFETY:
+       parse failures abort BEFORE any wipe — the live path runs
+       the manifest+BM25 wipe FIRST then calls ingest, so a typo'd
+       cutoff landing mid-flight would leave the index in a
+       partial state the operator could only recover from with a
+       full reindex (defeating the whole purpose of the flag).
+       Validation hard-fails up front. Other contract pinning:
+       cutoff INCLUSIVE (>=) — matches the --since semantics across
+       ingest/stale/pins/mutes/stats/digest show; stat() failures
+       on individual files are non-fatal (drop the file silently);
+       --paths-only short-circuits before --json with --dry-run.
+    5. digest run --since <iso-date>: narrows the batch path to
+       saved searches whose lastRunTs predates the cutoff. The
+       natural cron use is "re-run only digests that have not run
+       in the last hour", which lets a frequent tick (every 5min)
+       catch newly-added + drifted digests while skipping anything
+       a slower tick already covered. Implementation: list
+       /v1/digests, filter client-side, then POST per-id to
+       /v1/digests/<id>/run for each survivor (instead of
+       /v1/digests/run which unconditionally runs every saved
+       search). A few extra round-trips but the LLM/embed budget
+       skipped on the recent-runs path dominates the cost.
+       Contract: cutoff parse failures abort with exit 1 BEFORE
+       any list/run; lastRunTs === null (never-run digest) is
+       ALWAYS INCLUDED (most extreme case of "needs running"; a
+       filter that hid never-runs would be unsafe for a new saved
+       search the operator just added); strict less-than (<) so a
+       digest at exactly the cutoff is SKIPPED (it ran AT the
+       cutoff, satisfying the "leave alone if it ran within the
+       last hour" intent); single-digest failures do NOT abort the
+       batch (other digests proceed; failing digest retries on
+       next tick); --since is ignored when an id is passed (no
+       batch to filter); text-mode header narrates both ran and
+       skipped counts so a cron log is readable.
+  Push: 216077b..c40a2ec main -> main. All five commits authored
+  as `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+  Bonus polish: amended the digest commit (c40a2ec) to fix a
+  typo'd email (`51058514+Sanjays2402+Sanjays2402@...` had a stray
+  repeat) before push — caught by `git log -1 --pretty=format:%ae`
+  in the verify step. All five SHAs now carry the canonical
+  noreply ID.
