@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-21 00:40 PDT (current)
+### Tick 2026-06-21 04:13 PDT (current)
+
+- [x] feat(watch): add -q/--quiet to suppress per-file event chatter (3b48fdd)
+- [x] feat(stale): add --paths-only as an alias for --paths to unify the flag family (6ac5d2b)
+- [x] feat(stats): add --slim shape emitting just {stale, total} for cron pipelines (9796f9b)
+- [x] feat(reindex): add --dry-run preview that lists files without touching the index (9bc0992)
+- [x] feat(ingest): add --since <iso-date> for incremental refresh from cron (8ecf026)
+
+### Tick 2026-06-21 00:40 PDT
 
 - [x] feat(related): add -t/--threshold to drop neighbours below a relevance score (51dd7b8)
 - [x] feat(digest): add show --last <n> to cap history rows newest-first (53e2550)
@@ -90,8 +98,6 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] fix(rag/hybrid): hybridMerge test on packages/rag/test/hybrid.test.ts expects `out[0].id === 'b'` but the merge orders 'a' (bm25 score 10) above 'b' under alpha=0.5; either the test fixture or the hybrid blend has drifted. Pre-existing failure (verified by typechecking parent commit 3cc6fd1), NOT introduced by any cron tick — was simply unknown because earlier ticks only ran `--filter @clawmind/cli test`, not `pnpm -r test`. Either rewrite the test against the current alpha-blend semantics OR re-derive the expected order from first principles.
 - [ ] feat(doctor): add --staleAfterDays <n> CLI flag that forwards to the API's staleAfterMs override
 - [ ] feat(status): add --watch <ms> to repoll periodically for terminal dashboards
-- [ ] feat(reindex): add --dry-run that lists files that would be reindexed without touching the store
-- [ ] feat(ingest): add --since <iso-date> to only ingest files modified after the cutoff (incremental refresh from cron)
 - [ ] feat(ask): add --stream-json to emit one NDJSON event per token (kind=token/sources/done) for live UI piping
 - [ ] feat(status): add --json-watch that emits one NDJSON snapshot per poll cycle (pairs with --watch)
 - [ ] feat(pins/mutes): add --paths --since <iso> filter so cron snapshots only export recently-touched entries
@@ -100,12 +106,15 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(search): add --rerank-off escape hatch to skip the rerank step for debugging fusion vs rerank effects
 - [ ] feat(forget): add --json --dry-run --paths-only shortcut so a script can preview removals without parsing the structured payload (currently a single-flag combo of existing flags but worth a smoke test)
 - [ ] feat(feedback): add `feedback prune --below <n>` to bulk-clear all paths whose boost falls below a threshold (natural sibling of `feedback list --below`; the cron use is "every Sunday morning, prune anything below 0.7 that has not been re-voted in 90d")
-- [ ] feat(watch): add --quiet / -q flag to suppress the per-file event lines (banner still emits on stderr; useful for cron-restarted watchers where the operator wants only the restart marker, not 100/sec event chatter)
 - [ ] feat(watch): add --once flag that processes the initial scan + ingests current files once, then exits cleanly (lets cron use the same code path as a normal ingest for parity between scheduled refresh and live watching)
 - [ ] feat(digest): add `digest show --since-last` shortcut — bound to the saved-search's previous run timestamp ("what has this saved search surfaced since the last time I read it") without an explicit cutoff arg
-- [ ] feat(stats): add --json --since shortcut that emits a single `{stale: [...], total: N}` payload — pairs with --since semantics already shipped this session but currently --json + --since dumps the full report shape; a slimmed shape is what cron pipelines actually want
 - [ ] feat(related): add -n/--namespaces filter forwarded to the API (the option already exists; verify it's honoured end-to-end and add a regression test)
-- [ ] feat(stale): add --paths-only mirroring forget --paths-only / search --paths-only naming (the existing `--paths` flag predates the contract; add --paths-only as an alias so the family is uniform AND keep --paths for back-compat with the byte-layout tests)
+- [ ] feat(reindex): add --since <iso-date> that combines the new --dry-run discovery with mtime filtering (mirrors `ingest --since` semantics but threads through the manifest-wipe gate so a partial reindex is possible)
+- [ ] feat(ingest): add --paths-only --dry-run preview shortcut on the ingest command itself (the discovery list is exactly what --since would walk, so a `clawmind ingest --since X --dry-run` preview is the natural cron rehearsal flow before authorising a refresh)
+- [ ] chore(repo): add `apps/cli/src/**/*.js` to .gitignore so a stray `tsc` invocation cannot leak .js / .d.ts sidecars next to .ts sources (caught and cleaned in the 2026-06-21 00:40 PDT tick; trap is still active)
+- [ ] feat(watch): add a `--debounce` companion that decays based on idle time (so a quiet workspace re-ingests fast but a noisy `npm install` burst still rides the debounce up to the cap)
+- [ ] feat(ingest): wire --since into the ingestRoot path too so downstream consumers (reindex, web) can pass the same flag without restructuring the code (currently only the cli command surfaces it; the @clawmind/ingest API stays unchanged)
+- [ ] feat(stats): add --json --slim --tsv shortcut that emits `<namespace>\t<total>` rows for awk pipelines (mirrors the --tsv contract on the full stats but on the slim shape)
 
 ## Conventions
 
@@ -405,3 +414,100 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   so they could not accidentally be committed. Worth adding
   `apps/cli/src/**/*.js` to .gitignore in a future tick to make
   the trap impossible.
+
+- 2026-06-21 04:13 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: 3b48fdd, 6ac5d2b, 9796f9b, 9bc0992, 8ecf026. Test gate:
+  `@clawmind/cli` 254/254 vitest pass (up from 216). 38 net new tests
+  spread across 5 files: watch.test.ts (+9 → 21), stale.test.ts (+4
+  → 15), stats.test.ts (+7 → 45), reindex.test.ts (new, 10),
+  ingest.test.ts (new, 8). Typecheck: `@clawmind/cli` clean. Same
+  two pre-existing reds outside cli (telemetry OpenTelemetry 1.x/
+  2.x peer mismatch + rag/hybrid test alpha-blend drift); neither
+  introduced this tick. Verified the telemetry red is pre-existing
+  by running `pnpm --filter @clawmind/telemetry typecheck` on a
+  clean working tree before any commits — same error.
+  Theme: round out the cron pipeline contract (incremental refresh,
+  preview before mutation, slim cron snapshots, unified naming).
+    1. watch --quiet / -q: suppresses the per-file event chatter
+       in BOTH text mode (the gray `add /foo.md` lines) and --json
+       mode (the per-event NDJSON documents). Critically the
+       startup banner on stderr STILL fires AND the
+       "Watching <root>" stdout line STILL prints, so a log
+       scraper detects restarts and an interactive operator sees
+       the watcher came up. The contract is "no chatter, restart
+       marker stays" — matches how logrotate / journalctl
+       --since=last-restart expect restart-aware peers to behave.
+       The cron use is a watcher restarted by cron whose journal
+       only needs the restart marker, not 100/sec event chatter
+       from a tight `npm install` burst. Composes with --debounce
+       (orthogonal concerns: --debounce shapes re-ingest cadence,
+       --quiet shapes the operator-facing stream).
+    2. stale --paths-only: alias for --paths to unify the flag
+       family. stale shipped first with --paths and pinned the
+       byte layout in tests; every later list-style command
+       (search/forget/related/pins/mutes/aliases/tags) adopted
+       --paths-only as canonical. Both flags now emit byte-
+       identical streams; existing --paths scripts keep working
+       unchanged AND new scripts can use the family-wide
+       --paths-only naming without special-casing stale. When both
+       are passed the effect is identical (no warning, no
+       precedence — they are truly equivalent and the action body
+       short-circuits on a single OR rather than emitting twice).
+    3. stats --slim: slim JSON shape `{stale: [<namespace>],
+       total: N}` carrying ONLY namespace names (no per-namespace
+       metric blocks, no totals, no generatedAt). The natural
+       cron pair is `clawmind stats --json --slim --since <iso>`
+       to answer "which namespaces have gone stale at the
+       namespace level" without piping the full report through
+       `jq` for the names. Invariants pinned in tests:
+       total === stale.length (consumer never reconciles two
+       fields); single-line output for clean snapshot diffing;
+       --slim wins over --compact (both ask for one-line JSON,
+       --slim is the stricter reshape); empty payload is a clean
+       `{stale: [], total: 0}` so `jq -e '.total > 0'` branches
+       on emptiness without inspecting the array.
+    4. reindex --dry-run: the "preview the destructive action"
+       gate. Walks the same discoverFiles() the real ingest
+       would visit (so the preview is byte-faithful to the real
+       run, with .clawmindignore and the built-in include/exclude
+       globs both applied) WITHOUT dropping the manifest,
+       touching the BM25, or invoking ingest. Three output
+       shapes: --paths-only (xargs-safe, one path per line, no
+       header), --json ({root, count, files}), default text
+       (yellow count header + gray path list + rerun nudge).
+       Matches the forget --dry-run UX. Zero-discovered yields a
+       count-zero header with NO rerun nudge (nothing to reindex
+       => nothing to rerun) and a clean empty stream in
+       --paths-only mode.
+    5. ingest --since <iso-date>: the incremental-refresh gate.
+       Without --since, ingest walks every file under the
+       workspace and lets the per-file hash/manifest dedupe path
+       skip anything unchanged — correct but expensive on a
+       large index. --since cuts off the work much earlier:
+       stat() each discovered path and drop the ones whose mtime
+       predates the cutoff BEFORE any reading happens. Classic
+       cron use:
+         clawmind ingest --since "$(date -u -d '1 hour ago' +%FT%TZ)"
+       Design choices:
+       - Cutoff INCLUSIVE (mtime >= cutoff): a file modified
+         exactly at the cutoff is "modified at the cutoff",
+         which is the boundary an operator passing the previous
+         tick's wall-clock cares about. Exclusive bounds would
+         silently miss changes that happened in the same second
+         as the previous tick — anti-goal of the flag.
+       - Parse failures abort with exit 1, not silent degrade to
+         "no filter". A typo like --since 2026-13-01 silently
+         re-ingesting the whole workspace is the worst possible
+         failure mode for a flag whose entire purpose is to do
+         less work.
+       - stat() failures on individual files are non-fatal: the
+         file is silently dropped (cannot be re-ingested anyway).
+       - Filtered list goes through ingestPaths(); the no-flag
+         path still uses ingestRoot() byte-for-byte.
+  Push: 4b6ffdc..8ecf026 main -> main. No PRs created. All
+  commits authored as `Cake (cron)
+  <51058514+Sanjays2402@users.noreply.github.com>`.
+  Verify-gate note: ran `pnpm run ci:verify` which hit the same
+  two pre-existing reds (telemetry typecheck + rag hybrid test);
+  neither introduced by this tick. The `@clawmind/cli` package
+  is fully green (254 tests, +38 from prior tick).
