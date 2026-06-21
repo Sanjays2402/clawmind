@@ -9,6 +9,17 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 // every argument the real watcher would have received.
 class StopWatchSentinel extends Error {}
 let lastWatcherOpts: Record<string, unknown> | null = null;
+let discoverFilesCalls: string[] = [];
+let ingestPathsCalls: Array<{ files: string[]; opts: Record<string, unknown> }> = [];
+// Default fixture: every call to discoverFiles returns these two
+// paths and every ingest reports processed=2, chunks=10, skipped=0.
+// Individual tests can override either by reassigning before calling
+// parseAsync.
+let discoverFilesFiles: string[] = ['/tmp/r/a.md', '/tmp/r/b.md'];
+let ingestPathsResult: { processed: number; chunks: number; skipped: number } = {
+  processed: 2, chunks: 10, skipped: 0,
+};
+let ingestPathsImpl: ((files: string[], opts: Record<string, unknown>) => Promise<{ processed: number; chunks: number; skipped: number }>) | null = null;
 
 vi.mock('../src/runtime.js', () => ({
   buildRuntime: async () => ({
@@ -34,6 +45,15 @@ vi.mock('@clawmind/ingest', () => ({
     // watcher, so a downstream `expect(lastWatcherOpts.debounceMs)`
     // is byte-for-byte equivalent to the production wire-up.
     throw new StopWatchSentinel('stop');
+  },
+  discoverFiles: async (root: string) => {
+    discoverFilesCalls.push(root);
+    return discoverFilesFiles;
+  },
+  ingestPaths: async (files: string[], opts: Record<string, unknown>) => {
+    ingestPathsCalls.push({ files, opts });
+    if (ingestPathsImpl) return ingestPathsImpl(files, opts);
+    return ingestPathsResult;
   },
 }));
 
@@ -363,5 +383,166 @@ describe('watch cli --quiet', () => {
     const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
     onEvent!('change', '/tmp/r/baz.md');
     expect(stdout.join('')).toBe('');
+  });
+});
+
+describe('watch cli --once', () => {
+  // --once runs a single discoverFiles + ingestPaths pass under the
+  // SAME discovery rules the chokidar watcher uses, then exits
+  // cleanly. Lets cron use ONE code path for both scheduled
+  // refreshes and live watching. Critically the chokidar watcher
+  // is NOT installed — `lastWatcherOpts` must stay null because
+  // startWatcher is never called. The startup banner DOES fire on
+  // stderr so a log scraper sees the restart marker even on a
+  // one-shot pass.
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    lastWatcherOpts = null;
+    discoverFilesCalls = [];
+    ingestPathsCalls = [];
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md'];
+    ingestPathsResult = { processed: 2, chunks: 10, skipped: 0 };
+    ingestPathsImpl = null;
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes --once on the command surface', () => {
+    const flags = watchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--once');
+  });
+
+  it('--once runs discoverFiles + ingestPaths and exits cleanly (chokidar NEVER installed)', async () => {
+    // This is the headline contract: --once must NOT call
+    // startWatcher. The whole point of the flag is to share the
+    // initial-scan code path with cron without the long-running
+    // tail. We assert lastWatcherOpts stays null AND that the
+    // discovery + ingest mocks were called exactly once each.
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once']);
+    expect(lastWatcherOpts).toBeNull();
+    expect(discoverFilesCalls).toEqual(['/tmp/r']);
+    expect(ingestPathsCalls).toHaveLength(1);
+    expect(ingestPathsCalls[0]?.files).toEqual(['/tmp/r/a.md', '/tmp/r/b.md']);
+  });
+
+  it('--once --json emits the NDJSON ingest report shape (mirrors `ingest --json`)', async () => {
+    discoverFilesFiles = ['/tmp/r/file1.md', '/tmp/r/file2.md', '/tmp/r/file3.md'];
+    ingestPathsResult = { processed: 3, chunks: 12, skipped: 1 };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--json']);
+    const parsed = JSON.parse(stdout.join('').trim()) as Record<string, unknown>;
+    expect(parsed).toEqual({
+      root: '/tmp/r',
+      processed: 3,
+      chunks: 12,
+      skipped: 1,
+    });
+    // Single-line shape — no indent so cron can append to NDJSON logs.
+    expect(stdout.join('').endsWith('\n')).toBe(true);
+    expect(stdout.join('').trim()).not.toContain('\n');
+  });
+
+  it('--once text mode prints the cyan scan header and the green Indexed summary', async () => {
+    // The text shape is meant for humans running the command
+    // interactively. We assert the structural pieces — the cyan
+    // "one-shot scan of <root>" header and the green "Indexed
+    // <n> files, <n> chunks, skipped <n>" summary — rather than
+    // pinning ANSI byte sequences which a future kleur upgrade
+    // could shift around.
+    ingestPathsResult = { processed: 5, chunks: 27, skipped: 2 };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once']);
+    const out = stdout.join('');
+    expect(out).toContain('one-shot scan of /tmp/r');
+    expect(out).toContain('Indexed 5 files, 27 chunks, skipped 2');
+  });
+
+  it('--once still fires the startup banner on stderr (log scraper sees the restart marker)', async () => {
+    // Critical contract: the banner is the journal-scrape signal
+    // and MUST work in --once mode too. A cron that scrubs the
+    // journal for `kind=banner` to detect "the periodic refresh
+    // tick ran" relies on this exact behaviour.
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once']);
+    const banner = JSON.parse(stderr.join('').trim());
+    expect(banner.kind).toBe('banner');
+    expect(banner.root).toBe('/tmp/r');
+    expect(typeof banner.ts).toBe('string');
+  });
+
+  it('--once does NOT print the "Watching <root>" stdout line (there is no long-running process to mark)', async () => {
+    // The "Watching" line is the operator-facing "the watcher is
+    // up" confirmation. It is misleading on a one-shot pass: the
+    // process exits as soon as ingest finishes, so "Watching"
+    // would be a lie. Assert it does not appear.
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once']);
+    expect(stdout.join('')).not.toContain('Watching');
+  });
+
+  it('--once forwards the ingest deps (lance/bm25/manifest/embed/embedModel)', async () => {
+    // The ingest opts must carry every dependency the real
+    // pipeline needs. We assert the keys are present rather than
+    // pinning exact mock identities (which would be brittle).
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once']);
+    const opts = ingestPathsCalls[0]?.opts ?? {};
+    expect(opts).toHaveProperty('store');
+    expect(opts).toHaveProperty('bm25');
+    expect(opts).toHaveProperty('bm25File');
+    expect(opts).toHaveProperty('manifest');
+    expect(opts).toHaveProperty('embed');
+    expect(opts).toHaveProperty('embedModel', 'test-model');
+  });
+
+  it('--once with zero discovered files still emits a clean report (processed=0)', async () => {
+    discoverFilesFiles = [];
+    ingestPathsResult = { processed: 0, chunks: 0, skipped: 0 };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--json']);
+    const parsed = JSON.parse(stdout.join('').trim()) as { processed: number; chunks: number; skipped: number };
+    expect(parsed.processed).toBe(0);
+    expect(parsed.chunks).toBe(0);
+    expect(parsed.skipped).toBe(0);
+    // The discovery + ingest still ran (with an empty file set),
+    // which is the right contract — the cron operator wants the
+    // same "I checked and there was nothing" signal as a real
+    // empty-workspace tick.
+    expect(discoverFilesCalls).toEqual(['/tmp/r']);
+    expect(ingestPathsCalls).toHaveLength(1);
+    expect(ingestPathsCalls[0]?.files).toEqual([]);
+  });
+
+  it('--once composes with --debounce / --quiet silently (no rejection, no behavioural change)', async () => {
+    // Accepting these flags silently lets a cron operator use a
+    // single argv shape (`watch --once --quiet --debounce 500`)
+    // for both modes without conditional plumbing. We confirm the
+    // command exits cleanly and the report is still emitted —
+    // proves --once short-circuits before the chokidar wiring
+    // that would have parsed those flags.
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--quiet', '--debounce', '500', '--json']);
+    expect(lastWatcherOpts).toBeNull(); // never started chokidar
+    const parsed = JSON.parse(stdout.join('').trim()) as { processed: number };
+    expect(parsed.processed).toBe(2);
+  });
+
+  it('--once still validates --debounce up front (typo cannot sneak through the one-shot path)', async () => {
+    // The --debounce validation fires BEFORE the --once branch
+    // because we want the error message to be crisp on a typo.
+    // An operator using `watch --once --debounce 0` may be moving
+    // to the live path next; rejecting the typo on the one-shot
+    // run lets them catch the bug immediately.
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--debounce', '0']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('watch failed: --debounce value must be a positive integer');
+    // Neither discovery nor ingest fired.
+    expect(discoverFilesCalls).toEqual([]);
+    expect(ingestPathsCalls).toHaveLength(0);
   });
 });
