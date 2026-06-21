@@ -61,10 +61,11 @@ export function staleCommand() {
     .option('-l, --limit <n>', 'cap on rows returned', '200')
     .option('-q, --q <text>', 'case-insensitive substring filter on path')
     .option('--since <iso-date>', 'further restrict the report to files whose last ingest predates this ISO date. Complements --days <n> (which is a relative "older than N days from now" threshold) by accepting an absolute cutoff — useful from cron where the cutoff is anchored to a known date. The two filters compose: the kept set is the intersection. Files are kept when their lastIngestedAt < cutoff; lastIngestedAt is derived from the row\'s ageDays (which the API already computes against current time) so a file aged 90 days passes `--since` cutoffs up to 90 days in the past. Parse failures abort cleanly.')
-    .option('--paths', 'print just the path column for piping into other commands')
+    .option('--paths', 'print just the path column for piping into other commands. Predates the `--paths-only` naming used by search/forget/related/pins etc. and is preserved here for back-compat with byte-layout tests; `--paths-only` is the recommended alias going forward.')
+    .option('--paths-only', 'alias for --paths to bring the flag in line with search/forget/related (which all expose --paths-only). Either flag emits exactly the same byte stream (one path per line, no ANSI, no header) so existing scripts using --paths keep working unchanged. When both are passed, --paths-only wins (it is the newer, canonical spelling).')
     .option('--tsv', 'emit tab-separated rows (path<TAB>ageDays<TAB>chunkCount<TAB>size) suitable for awk/cut')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { days: string; limit: string; paths?: boolean; tsv?: boolean; q?: string; since?: string; json?: boolean }) => {
+    .action(async (opts: { days: string; limit: string; paths?: boolean; pathsOnly?: boolean; tsv?: boolean; q?: string; since?: string; json?: boolean }) => {
       await runOrReport('stale', async () => {
         const params: Record<string, string> = {
           olderThanDays: opts.days,
@@ -110,7 +111,18 @@ export function staleCommand() {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
           return;
         }
-        if (opts.paths) {
+        // --paths-only is the canonical alias for --paths. The two
+        // flags emit exactly the same byte stream (one path per line,
+        // no ANSI, no header) so existing scripts using --paths keep
+        // working unchanged AND new scripts can use the family-wide
+        // --paths-only naming that search/forget/related/etc. all
+        // expose. We OR the two flags so either spelling triggers
+        // the pipeline-friendly shape; when both are passed, the
+        // effect is identical (no warning, no precedence — they are
+        // truly equivalent). This keeps the flag family uniform
+        // without breaking the existing --paths contract that the
+        // tests pin to its exact byte layout.
+        if (opts.paths || opts.pathsOnly) {
           for (const it of out.items) process.stdout.write(`${it.path}\n`);
           return;
         }

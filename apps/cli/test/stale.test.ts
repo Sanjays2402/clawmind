@@ -98,6 +98,100 @@ describe('stale cli', () => {
     expect(out).toBe('/a.md\n/b.md\n');
   });
 
+  it('--paths-only emits the same byte stream as --paths (canonical alias for family uniformity)', async () => {
+    // --paths-only is the spelling used by search/forget/related/
+    // pins/mutes/aliases/tags. We bring stale in line by accepting
+    // both spellings — they are byte-equivalent so a downstream
+    // pipeline that switched from `clawmind search foo --paths-only`
+    // to `clawmind stale --paths-only` does not have to special-case
+    // stale's older --paths naming.
+    const payload = {
+      thresholdDays: 30,
+      total: 2,
+      items: [
+        { path: '/a.md', ageDays: 90, chunkCount: 3, size: 1024 },
+        { path: '/b.md', ageDays: 45, chunkCount: 1, size: 512 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--paths-only']);
+    const out = stdout.join('');
+    // Same byte layout as the --paths test above so a side-by-side
+    // diff confirms the alias is truly an alias, not a near-miss.
+    expect(out).toBe('/a.md\n/b.md\n');
+    // No ANSI styling — the pipeline-friendly contract is pinned.
+    expect(out).not.toMatch(/\x1b\[/);
+  });
+
+  it('--paths and --paths-only together still emit the canonical byte stream (no doubled output)', async () => {
+    // The two flags are intentionally byte-equivalent so passing
+    // both should produce the same single-pass output, not the
+    // double-emitted variant a naive implementation would produce
+    // (one for each flag). This guards against future regressions
+    // where one of the flags accidentally falls through to the
+    // other code path AFTER emitting.
+    const payload = {
+      thresholdDays: 30,
+      total: 1,
+      items: [{ path: '/a.md', ageDays: 90, chunkCount: 3, size: 1024 }],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--paths', '--paths-only']);
+    expect(stdout.join('')).toBe('/a.md\n');
+  });
+
+  it('--paths-only yields a clean empty stream when nothing is stale (xargs/wc-friendly)', async () => {
+    const payload = { thresholdDays: 30, total: 0, items: [] };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--paths-only']);
+    // Same contract as --paths: zero matches => empty stream so
+    // `clawmind stale --paths-only | xargs ls` does not poison
+    // ls with a "no sources stale" hint.
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--paths-only composes with --since (filter applies before the path stream is emitted)', async () => {
+    // The new alias must compose with the absolute-date filter the
+    // same way --paths does. We re-use the deterministic
+    // anchor-clock pattern so the assertion is independent of the
+    // wall clock.
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse('2026-06-20T00:00:00Z'));
+    try {
+      const payload = {
+        thresholdDays: 1,
+        total: 2,
+        items: [
+          { path: '/old.md', ageDays: 100, chunkCount: 3, size: 1024 },
+          { path: '/recent.md', ageDays: 5, chunkCount: 1, size: 512 },
+        ],
+      };
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })) as never;
+      await staleCommand().parseAsync(['node', 'cli', '--paths-only', '--since', '2026-04-01']);
+      // Only the 100-day-old row passes the cutoff.
+      expect(stdout.join('')).toBe('/old.md\n');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('emits tab-separated rows in --tsv mode for awk/cut pipelines', async () => {
     const payload = {
       thresholdDays: 30,
