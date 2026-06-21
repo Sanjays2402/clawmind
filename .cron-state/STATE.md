@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-21 10:11 PDT (current)
+### Tick 2026-06-21 13:26 PDT (current)
+
+- [x] feat(export): add --since end-to-end (API + CLI) for incremental conversation dumps (22bb5f4)
+- [x] feat(search): add --rerank-off debug escape hatch through RAG retrieve() (d3419d3)
+- [x] feat(watch): add --once for a single scheduled-scan pass (cron-friendly twin) (e747919)
+- [x] feat(digest): add run --max <n> to cap the per-batch digest count (6ac0f90)
+- [x] feat(pins/mutes): add list --by <user> for per-creator snapshot scoping (59d79f3)
+
+### Tick 2026-06-21 10:11 PDT
 
 - [x] feat(feedback): add prune --above <n> for cap-recalibration prunes (2ef0c8b)
 - [x] feat(pins/mutes): add list --since <iso-date> for recent-only snapshots (51092d2)
@@ -115,21 +123,20 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(status): add --watch <ms> to repoll periodically for terminal dashboards
 - [ ] feat(ask): add --stream-json to emit one NDJSON event per token (kind=token/sources/done) for live UI piping
 - [ ] feat(status): add --json-watch that emits one NDJSON snapshot per poll cycle (pairs with --watch)
-- [ ] feat(export): add --since <iso-date> to bound the export window for incremental dumps
-- [ ] feat(search): add --rerank-off escape hatch to skip the rerank step for debugging fusion vs rerank effects
+- [ ] feat(search): add --rerank-only escape hatch (the inverse of --rerank-off): emit ONLY the rerank-stage output (skip the MMR diversity pass) so the operator can compare the rerank step's contribution in isolation. Pairs with --rerank-off for a 3-way A/B (raw / reranked / mmr+rerank).
 - [ ] feat(forget): add --json --dry-run --paths-only shortcut so a script can preview removals without parsing the structured payload (currently a single-flag combo of existing flags but worth a smoke test)
-- [ ] feat(watch): add --once flag that processes the initial scan + ingests current files once, then exits cleanly (lets cron use the same code path as a normal ingest for parity between scheduled refresh and live watching)
 - [ ] feat(digest): add `digest show --since-last` shortcut — bound to the saved-search's previous run timestamp ("what has this saved search surfaced since the last time I read it") without an explicit cutoff arg
 - [ ] feat(related): add -n/--namespaces filter forwarded to the API (the option already exists; verify it's honoured end-to-end and add a regression test)
 - [ ] feat(watch): add a `--debounce` companion that decays based on idle time (so a quiet workspace re-ingests fast but a noisy `npm install` burst still rides the debounce up to the cap)
 - [ ] feat(ingest): wire --since into the ingestRoot path too so downstream consumers (reindex, web) can pass the same flag without restructuring the code (currently only the cli command surfaces it; the @clawmind/ingest API stays unchanged)
 - [ ] feat(stats): add --json --slim --tsv shortcut that emits `<namespace>\t<total>` rows for awk pipelines (mirrors the --tsv contract on the full stats but on the slim shape)
 - [ ] feat(tags): add --counts mode listing namespaces with their tag-frequency totals (for "what tags are dominating my index" questions) — the new `tags list --sort count --top N` covers the lookup but a per-namespace breakdown is still missing
-- [ ] feat(digest): add run --max <n> to cap how many digests fire in a single batch tick (pairs with the new --since to bound CPU usage on a tick that catches a big stale wave)
-- [ ] feat(doctor): add --since <iso-date> for filtering findings by ts (cron dashboards want only the recent ones); pairs naturally with --json --quiet
-- [ ] feat(pins/mutes): add `--by <user>` filter on list to scope cron snapshots to a specific creator (multi-user workspaces grow these maps fast)
+- [ ] feat(doctor): add --since <iso-date> for filtering findings by ts (cron dashboards want only the recent ones); pairs naturally with --json --quiet. NOTE: requires API change too — DoctorReport.findings entries don't carry a `ts` field today; either add one server-side or anchor the filter on report.generatedAt at the report level (less useful) — design decision pending.
 - [ ] feat(reindex): add --since combined with --paths-only that pipes the filtered set into a single reindex call without touching the live path (preview-only, partial-reindex companion to the new --since)
 - [ ] feat(stale): add --tsv --since composition test (pin the byte layout when both flags fire on the same invocation)
+- [ ] feat(export): add --since composition test that round-trips through the live API end-to-end (the CLI test mocks fetch; the API test injects routes; a third test could spin up the real Fastify app + bind a tcp port and call through `clawmind export` to catch wire-format regressions)
+- [ ] feat(watch): add --once --since <iso-date> composition (one-shot incremental refresh; pairs the new --once with the ingest --since semantics so a cron tick can ride out the burst without re-walking the workspace)
+- [ ] feat(digest): add run --max --json --slim shape — emit just `{ran, deferred, sinceSkipped}` (3-field tally for cron dashboards). Mirrors `doctor --json --quiet` byte-for-byte; pairs with --max for an at-a-glance "did the cron tick get through the batch" panel.
 
 ## Conventions
 
@@ -734,3 +741,137 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   repeat) before push — caught by `git log -1 --pretty=format:%ae`
   in the verify step. All five SHAs now carry the canonical
   noreply ID.
+
+- 2026-06-21 13:26 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: 22bb5f4, d3419d3, e747919, 6ac0f90, 59d79f3. Test gate:
+  `@clawmind/cli` 368/368 vitest pass (up from 329). 39 net new tests
+  spread across 5 files: export.test.ts (+7 -> 15), search.test.ts
+  (+5 -> 30), watch.test.ts (+10 -> 31), feedback-digest.test.ts
+  (+7 -> 73), pins.test.ts (+6 -> 15) + mutes.test.ts (+4 -> 12).
+  Plus +2 in `@clawmind/rag` pipeline.test.ts (4/4 total) and a new
+  `apps/api/test/conversation-export-since.test.ts` (7/7) for the
+  route-level export contract. `@clawmind/cli` typecheck: clean.
+  `@clawmind/api` 1230/1230 on a clean re-run (one flake on
+  api-key-bruteforce timing-dependent lockoutMs assertion in a
+  parallel run; not my changes -- verified by running just that file
+  in isolation which passed 10/10). Same two pre-existing reds
+  outside cli (telemetry OpenTelemetry 1.x/2.x peer mismatch + rag/
+  hybrid alpha-blend drift); neither introduced this tick (verified
+  by running each in isolation and the alpha-blend one is the same
+  failure that has been queued since 2026-06-20 16:05 PDT).
+
+  Theme: knock out FOUR explicitly-queued items + a structural
+  improvement to the RAG pipeline interface for debugging.
+
+    1. export --since end-to-end (API + CLI). Server-side: optional
+       ?since=<iso-date> on the three per-conversation export routes
+       (md / json / csv). INCLUSIVE >= semantics matching every
+       other --since across the cli. Empty windows return a
+       well-formed export with zero turns, NOT a 404, so a cron
+       polling a quiet conversation does not alarm. Invalid ISO
+       date returns 400 so a typo cannot silently degrade to the
+       full export (would double-bill the bandwidth budget for the
+       exact use case the flag was added to fix). Permission check
+       fires BEFORE the narrow so --since cannot be used to peek
+       at another user's thread. CLI-side: forwards as
+       ?since=<encodeURIComponent(value)> so colons / tz offsets
+       survive the querystring; validates client-side too so a typo
+       aborts BEFORE any round-trip. Without --since the URL is
+       byte-for-byte unchanged from the legacy contract (no stray
+       `?`, no empty parameter) so every existing script keeps
+       working. Two test surfaces: cli (mocked fetch + URL
+       assertion) and api (Fastify inject + INCLUSIVE-cutoff /
+       md+csv body / empty-window / invalid-ISO / cross-user
+       isolation).
+    2. search --rerank-off debug escape hatch. Threaded a new
+       RetrieveOptions { skipRerank } param through the RAG
+       retrieve() pipeline (deps, q, meta, options). When set, the
+       pipeline bypasses lexicalRerank entirely and forwards the
+       raw boost-adjusted ordering to MMR. Other stages (embed,
+       hybrid merge, MMR) stay enabled because they are correctness
+       or UX-critical. CLI exposes --rerank-off; forwards
+       { skipRerank: true } when set, undefined when absent (NOT
+       { skipRerank: false }) so the pipeline default stays unchanged
+       for every existing caller. The rag-side test pins the SCORE
+       DIFFERENCE rather than ordering -- the lexical bonus on a
+       chunk with 20 exact-term occurrences gives a delta > 0.3,
+       which is the cleanest signal that the stage actually ran or
+       was actually skipped. Pre-existing callers are byte-identical
+       (regression test pinned).
+    3. watch --once for a single scheduled-scan pass. Lets cron use
+       ONE code path for both scheduled refreshes (`watch --once`)
+       and live watching (`watch` without --once). The one-shot path
+       runs the SAME discoverFiles() + ingestPaths() the chokidar
+       watcher's initial scan would do, then exits cleanly with the
+       regular ingest report shape. The chokidar tail is NOT
+       installed (lastWatcherOpts stays null -- pinned by test as
+       the headline contract). The startup banner on stderr STILL
+       fires so a log scraper sees the restart marker even on a
+       one-shot pass. The "Watching <root>" stdout line is DROPPED
+       because there is no long-running process to mark; that label
+       would lie on a process about to exit. --debounce / --quiet
+       are accepted silently in --once mode (no rejection, no
+       behaviour change) so a cron operator can use ONE argv shape
+       for both modes. --debounce validation still fires UP FRONT in
+       --once mode -- a typo catches early rather than later when
+       switching to the live path. Test approach: update the
+       existing @clawmind/ingest mock to provide discoverFiles +
+       ingestPaths alongside the existing startWatcher stub, then
+       assert chokidar is never installed AND the discover/ingest
+       call happened exactly once.
+    4. digest run --max <n>. Caps how many saved searches run in a
+       single batch tick. Surviving candidates after --since
+       narrowing are kept in API order (newest-first, stable) and
+       the head N are run; the remainder rolls over to the next
+       tick because they STILL satisfy --since when it fires again.
+       The cap is enforced AT the call site, NOT via post-filtering
+       after wasted requests -- per-id POST count equals exactly N.
+       Report shape adds `sinceSkipped` / `deferred` / `max` keys
+       alongside the existing `ran` / `skipped` / `since` /
+       `results`; the combined `skipped` key still sums both reasons
+       so the legacy contract holds for every existing parser. Text
+       body narrates the two skip reasons separately ("ran 10,
+       deferred 3, not stale enough 2") so cron logs are auditable.
+       Validation: --max non-positive / NaN aborts BEFORE the list
+       fetch (a typo silently becoming an empty batch is
+       indistinguishable from a real "nothing to run" tick, which is
+       the worst possible failure mode for a cap flag). Ignored
+       when an id is passed (single-id runs always run that one
+       digest) -- mirrors --since on the same path.
+    5. pins/mutes list --by <user>. Filter pins/mutes snapshots to
+       entries whose pinnedBy / mutedBy === <user> EXACTLY (NOT
+       substring). The exact-match contract is the critical defence
+       against per-user audit bleed in a workspace with role-
+       suffixed ids (`sanjay-readonly` does NOT match `--by
+       sanjay`). Two commands shipped together because the symmetry
+       is the entire point -- a cron operator scripting per-user
+       snapshots wants the same flag on both sides of the pin/mute
+       pair without conditional plumbing. Composes with -q
+       (server-side substring filter, content-based) and --since
+       (client-side recency filter) as an intersection: -q narrows
+       content first, --by narrows creator second, --since narrows
+       recency third, all applied BEFORE the --paths / --json /
+       text short-circuit. Recomputed count reflects every filter
+       that ran; empty-state hint in text mode follows the
+       recomputed count, NOT the API total (pinned by test).
+
+  Verify-gate note: ran `pnpm --filter @clawmind/cli test` (368/368
+  pass), `pnpm --filter @clawmind/rag test` (43/44 pass -- the 1
+  fail is the queued hybrid alpha-blend red), `pnpm --filter
+  @clawmind/api test` (1230/1230 pass on second run; one flaky
+  timing test on api-key-bruteforce in a parallel run, isolated
+  test passes 10/10), `pnpm --filter @clawmind/cli typecheck`
+  (clean), and `pnpm typecheck` (only red is the queued telemetry
+  OpenTelemetry peer mismatch). Same two pre-existing reds as
+  every prior tick; neither introduced here. Push: 0028623..59d79f3
+  main -> main. All five commits authored as `Cake (cron)
+  <51058514+Sanjays2402@users.noreply.github.com>`.
+
+  Theme connector: this tick is the explicitly-queued sweep. Four
+  of the five features (export --since, search --rerank-off, watch
+  --once, pins/mutes --by) were named in the queued list by exact
+  shape; the fifth (digest run --max) was named by intent ("cap
+  how many digests fire in a single batch tick"). The structural
+  change (RetrieveOptions through retrieve()) is the first time
+  the RAG pipeline has exposed a stage-bypass dial -- set up so
+  future debug knobs land cleanly on the same interface.
