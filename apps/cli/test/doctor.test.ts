@@ -162,4 +162,106 @@ describe('doctor cli', () => {
     // the error cleanly.
     expect(fetched).toBe(true);
   });
+
+  it('exposes --stale-after-days on the command surface', () => {
+    const flags = doctorCommand().options.map((o) => o.long);
+    expect(flags).toContain('--stale-after-days');
+  });
+
+  it('--stale-after-days appends the query string to the doctor endpoint', async () => {
+    // The flag travels with the request as ?staleAfterDays=<n> so the
+    // entire override is server-side. We assert the URL the cli would
+    // have dialled — the API converts days -> ms internally.
+    let seenUrl = '';
+    globalThis.fetch = (async (u: string) => {
+      seenUrl = String(u);
+      return new Response(JSON.stringify({
+        ok: true,
+        counts: { manifestDocs: 0, manifestChunks: 0, bm25Chunks: 0, lanceChunks: 0 },
+        findings: [],
+      }), { status: 200 });
+    }) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--stale-after-days', '7']);
+    expect(seenUrl).toContain('/v1/doctor?staleAfterDays=7');
+  });
+
+  it('--stale-after-days 0 is a valid tripwire ("any age counts as stale")', async () => {
+    // The zero case is the right tripwire for a CI smoke that wants
+    // to fail on any non-fresh index, regardless of the default 30d
+    // threshold. The bound-check explicitly allows zero.
+    let seenUrl = '';
+    globalThis.fetch = (async (u: string) => {
+      seenUrl = String(u);
+      return new Response(JSON.stringify({
+        ok: true,
+        counts: { manifestDocs: 0, manifestChunks: 0, bm25Chunks: 0, lanceChunks: 0 },
+        findings: [],
+      }), { status: 200 });
+    }) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--stale-after-days', '0']);
+    expect(seenUrl).toContain('staleAfterDays=0');
+    expect(process.exitCode).toBeFalsy();
+  });
+
+  it('--stale-after-days with a negative value is rejected client-side (no API call)', async () => {
+    // The bound-check fires BEFORE the fetch so a typo does not waste
+    // a round-trip. We assert the fetch never happened.
+    let fetched = false;
+    globalThis.fetch = (async () => {
+      fetched = true;
+      return new Response('{}', { status: 200 });
+    }) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--stale-after-days', '-5']);
+    expect(process.exitCode).toBe(1);
+    expect(stderrChunks.join('')).toContain('--stale-after-days must be an integer between 0 and 3650');
+    expect(fetched).toBe(false);
+  });
+
+  it('--stale-after-days with a value above the 3650 cap is rejected client-side', async () => {
+    // 3650 days = ~10 years; anything beyond is almost certainly a
+    // typo (a "stale after a million days" SLO is meaningless).
+    let fetched = false;
+    globalThis.fetch = (async () => {
+      fetched = true;
+      return new Response('{}', { status: 200 });
+    }) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--stale-after-days', '99999']);
+    expect(process.exitCode).toBe(1);
+    expect(stderrChunks.join('')).toContain('--stale-after-days must be an integer between 0 and 3650');
+    expect(fetched).toBe(false);
+  });
+
+  it('--stale-after-days with a non-numeric value is rejected client-side', async () => {
+    // parseInt('banana', 10) returns NaN which is not finite. The
+    // bound-check catches it the same way as negative/out-of-range
+    // and aborts cleanly with the same error message.
+    let fetched = false;
+    globalThis.fetch = (async () => {
+      fetched = true;
+      return new Response('{}', { status: 200 });
+    }) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--stale-after-days', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderrChunks.join('')).toContain('--stale-after-days must be an integer between 0 and 3650');
+    expect(fetched).toBe(false);
+  });
+
+  it('without --stale-after-days, the URL is plain /v1/doctor (no query string)', async () => {
+    // Regression: the legacy URL stays byte-for-byte identical when
+    // the flag is absent so the entire suite of existing scripts /
+    // dashboards continues to work without change.
+    let seenUrl = '';
+    globalThis.fetch = (async (u: string) => {
+      seenUrl = String(u);
+      return new Response(JSON.stringify({
+        ok: true,
+        counts: { manifestDocs: 0, manifestChunks: 0, bm25Chunks: 0, lanceChunks: 0 },
+        findings: [],
+      }), { status: 200 });
+    }) as never;
+    await doctorCommand().parseAsync(['node', 'cli']);
+    expect(seenUrl).toContain('/v1/doctor');
+    expect(seenUrl).not.toContain('staleAfterDays');
+    expect(seenUrl).not.toContain('?');
+  });
 });

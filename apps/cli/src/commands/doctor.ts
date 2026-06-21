@@ -31,13 +31,32 @@ export function doctorCommand() {
   return new Command('doctor')
     .description('Diagnose drift between the manifest, BM25 index, and vector store')
     .option('--severity <level>', 'minimum severity to display: info (default), warn, or error. Higher levels filter out lower-priority findings so a busy index can be reviewed for the critical issues first. The exit code is still driven by the FULL findings list (any error keeps exit 1) — the filter only hides display, never silences a real problem.', 'info')
+    .option('--stale-after-days <n>', 'override the API\'s default 30-day STALE_INDEX threshold. Forwarded as ?staleAfterDays=<n> to /v1/doctor where it is converted to milliseconds before being passed to the runDoctor service. The natural cron use is a freshness SLO that is tighter than 30 days (e.g. `clawmind doctor --severity error --stale-after-days 1` to fail nightly CI when the index has not seen an ingest in the last day). Bounded server-side to 0..3650 days; zero means "any age counts as stale" which is the right tripwire for an index that should never look idle. A non-numeric or out-of-range value is rejected up front so a typo cannot silently degrade to the default threshold.', (v) => Number.parseInt(v, 10))
     .option('--json', 'emit machine-readable JSON instead of a text report')
-    .action(async (opts: { severity: string; json?: boolean }) => {
+    .action(async (opts: { severity: string; staleAfterDays?: number; json?: boolean }) => {
       const env = loadEnv();
       const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
+      // --stale-after-days is forwarded as a query string parameter so
+      // the entire override travels with the request. We validate
+      // client-side BEFORE the fetch so a typo aborts cleanly without
+      // a wasted round-trip. The API enforces the same 0..3650
+      // bound, but rejecting bad input here gives the operator a
+      // crisp error message instead of the generic
+      // "doctor failed (400 Bad Request)" the API surfaces for an
+      // invalid query string.
+      if (opts.staleAfterDays !== undefined) {
+        if (!Number.isFinite(opts.staleAfterDays) || opts.staleAfterDays < 0 || opts.staleAfterDays > 3650) {
+          process.stderr.write(kleur.red(`doctor failed: --stale-after-days must be an integer between 0 and 3650 (got "${opts.staleAfterDays}")\n`));
+          process.exitCode = 1;
+          return;
+        }
+      }
+      const url = opts.staleAfterDays !== undefined
+        ? `${base}/v1/doctor?staleAfterDays=${opts.staleAfterDays}`
+        : `${base}/v1/doctor`;
       let res: Response;
       try {
-        res = await fetch(`${base}/v1/doctor`);
+        res = await fetch(url);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         process.stderr.write(kleur.red(`doctor failed: cannot reach ${base} (${msg})\n`));
