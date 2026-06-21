@@ -1,9 +1,9 @@
 # clawmind autoship STATE
 
 Cron-owned memory for the 20-minute autoship loop. Maintained by Cake (cron)
-on the feature/autoship branch. Sanjay reviews and merges manually.
+directly on main. (Commits land on main each tick.)
 
-- Branch: `feature/autoship` (cut from `main` 2026-06-20).
+- **Active branch: `main`** — commit and push DIRECTLY to main every tick. No feature branches.
 - Cron identity: `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
 - Verify gate: `pnpm run ci:verify` (typecheck + test + build across all packages).
 - Quality bar: each item is a small, demo-able vertical slice. Tests for new
