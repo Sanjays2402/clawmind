@@ -15,3 +15,14 @@ playwright-report/
 test-results/
 
 *.tsbuildinfo
+
+# Stray TypeScript build sidecars next to .ts sources. A `tsc` invocation
+# from inside apps/cli (instead of through `pnpm build`, which writes to
+# apps/cli/dist) leaks .js / .d.ts / .js.map / .d.ts.map files into the
+# source tree. They are never source-of-truth and accidentally committing
+# them would silently shadow the .ts files at runtime — caught and cleaned
+# in the 2026-06-21 00:40 PDT autoship tick. This makes the trap impossible.
+apps/cli/src/**/*.js
+apps/cli/src/**/*.d.ts
+apps/cli/src/**/*.js.map
+apps/cli/src/**/*.d.ts.map
