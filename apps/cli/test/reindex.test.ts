@@ -12,6 +12,23 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 let lastDiscoverArg: string | null = null;
 let mockFiles: string[] = [];
 
+// stat() is invoked when --since is set so the dry-run can drop
+// files whose mtime predates the cutoff. We mock node:fs/promises'
+// stat to return a configurable per-path map; missing entries
+// resolve to ENOENT-style throws so the action's stat-failures-
+// are-non-fatal branch is exercised. The unlink() path stays
+// unmocked so the dry-run guarantee holds (a regression that
+// slipped a wipe into the dry-run branch would crash the mock
+// import as before).
+let mockMtimes: Record<string, number> = {};
+vi.mock('node:fs/promises', () => ({
+  stat: async (p: string) => {
+    if (p in mockMtimes) return { mtimeMs: mockMtimes[p] };
+    throw new Error(`stat mock: missing entry for ${p}`);
+  },
+  unlink: async () => undefined,
+}));
+
 vi.mock('../src/runtime.js', () => ({
   buildRuntime: async () => ({
     env: { CLAWMIND_WORKSPACE: '/tmp/workspace' },
@@ -45,6 +62,7 @@ describe('reindex cli --dry-run', () => {
     stderr = [];
     lastDiscoverArg = null;
     mockFiles = [];
+    mockMtimes = {};
     origOut = process.stdout.write.bind(process.stdout);
     origErr = process.stderr.write.bind(process.stderr);
     process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
@@ -169,5 +187,112 @@ describe('reindex cli --dry-run', () => {
     mockFiles = ['/tmp/workspace/a.md', '/tmp/workspace/b.ts'];
     await reindexCommand().parseAsync(['node', 'cli', '--dry-run', '--paths-only', '--json']);
     expect(stdout.join('')).toBe('/tmp/workspace/a.md\n/tmp/workspace/b.ts\n');
+  });
+
+  // ---------------------------------------------------------------
+  // --since tests — mtime filter for partial-reindex flow. With
+  // --dry-run + --since, the preview is narrowed by mtime. Parse
+  // failures abort up front BEFORE any wipe (critical safety:
+  // the live path runs wipe first then ingest, so a typo'd cutoff
+  // landing mid-flight would leave the index in a partial state).
+  // ---------------------------------------------------------------
+
+  it('exposes --since on the command surface', () => {
+    const flags = reindexCommand().options.map((o) => o.long);
+    expect(flags).toContain('--since');
+  });
+
+  it('--dry-run --since narrows the preview to files modified at-or-after the cutoff', async () => {
+    // Three discovered files with mtimes 1000, 2000, 3000 ms.
+    // Cutoff at 2000 INCLUSIVE keeps mtimeMs >= 2000 — the two
+    // newest files.
+    mockFiles = ['/tmp/workspace/a.md', '/tmp/workspace/b.ts', '/tmp/workspace/c.json'];
+    mockMtimes = {
+      '/tmp/workspace/a.md': 3000,
+      '/tmp/workspace/b.ts': 2000,
+      '/tmp/workspace/c.json': 1000,
+    };
+    await reindexCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--since', new Date(2000).toISOString(), '--json',
+    ]);
+    const parsed = JSON.parse(stdout.join(''));
+    expect(parsed.count).toBe(2);
+    expect(parsed.files.sort()).toEqual(['/tmp/workspace/a.md', '/tmp/workspace/b.ts']);
+  });
+
+  it('--dry-run --since with no matches yields a clean empty paths stream', async () => {
+    // All files older than cutoff — preview shows nothing.
+    mockFiles = ['/tmp/workspace/a.md'];
+    mockMtimes = { '/tmp/workspace/a.md': 1000 };
+    await reindexCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--since', new Date(9000).toISOString(), '--paths-only',
+    ]);
+    // xargs-friendly: empty stream, no header, no rerun nudge.
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('--dry-run --since text mode prints the count-zero header when the filter eliminates everything', async () => {
+    // The yellow "would reindex 0 file(s)" header still prints so
+    // the operator knows the command ran and the filter is what
+    // narrowed the result, NOT a missing root.
+    mockFiles = ['/tmp/workspace/a.md'];
+    mockMtimes = { '/tmp/workspace/a.md': 1000 };
+    await reindexCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--since', new Date(9000).toISOString(),
+    ]);
+    const out = stdout.join('');
+    expect(out).toContain('would reindex 0 file(s) under /tmp/workspace');
+    // No rerun nudge when there is nothing to rerun.
+    expect(out).not.toContain('rerun without --dry-run');
+  });
+
+  it('--since is INCLUSIVE: a file modified at exactly the cutoff is KEPT', async () => {
+    // Mirrors the --since semantics on ingest / stale / pins / mutes.
+    // A file modified at exactly the cutoff timestamp is "modified
+    // at the cutoff", which is the boundary the operator wants to
+    // include (an exclusive bound would silently drop changes that
+    // happened in the same second as the previous run).
+    mockFiles = ['/tmp/workspace/exact.md'];
+    mockMtimes = { '/tmp/workspace/exact.md': 2000 };
+    await reindexCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--since', new Date(2000).toISOString(), '--json',
+    ]);
+    const parsed = JSON.parse(stdout.join(''));
+    expect(parsed.files).toEqual(['/tmp/workspace/exact.md']);
+  });
+
+  it('--since with an invalid ISO date aborts cleanly with exit code 1 (BEFORE any wipe)', async () => {
+    // The most safety-critical defence in the command: the live
+    // path wipes manifest+BM25 FIRST then calls ingest, so a
+    // typo'd cutoff must hard-fail BEFORE any mutation. We test
+    // this by passing --since without --dry-run AND a bad value
+    // — the command MUST fail with exit code 1, and discoverFiles
+    // must NOT have been called (the validation short-circuits
+    // before any work).
+    mockFiles = ['/tmp/workspace/a.md'];
+    await reindexCommand().parseAsync([
+      'node', 'cli', '--since', 'banana',
+    ]);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('reindex failed: --since value "banana" is not a valid ISO date');
+    // discoverFiles must NOT have been called.
+    expect(lastDiscoverArg).toBeNull();
+  });
+
+  it('--dry-run --since with stat failures drops the file silently (does not abort the preview)', async () => {
+    // stat() failures on individual files are non-fatal — the file
+    // is dropped (cannot be re-ingested anyway) and the rest of the
+    // discovery proceeds. We test this by leaving one file out of
+    // mockMtimes so the mock throws when stat() is called on it.
+    mockFiles = ['/tmp/workspace/a.md', '/tmp/workspace/broken.md'];
+    mockMtimes = { '/tmp/workspace/a.md': 3000 }; // broken.md NOT in map
+    await reindexCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--since', new Date(2000).toISOString(), '--json',
+    ]);
+    const parsed = JSON.parse(stdout.join(''));
+    // a.md survives (mtime 3000 >= 2000); broken.md silently dropped.
+    expect(parsed.files).toEqual(['/tmp/workspace/a.md']);
+    // No error to stderr — the stat-failure path is deliberately quiet.
+    expect(stderr.join('')).toBe('');
   });
 });
