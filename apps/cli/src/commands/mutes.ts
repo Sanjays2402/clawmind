@@ -83,9 +83,10 @@ export function mutesCommand() {
     .description('List currently muted sources, newest first')
     .option('-q, --q <text>', 'case-insensitive substring filter across path and reason')
     .option('--since <iso-date>', 'keep only mutes whose mutedAt is at-or-after this ISO date. Mirrors `pins list --since` byte-for-byte (cron snapshot of "what got muted in the last 24h"). Composes with -q as an intersection. Cutoff is INCLUSIVE (>=). Parse failures abort cleanly with exit code 1.')
+    .option('--by <user>', 'keep only mutes whose mutedBy matches this user id EXACTLY. Mirrors `pins list --by` byte-for-byte — the symmetry is intentional because a cron operator scripting per-user snapshots wants the same flag on both sides of the pin/mute pair. Exact-match semantics so overlapping user-id prefixes do not bleed. Composes with -q and --since as an intersection. Filter applies BEFORE --paths / --json / text rendering so every output mode sees the same subset and the recomputed count reflects the filtered length.')
     .option('--paths', 'emit only the muted paths, one per line, with no styling or reasons (pipe-friendly)')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; paths?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; by?: string; paths?: boolean; json?: boolean }) => {
       await runOrReport('mutes list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/mutes${qs}`)) as {
@@ -110,6 +111,19 @@ export function mutesCommand() {
             throw new MutesCliError(`--since value "${opts.since}" is not a valid ISO date`);
           }
           const items = out.items.filter((it) => it.mutedAt >= cutoff);
+          out = { ...out, items, count: items.length };
+        }
+        // --by <user> is a client-side post-filter on mutedBy.
+        // EXACT-MATCH semantics (===, not substring/contains) so
+        // overlapping user-id prefixes do not bleed across the
+        // filter. We apply it AFTER --since so the intersection
+        // is "creator AND recency" — the natural cron question.
+        // Mirrors `pins list --by` byte-for-byte; the symmetry
+        // is the entire point so a multi-user workspace can run
+        // the same per-user audit on both sides of the pin/mute
+        // pair without conditional plumbing.
+        if (opts.by !== undefined) {
+          const items = out.items.filter((it) => it.mutedBy === opts.by);
           out = { ...out, items, count: items.length };
         }
         if (opts.json) {

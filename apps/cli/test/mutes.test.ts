@@ -143,4 +143,81 @@ describe('mutes cli', () => {
     expect(process.exitCode).toBe(1);
     expect(stderr.join('')).toContain('mutes list failed: --since value "banana" is not a valid ISO date');
   });
+
+  // ---------------------------------------------------------------
+  // --by <user> tests — client-side post-filter on mutedBy.
+  // Mirrors `pins list --by` byte-for-byte (exact match, composes
+  // with -q + --since as an intersection, filter applies BEFORE
+  // every output mode). The symmetry is the entire point so a
+  // multi-user workspace can run the same per-user audit on both
+  // sides of the pin/mute pair without conditional plumbing.
+  // ---------------------------------------------------------------
+
+  it('--by keeps only mutes whose mutedBy === <user> (exact match, json mode)', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', mutedAt: 3000, mutedBy: 'sanjay' },
+        { path: '/b.md', mutedAt: 2000, mutedBy: 'cake' },
+        { path: '/c.md', mutedAt: 1000, mutedBy: 'sanjay' },
+      ],
+      count: 3,
+    });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--by', 'sanjay', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string; mutedBy: string }[]; count: number };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/a.md', '/c.md']);
+    expect(parsed.count).toBe(2);
+    expect(parsed.items.every((i) => i.mutedBy === 'sanjay')).toBe(true);
+  });
+
+  it('--by uses EXACT match (overlapping user-id prefixes do NOT bleed)', async () => {
+    // Same critical contract as pins --by: `sanjay-readonly` must
+    // NOT match `--by sanjay`. Substring semantics would silently
+    // bleed per-user audits in a multi-user workspace.
+    stubFetch({
+      items: [
+        { path: '/owner.md', mutedAt: 3000, mutedBy: 'sanjay' },
+        { path: '/reader.md', mutedAt: 2000, mutedBy: 'sanjay-readonly' },
+        { path: '/other.md', mutedAt: 1000, mutedBy: 'cake' },
+      ],
+      count: 3,
+    });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--by', 'sanjay', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/owner.md']);
+    expect(parsed.count).toBe(1);
+  });
+
+  it('--by composes with --since as an intersection (creator AND recency)', async () => {
+    stubFetch({
+      items: [
+        { path: '/recent-sanjay.md', mutedAt: 3000, mutedBy: 'sanjay' },
+        { path: '/old-sanjay.md', mutedAt: 1000, mutedBy: 'sanjay' },
+        { path: '/recent-cake.md', mutedAt: 3500, mutedBy: 'cake' },
+      ],
+      count: 3,
+    });
+    await mutesCommand().parseAsync([
+      'node', 'cli', 'list',
+      '--by', 'sanjay',
+      '--since', new Date(2000).toISOString(),
+      '--json',
+    ]);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    // Only /recent-sanjay.md satisfies BOTH (sanjay AND >= 2000).
+    expect(parsed.items.map((i) => i.path)).toEqual(['/recent-sanjay.md']);
+    expect(parsed.count).toBe(1);
+  });
+
+  it('--by composes with --paths (filter applies BEFORE the --paths short-circuit)', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', mutedAt: 3000, mutedBy: 'sanjay' },
+        { path: '/b.md', mutedAt: 2000, mutedBy: 'cake' },
+        { path: '/c.md', mutedAt: 1000, mutedBy: 'sanjay' },
+      ],
+      count: 3,
+    });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--by', 'sanjay', '--paths']);
+    expect(stdout.join('')).toBe('/a.md\n/c.md\n');
+  });
 });

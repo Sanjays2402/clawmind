@@ -166,4 +166,115 @@ describe('pins cli', () => {
     expect(process.exitCode).toBe(1);
     expect(stderr.join('')).toContain('pins list failed: --since value "banana" is not a valid ISO date');
   });
+
+  // ---------------------------------------------------------------
+  // --by <user> tests — client-side post-filter on pinnedBy.
+  // EXACT-MATCH semantics (===, not substring) so overlapping
+  // user-id prefixes do not bleed. Composes with -q + --since
+  // as an intersection. Filter applies BEFORE --paths/--json/text
+  // so every output mode sees the same filtered subset and the
+  // recomputed count reflects the filtered length. Multi-user
+  // workspaces grow these maps fast; --by is what makes the
+  // per-user audit pattern (`pins list --by sanjay --since X`)
+  // viable from cron.
+  // ---------------------------------------------------------------
+
+  it('--by keeps only pins whose pinnedBy === <user> (exact match, json mode)', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', pinnedAt: 3000, pinnedBy: 'sanjay' },
+        { path: '/b.md', pinnedAt: 2000, pinnedBy: 'cake' },
+        { path: '/c.md', pinnedAt: 1000, pinnedBy: 'sanjay' },
+      ],
+      count: 3,
+    });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--by', 'sanjay', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string; pinnedBy: string }[]; count: number };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/a.md', '/c.md']);
+    // Recomputed count reflects the filtered length, not the API total.
+    expect(parsed.count).toBe(2);
+    // Defensive: every surviving item carries the matching pinnedBy.
+    expect(parsed.items.every((i) => i.pinnedBy === 'sanjay')).toBe(true);
+  });
+
+  it('--by uses EXACT match (overlapping user-id prefixes do NOT bleed)', async () => {
+    // Critical contract: `sanjay-readonly` must NOT match `--by sanjay`.
+    // Substring semantics would cause a multi-user workspace with
+    // role-suffixed ids to bleed the per-user audit, which is the
+    // exact failure mode --by exists to prevent.
+    stubFetch({
+      items: [
+        { path: '/owner.md', pinnedAt: 3000, pinnedBy: 'sanjay' },
+        { path: '/reader.md', pinnedAt: 2000, pinnedBy: 'sanjay-readonly' },
+        { path: '/other.md', pinnedAt: 1000, pinnedBy: 'cake' },
+      ],
+      count: 3,
+    });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--by', 'sanjay', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/owner.md']);
+    expect(parsed.count).toBe(1);
+  });
+
+  it('--by composes with --since as an intersection (creator AND recency)', async () => {
+    // The natural cron use is "what did Sanjay pin in the last
+    // 24h". --by narrows by creator; --since narrows by recency.
+    // The intersection must require BOTH conditions. We seed three
+    // sanjay-pins across time and one cake-pin at the boundary.
+    stubFetch({
+      items: [
+        { path: '/recent-sanjay.md', pinnedAt: 3000, pinnedBy: 'sanjay' },
+        { path: '/old-sanjay.md', pinnedAt: 1000, pinnedBy: 'sanjay' },
+        { path: '/recent-cake.md', pinnedAt: 3500, pinnedBy: 'cake' },
+      ],
+      count: 3,
+    });
+    await pinsCommand().parseAsync([
+      'node', 'cli', 'list',
+      '--by', 'sanjay',
+      '--since', new Date(2000).toISOString(),
+      '--json',
+    ]);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    // Only /recent-sanjay.md satisfies BOTH (sanjay AND >= 2000).
+    expect(parsed.items.map((i) => i.path)).toEqual(['/recent-sanjay.md']);
+    expect(parsed.count).toBe(1);
+  });
+
+  it('--by composes with --paths (filter applies BEFORE the --paths short-circuit)', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', pinnedAt: 3000, pinnedBy: 'sanjay' },
+        { path: '/b.md', pinnedAt: 2000, pinnedBy: 'cake' },
+        { path: '/c.md', pinnedAt: 1000, pinnedBy: 'sanjay' },
+      ],
+      count: 3,
+    });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--by', 'sanjay', '--paths']);
+    // Exact byte layout — only Sanjay's two paths.
+    expect(stdout.join('')).toBe('/a.md\n/c.md\n');
+  });
+
+  it('--by with zero matches yields a clean empty paths stream (no "no pinned" hint)', async () => {
+    stubFetch({
+      items: [{ path: '/a.md', pinnedAt: 3000, pinnedBy: 'cake' }],
+      count: 1,
+    });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--by', 'sanjay', '--paths']);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--by with zero matches in text mode prints the "no pinned sources" hint (count reflects filter)', async () => {
+    // Text mode renders the empty-state hint based on the
+    // recomputed count, which reflects the filter. We assert the
+    // hint appears even though the API returned a non-empty list —
+    // proves the recomputed count drives the hint, not the API total.
+    stubFetch({
+      items: [{ path: '/a.md', pinnedAt: 3000, pinnedBy: 'cake' }],
+      count: 1,
+    });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--by', 'sanjay']);
+    expect(stdout.join('')).toContain('no pinned sources');
+  });
 });

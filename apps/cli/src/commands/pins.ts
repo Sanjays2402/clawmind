@@ -83,9 +83,10 @@ export function pinsCommand() {
     .description('List currently pinned sources, newest first')
     .option('-q, --q <text>', 'case-insensitive substring filter across path and note')
     .option('--since <iso-date>', 'keep only pins whose pinnedAt is at-or-after this ISO date. The natural cron use is a daily snapshot of "what got pinned in the last 24h" without scrolling through every entry: `clawmind pins list --since "$(date -u -d \'1 day ago\' +%FT%TZ)" --paths`. Composes with -q (intersection: pin must both match the substring AND be recent enough). Cutoff is INCLUSIVE (>=) so a pin created exactly at the cutoff is kept — matches the existing --since semantics on stale / stats / digest show. Parse failures abort cleanly with exit code 1.')
+    .option('--by <user>', 'keep only pins whose pinnedBy matches this user id EXACTLY. The natural cron use is scoping a daily snapshot to a specific creator in a multi-user workspace where the pin map grows fast — `clawmind pins list --by sanjay --since "$(date -u -d \'1 day ago\' +%FT%TZ)"` answers "what did Sanjay pin today" without scrolling through every member\'s additions. Exact-match semantics (not substring) so the filter is deterministic and pin maps with overlapping user-id prefixes (`sanjay-readonly` vs `sanjay`) don\'t bleed. Composes with -q and --since as an intersection. Filter applies BEFORE --paths / --json / text rendering so every output mode sees the same filtered subset and the recomputed count reflects the filtered length. An empty match yields a clean empty stream / `count: 0` payload — same shape as zero matches from --since or -q.')
     .option('--paths', 'emit only the pinned paths, one per line, with no styling or notes (pipe-friendly)')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; paths?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; by?: string; paths?: boolean; json?: boolean }) => {
       await runOrReport('pins list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/pins${qs}`)) as {
@@ -119,6 +120,30 @@ export function pinsCommand() {
             throw new PinsCliError(`--since value "${opts.since}" is not a valid ISO date`);
           }
           const items = out.items.filter((it) => it.pinnedAt >= cutoff);
+          out = { ...out, items, count: items.length };
+        }
+        // --by <user> is a client-side post-filter on pinnedBy.
+        // EXACT-MATCH semantics (===, not substring/contains) so
+        // a pin map with overlapping user-id prefixes (e.g.
+        // `sanjay` vs `sanjay-readonly`) does not bleed across
+        // the filter — a cron operator asking "what did Sanjay
+        // pin" gets exactly Sanjay's pins, not the union of every
+        // user whose id starts with `sanjay`. The deterministic
+        // contract also means a test fixture pinning byte
+        // layouts (this section's tests pin them) cannot drift
+        // when a new user is added to the workspace.
+        //
+        // We apply it AFTER --since so the intersection is
+        // "creator AND recency" — the natural cron question
+        // ("what did Sanjay pin in the last 24h"). Composes with
+        // -q (the substring filter, which fires server-side via
+        // the ?q= query string) as a further intersection client-
+        // side: -q narrows by content first, --by narrows by
+        // creator second, --since narrows by recency third, all
+        // applied BEFORE the --paths / --json / text short-circuit
+        // so the recomputed count reflects every filter that ran.
+        if (opts.by !== undefined) {
+          const items = out.items.filter((it) => it.pinnedBy === opts.by);
           out = { ...out, items, count: items.length };
         }
         if (opts.json) {
