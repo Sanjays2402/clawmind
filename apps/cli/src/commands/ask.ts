@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { writeFile } from 'node:fs/promises';
 import kleur from 'kleur';
 import { askStream } from '@clawmind/rag';
 import { QuerySchema } from '@clawmind/types';
@@ -13,7 +14,8 @@ export function askCommand() {
     .option('-t, --threshold <n>', 'require at least one retrieved source with score >= n; if all sources fall below this bar the LLM is NOT called and a non-zero exit code is returned')
     .option('--no-citations', 'in text mode, hide the citations footer; in --json mode, omit the citations[] array. The streamed answer is unchanged.')
     .option('--json', 'emit answer, citations, and metadata as JSON for scripting')
-    .action(async (question: string[], opts: { k: string; namespaces?: string; json?: boolean; citations: boolean; threshold?: string }) => {
+    .option('-o, --out <file>', 'write the answer (and citations footer / JSON payload, depending on mode) to a file instead of stdout. Stderr still gets progress / error chatter. Mirrors the same flag on `clawmind search`.')
+    .action(async (question: string[], opts: { k: string; namespaces?: string; json?: boolean; citations: boolean; threshold?: string; out?: string }) => {
       const rt = await buildRuntime();
       const q = QuerySchema.parse({
         q: question.join(' '),
@@ -36,6 +38,17 @@ export function askCommand() {
       let model = '';
       let errored = false;
       let belowThreshold = false;
+      // --out captures the answer in memory and writes once at the end.
+      // In text mode this means we suppress the token-by-token stdout
+      // dribble (the operator chose a file, they don't want the answer
+      // both on screen AND in the file); the latency footer also goes
+      // to the file. Stderr still carries progress/error chatter so a
+      // long-running ask can be tailed with `tail -f answer.txt` while
+      // errors / threshold-skip hints surface on the terminal. In
+      // --json mode the behaviour matches `search --out`: the JSON
+      // payload lands in the file and a green confirmation line goes
+      // to stderr.
+      const captureToFile = Boolean(opts.out);
       for await (const evt of askStream(deps, q)) {
         if (evt.type === 'sources') {
           for (const s of evt.value) {
@@ -93,6 +106,15 @@ export function askCommand() {
             answer += evt.value;
             continue;
           }
+          // When --out is set, accumulate silently — the file write at
+          // the end carries the whole answer + (optional) citations
+          // footer. When --out is NOT set, behave exactly as before:
+          // print the gray sources header once, then stream the
+          // answer token-by-token.
+          if (captureToFile) {
+            answer += evt.value;
+            continue;
+          }
           if (!printedSources) {
             process.stdout.write(kleur.gray(`\nsources: ${sources.length}\n`));
             printedSources = true;
@@ -112,7 +134,11 @@ export function askCommand() {
         } else if (evt.type === 'done') {
           latencyMs = evt.value.latencyMs;
           model = evt.value.model;
-          if (!opts.json) {
+          if (!opts.json && !captureToFile) {
+            // Latency footer only goes to stdout when we are streaming
+            // the answer to stdout. When --out is set, the latency is
+            // appended to the file body below so the operator's saved
+            // answer is self-contained.
             process.stdout.write(kleur.gray(`\n\n(${latencyMs}ms via ${model})\n`));
           }
         }
@@ -142,7 +168,38 @@ export function askCommand() {
           }));
           payload.count = sources.length;
         }
-        process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
+        const body = JSON.stringify(payload, null, 2) + '\n';
+        if (opts.out) {
+          // Same shape as `search --out`: payload to file, confirmation
+          // line to stderr so stdout stays parseable when --out is
+          // chained with something else (rare for ask, but worth the
+          // consistency with search).
+          await writeFile(opts.out, body, 'utf8');
+          process.stderr.write(kleur.green(`wrote answer (${answer.length} chars) -> ${opts.out}\n`));
+        } else {
+          process.stdout.write(body);
+        }
+        return;
+      }
+      if (opts.out) {
+        // Text-mode --out: assemble the same shape the streaming path
+        // would produce (sources header, answer body, latency footer,
+        // optional citations), but as one final write to the chosen
+        // file. ANSI styling is stripped: the kleur calls below are
+        // intentionally absent so the saved text is grep-clean and
+        // editor-friendly (mirrors `search --out` dropping ANSI).
+        const parts: string[] = [];
+        parts.push(`sources: ${sources.length}\n`);
+        parts.push(answer);
+        parts.push(`\n\n(${latencyMs}ms via ${model})\n`);
+        if (opts.citations !== false && sources.length) {
+          parts.push('\ncitations:\n');
+          sources.forEach((s, i) => {
+            parts.push(`  [^${i + 1}] ${s.path}:${s.startLine}-${s.endLine}\n`);
+          });
+        }
+        await writeFile(opts.out, parts.join(''), 'utf8');
+        process.stderr.write(kleur.green(`wrote answer (${answer.length} chars) -> ${opts.out}\n`));
         return;
       }
       // --no-citations also suppresses the text-mode footer below.

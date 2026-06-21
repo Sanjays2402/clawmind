@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 // Runtime is mocked away — the ask command needs the same shape but
 // nothing it depends on actually runs.
@@ -236,5 +239,98 @@ describe('ask --threshold', () => {
     expect(err).toContain('no citation cleared --threshold 0.99');
     // The skip path still does not call the LLM.
     expect(stdout.join('')).not.toContain('UNIQUE_TOKEN_');
+  });
+});
+
+describe('ask --out writes answer to a file', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  let dir: string;
+  beforeEach(async () => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    askStreamCalls = 0;
+    nextEvents = [
+      { type: 'sources', value: [
+        { path: '/a.md', startLine: 1, endLine: 5, score: 0.91 },
+        { path: '/b.md', startLine: 10, endLine: 20, score: 0.62 },
+      ] },
+      { type: 'token', value: 'hello ' },
+      { type: 'token', value: 'world' },
+      { type: 'done', value: { latencyMs: 42, model: 'fake-model' } },
+    ];
+    dir = await mkdtemp(path.join(tmpdir(), 'clawmind-ask-out-'));
+  });
+  afterEach(async () => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+    vi.restoreAllMocks();
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('text mode --out writes the assembled answer (sources/body/latency/citations) to the file', async () => {
+    const out = path.join(dir, 'answer.txt');
+    await askCommand().parseAsync(['node', 'cli', '-o', out, 'what', 'is', 'x']);
+    // Stdout must be empty — the file is the canonical output sink.
+    expect(stdout.join('')).toBe('');
+    // Stderr carries the green confirmation line so a watching shell
+    // still sees the command finished.
+    expect(stderr.join('')).toContain('wrote answer');
+    expect(stderr.join('')).toContain(out);
+    const body = await readFile(out, 'utf8');
+    expect(body).toContain('sources: 2');
+    expect(body).toContain('hello world');
+    expect(body).toContain('(42ms via fake-model)');
+    // Citations footer present by default.
+    expect(body).toContain('citations:');
+    expect(body).toContain('[^1] /a.md:1-5');
+    expect(body).toContain('[^2] /b.md:10-20');
+    // The saved file must be ANSI-clean so grep/editor stay readable.
+    expect(body).not.toMatch(/\x1b\[/);
+  });
+
+  it('text mode --out with --no-citations omits the citations footer in the saved file', async () => {
+    const out = path.join(dir, 'no-cite.txt');
+    await askCommand().parseAsync(['node', 'cli', '--no-citations', '-o', out, 'q']);
+    const body = await readFile(out, 'utf8');
+    expect(body).toContain('hello world');
+    expect(body).toContain('(42ms via fake-model)');
+    // The post-answer footer is gone.
+    expect(body).not.toContain('citations:');
+    expect(body).not.toContain('[^1]');
+  });
+
+  it('--json --out writes the JSON payload to the file (not stdout)', async () => {
+    const out = path.join(dir, 'answer.json');
+    await askCommand().parseAsync(['node', 'cli', '--json', '-o', out, 'q']);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toContain('wrote answer');
+    const parsed = JSON.parse(await readFile(out, 'utf8')) as Record<string, unknown>;
+    expect(parsed.answer).toBe('hello world');
+    expect(parsed.latencyMs).toBe(42);
+    expect(parsed.model).toBe('fake-model');
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--out short-circuits the token-by-token stdout stream', async () => {
+    // Critical regression guard: the answer must NOT also reach stdout
+    // when the operator chose a file. Otherwise `ask ... --out a.txt`
+    // would dump the full answer twice (once to screen, once to file),
+    // which is exactly the failure mode --out is meant to avoid.
+    const out = path.join(dir, 'silence.txt');
+    await askCommand().parseAsync(['node', 'cli', '-o', out, 'q']);
+    expect(stdout.join('')).not.toContain('hello');
+    expect(stdout.join('')).not.toContain('world');
+    expect(stdout.join('')).not.toContain('42ms');
+    // ...and the file still has the answer.
+    const body = await readFile(out, 'utf8');
+    expect(body).toContain('hello world');
   });
 });
