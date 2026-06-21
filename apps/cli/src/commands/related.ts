@@ -11,10 +11,11 @@ export function relatedCommand() {
     .argument('<path>', 'indexed source path to find neighbours for')
     .option('-k, --k <n>', 'how many related sources to return', (v) => parseInt(v, 10), 8)
     .option('-n, --namespaces <list>', 'comma-separated namespaces to restrict to')
+    .option('--paths-only', 'pipeline-friendly: emit ONLY the neighbour paths, one per line, in rank order. No styling, no header, no "no related sources" hint. Zero matches yields a clean empty stream so xargs/wc keep working. Mirrors the contract used by search --paths-only, forget --paths-only, and the pins/mutes/aliases/tags --paths family.')
     .option('--json', 'emit results as JSON for scripting')
     .description('Find sources semantically similar to a given indexed path');
 
-  cmd.action(async (path: string, opts: { k: number; namespaces?: string; json?: boolean }) => {
+  cmd.action(async (path: string, opts: { k: number; namespaces?: string; pathsOnly?: boolean; json?: boolean }) => {
     const env = loadEnv();
     const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
     const url = new URL(`${base}/v1/related`);
@@ -51,6 +52,27 @@ export function relatedCommand() {
       items: { path: string; namespace: string; score: number; hits: number; excerpt: string }[];
       count: number;
     };
+    // --paths-only is the pipeline-friendly twin of search --paths-only
+    // / forget --paths-only / pins-mutes-aliases-tags --paths. We emit
+    // one path per line in rank order (the API already returns items
+    // ranked by score so we keep its order verbatim). Each path is
+    // deduplicated against a Set sentinel — the API currently returns
+    // each source at most once, but matching the search --paths-only
+    // contract means the cli flag has the same guarantee even if the
+    // API later grows finer granularity. Zero matches yields a clean
+    // empty stream (no header, no "no related sources" hint, no ANSI)
+    // so `clawmind related foo.md --paths-only | xargs ls` is safe.
+    // We short-circuit before --json / styling so the contract is
+    // unambiguous: --paths-only wins when set.
+    if (opts.pathsOnly) {
+      const seen = new Set<string>();
+      for (const it of out.items) {
+        if (seen.has(it.path)) continue;
+        seen.add(it.path);
+        process.stdout.write(`${it.path}\n`);
+      }
+      return;
+    }
     if (opts.json) {
       process.stdout.write(JSON.stringify(out, null, 2) + '\n');
       return;
