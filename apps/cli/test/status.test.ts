@@ -141,4 +141,138 @@ describe('status cli', () => {
     await statusCommand().parseAsync(['node', 'cli']);
     expect(process.exitCode).toBeFalsy();
   });
+
+  // ---------------------------------------------------------------
+  // --watch polling loop. The flag turns the one-shot status into a
+  // refreshing dashboard. We use --max-polls in every watch test to
+  // bound the loop (otherwise vitest would hang forever). All tests
+  // here use the minimum poll interval (100ms) so the suite stays
+  // fast — anything lower would be rejected by the validation guard
+  // up front (which we also test below).
+  // ---------------------------------------------------------------
+
+  it('--watch with --max-polls 3 --json emits exactly 3 NDJSON snapshots (one per line)', async () => {
+    embedHealthy = true;
+    llmHealthy = true;
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '3', '--json']);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    // Exactly 3 lines — one NDJSON document per polling cycle. The
+    // contract is "snapshot stream", so a downstream `jq -c .`
+    // sees three independent JSON documents, not one big array.
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      const doc = JSON.parse(line);
+      // Each line is a complete StatusSnapshot — same shape the
+      // one-shot --json mode emits, so a dashboard does not have
+      // to special-case the watch variant.
+      expect(doc.workspace).toBe('/tmp/workspace');
+      expect(doc.embed).toBe('ok');
+      expect(doc.llm).toBe('ok');
+      expect(doc.ok).toBe(true);
+      expect(typeof doc.embedLatencyMs).toBe('number');
+    }
+    // No multi-line indent that would break NDJSON.
+    expect(lines.every((l) => !l.startsWith(' '))).toBe(true);
+  });
+
+  it('--watch text mode prints the dashboard body on each cycle', async () => {
+    embedHealthy = true;
+    llmHealthy = true;
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '2']);
+    const text = stdout.join('');
+    // "ClawMind status" header appears once per cycle. With 2
+    // cycles we expect 2 occurrences.
+    const headerCount = text.split('ClawMind status').length - 1;
+    expect(headerCount).toBe(2);
+    // The api-base line shows up too on each cycle.
+    expect(text).toContain('api       : http://127.0.0.1:7410');
+  });
+
+  it('--watch --max-polls --check sets exit code 2 when the FINAL snapshot is unhealthy', async () => {
+    // Both probes down for the whole loop -> last snapshot is
+    // unhealthy -> exit code 2 reflects that. We do not exit
+    // early on the first bad probe because the watcher is a
+    // monitoring tool, not a circuit breaker — but the final
+    // state still drives the exit code under --check.
+    embedHealthy = false;
+    llmHealthy = false;
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '2', '--check', '--json']);
+    expect(process.exitCode).toBe(2);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(2);
+    for (const line of lines) {
+      const doc = JSON.parse(line);
+      expect(doc.ok).toBe(false);
+    }
+  });
+
+  it('--watch --max-polls --check exits 0 when the FINAL snapshot is healthy (recovery cycle counts)', async () => {
+    // First cycle is observed unhealthy, second cycle observed
+    // healthy. The watcher's contract is "final state drives
+    // --check exit code" so an operator can run
+    //   clawmind status --watch 5000 --max-polls 5 --check
+    // and use the result to know "is the index UP RIGHT NOW".
+    let polls = 0;
+    embedHealthy = false;
+    llmHealthy = false;
+    const realHealth = (await import('../src/runtime.js')).buildRuntime;
+    void realHealth; // just to silence the import
+    // Flip both healthy after the first cycle by overriding the
+    // module-level switches mid-test. The mock reads them on
+    // each call, so by the time the second polling cycle's
+    // probes fire, both will report ok.
+    const flip = setTimeout(() => {
+      embedHealthy = true;
+      llmHealthy = true;
+      polls += 1;
+    }, 80);
+    flip.unref?.();
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '120', '--max-polls', '2', '--check', '--json']);
+    clearTimeout(flip);
+    // The last snapshot was healthy, so --check is satisfied.
+    expect(process.exitCode).toBeFalsy();
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(2);
+    // The first snapshot is the unhealthy one; the second one
+    // shows recovery.
+    expect(JSON.parse(lines[0]!).ok).toBe(false);
+    expect(JSON.parse(lines[1]!).ok).toBe(true);
+  });
+
+  it('--watch rejects sub-100ms intervals up front (no polling, exit 1)', async () => {
+    // A typo'd --watch 0 would melt CPU on a probe loop; --watch 50
+    // would hammer the providers faster than they can plausibly
+    // respond. The 100ms floor protects both classes of mistake.
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '0']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('status failed: --watch interval must be >= 100ms');
+    // No polling cycles fired (no body written to stdout).
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('--max-polls rejects non-positive values up front (exit 1)', async () => {
+    // --max-polls 0 silently degrading to "no cap" would defeat
+    // the entire purpose of the flag (which is to bound the
+    // loop). Reject it cleanly.
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '0']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('status failed: --max-polls value must be a positive integer');
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('--max-polls without --watch is silently ignored (one-shot path runs once and exits)', async () => {
+    // The flag's companion (--watch) is absent — silently ignore
+    // and fall through to the one-shot path. Matches the precedent
+    // set by `digest run --slim` without --json.
+    embedHealthy = true;
+    llmHealthy = true;
+    await statusCommand().parseAsync(['node', 'cli', '--max-polls', '5', '--json']);
+    // Single JSON document — the one-shot shape, not the
+    // NDJSON-per-cycle shape.
+    const text = stdout.join('').trim();
+    const doc = JSON.parse(text);
+    expect(doc.workspace).toBe('/tmp/workspace');
+    // No trailing newlines suggesting multiple lines.
+    expect(text.split('\n')).toHaveLength(1);
+  });
 });
