@@ -64,8 +64,9 @@ export function staleCommand() {
     .option('--paths', 'print just the path column for piping into other commands. Predates the `--paths-only` naming used by search/forget/related/pins etc. and is preserved here for back-compat with byte-layout tests; `--paths-only` is the recommended alias going forward.')
     .option('--paths-only', 'alias for --paths to bring the flag in line with search/forget/related (which all expose --paths-only). Either flag emits exactly the same byte stream (one path per line, no ANSI, no header) so existing scripts using --paths keep working unchanged. When both are passed, --paths-only wins (it is the newer, canonical spelling).')
     .option('--tsv', 'emit tab-separated rows (path<TAB>ageDays<TAB>chunkCount<TAB>size) suitable for awk/cut')
+    .option('--header', 'with --tsv: prepend a single tab-separated header row (`path\\tageDays\\tchunkCount\\tsize`) so the stream is friendly to `column -ts$\\\'\\\\t\\\'` / pandas.read_csv / spreadsheet imports without a separate echo. The default header-less shape is preserved when --header is absent so the long-standing awk-pipeline contract (`awk -F$\\\'\\\\t\\\' \\\'{print $1}\\\'`) still works byte-for-byte. Ignored without --tsv (the JSON / --paths / --paths-only / text modes already have their own well-defined shapes; adding a header line to those would break tests pinned to their exact byte layouts). When zero rows pass the filters AND --header is set, the header row STILL fires so a downstream consumer parsing the stream into a typed table never has to special-case an empty body — the schema row is the contract, not the data rows.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { days: string; limit: string; paths?: boolean; pathsOnly?: boolean; tsv?: boolean; q?: string; since?: string; json?: boolean }) => {
+    .action(async (opts: { days: string; limit: string; paths?: boolean; pathsOnly?: boolean; tsv?: boolean; header?: boolean; q?: string; since?: string; json?: boolean }) => {
       await runOrReport('stale', async () => {
         const params: Record<string, string> = {
           olderThanDays: opts.days,
@@ -131,6 +132,34 @@ export function staleCommand() {
           // `awk -F'\t' '{print $1}'` and `sort -t$'\t' -k2 -n`. The columns
           // intentionally lead with the path so a partial pipeline that only
           // splits the first field still works.
+          //
+          // --header opts INTO a single tab-separated schema row prepended
+          // to the body. The natural cron use is piping the stream into
+          // `column -ts$'\t'` or `pandas.read_csv(..., sep='\t')` where a
+          // typed table consumer wants the column names embedded in the
+          // stream — embedding the schema means a downstream parser does
+          // not have to keep a separate column-list constant in sync with
+          // the cli's emit shape, which is the typical drift source.
+          //
+          // The header fires UNCONDITIONALLY when --header is set, even
+          // when zero data rows pass the filters. The contract is "the
+          // schema row is the contract, not the data rows" — a
+          // downstream typed-table consumer parsing `clawmind stale --tsv
+          // --header --since X` against a workspace that has nothing
+          // older than X should still see the column names and produce a
+          // valid empty table, not an empty stream that crashes the
+          // parser. Mirrors the JSON-shape preservation precedent (empty
+          // discovery yields {root, count: 0, files: []}, not an empty
+          // stream).
+          //
+          // The four column names mirror the value-row layout exactly so
+          // a refactor that adds a new column to the body would
+          // surface as a column-count drift in tests (the header would
+          // still emit 4 names while the body rows would emit 5 — pinned
+          // in tests).
+          if (opts.header) {
+            process.stdout.write(`path\tageDays\tchunkCount\tsize\n`);
+          }
           for (const it of out.items) {
             process.stdout.write(
               `${it.path}\t${it.ageDays}\t${it.chunkCount}\t${it.size}\n`,

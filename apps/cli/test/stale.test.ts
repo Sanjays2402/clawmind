@@ -442,4 +442,162 @@ describe('stale cli', () => {
       vi.useRealTimers();
     }
   });
+
+  // ---------------------------------------------------------------
+  // --tsv --header: prepend a single tab-separated schema row to the
+  // body. The cron use is piping the stream into `column -ts$'\t'`
+  // or pandas.read_csv(..., sep='\t') where a typed table consumer
+  // wants the column names embedded in the stream. The schema row
+  // is the contract — it fires unconditionally when --header is
+  // set, including when zero data rows pass the filters, so a
+  // downstream typed-table parser never has to special-case an
+  // empty body.
+  // ---------------------------------------------------------------
+
+  it('--tsv --header prepends the canonical 4-col schema row to the body', async () => {
+    const payload = {
+      thresholdDays: 30,
+      total: 2,
+      items: [
+        { path: '/a.md', ageDays: 90, chunkCount: 3, size: 1024 },
+        { path: '/b.md', ageDays: 45, chunkCount: 1, size: 512 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--tsv', '--header']);
+    const out = stdout.join('');
+    // Header row first, then the value rows in the same byte
+    // layout the --tsv-alone test pins. The header names are
+    // exactly the four value columns (`path`, `ageDays`,
+    // `chunkCount`, `size`) so a column-count refactor of the
+    // body without updating the header would surface as a
+    // shape mismatch in tests.
+    expect(out).toBe(
+      'path\tageDays\tchunkCount\tsize\n' +
+      '/a.md\t90\t3\t1024\n' +
+      '/b.md\t45\t1\t512\n',
+    );
+    // No ANSI styling — same machine-readable contract as
+    // --tsv-alone.
+    expect(out).not.toMatch(/\x1b\[/);
+  });
+
+  it('--tsv --header still fires the header row when zero data rows pass the filters (schema-row-is-the-contract)', async () => {
+    // A typed-table consumer parsing the stream into a dataframe
+    // / Excel sheet wants the column names embedded even when the
+    // body is empty — otherwise pandas.read_csv('--tsv --header'
+    // on an empty workspace) blows up with "No columns to parse"
+    // instead of producing a valid empty table. Pin the contract.
+    const payload = { thresholdDays: 30, total: 0, items: [] };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--tsv', '--header']);
+    // Single line: the schema row, no body. wc -l = 1, not 0.
+    expect(stdout.join('')).toBe('path\tageDays\tchunkCount\tsize\n');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--tsv without --header preserves the long-standing header-less awk-pipeline contract', async () => {
+    // Regression guard: an unconditional header would break every
+    // existing `clawmind stale --tsv | awk -F'\t' '{print $1}'`
+    // script in the wild because the first iteration would now
+    // emit the literal string "path" instead of the first
+    // file's path. Pin that the body stays byte-identical to
+    // the --tsv-alone contract.
+    const payload = {
+      thresholdDays: 30,
+      total: 2,
+      items: [
+        { path: '/a.md', ageDays: 90, chunkCount: 3, size: 1024 },
+        { path: '/b.md', ageDays: 45, chunkCount: 1, size: 512 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--tsv']);
+    // Byte-identical to the --tsv-alone pin above — NOT a
+    // schema row in sight.
+    expect(stdout.join('')).toBe(
+      '/a.md\t90\t3\t1024\n' +
+      '/b.md\t45\t1\t512\n',
+    );
+  });
+
+  it('--header without --tsv is silently ignored (precedence: --json beats --header, --paths beats --header, default-text beats --header)', async () => {
+    // --header is scoped to the --tsv shape only. The other
+    // output modes (--json, --paths/--paths-only, default text)
+    // have their own contracts pinned in tests; adding a header
+    // line to any of them would break those byte layouts. Silent
+    // ignore matches the precedent of --slim being silently
+    // ignored without --json, --debounce silently no-op under
+    // --once, etc. Pinning the --json case explicitly (the most
+    // structurally different mode — the header would otherwise
+    // be a literal text line preceding the JSON body).
+    const payload = {
+      thresholdDays: 30,
+      total: 1,
+      items: [{ path: '/a.md', ageDays: 90, chunkCount: 3, size: 1024 }],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--header']);
+    const out = stdout.join('');
+    // No header line — the output is parseable JSON with no
+    // preamble.
+    expect(() => JSON.parse(out)).not.toThrow();
+    expect(out.startsWith('path\t')).toBe(false);
+    // Same body as plain --json: total/items preserved.
+    const parsed = JSON.parse(out) as { items: { path: string }[] };
+    expect(parsed.items).toHaveLength(1);
+  });
+
+  it('--tsv --header composes with --since (header fires once even when --since narrows the body)', async () => {
+    // The realistic cron invocation: a daily snapshot of stale
+    // files older than a fixed anchor, piped into a typed-table
+    // consumer. --since narrows the body; --header anchors the
+    // schema so the parser knows the column types regardless of
+    // how many rows survived.
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse('2026-06-20T00:00:00Z'));
+    try {
+      const payload = {
+        thresholdDays: 1,
+        total: 3,
+        items: [
+          { path: '/oldest.md', ageDays: 200, chunkCount: 5, size: 2048 },
+          { path: '/old.md', ageDays: 100, chunkCount: 3, size: 1024 },
+          { path: '/recent.md', ageDays: 5, chunkCount: 1, size: 512 },
+        ],
+      };
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })) as never;
+      // /oldest.md (ingested ~2025-12-02) and /old.md (ingested
+      // ~2026-03-12) both pre-date 2026-04-01; /recent.md
+      // (ingested ~2026-06-15) does NOT.
+      await staleCommand().parseAsync(['node', 'cli', '--tsv', '--header', '--since', '2026-04-01']);
+      expect(stdout.join('')).toBe(
+        'path\tageDays\tchunkCount\tsize\n' +
+        '/oldest.md\t200\t5\t2048\n' +
+        '/old.md\t100\t3\t1024\n',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
