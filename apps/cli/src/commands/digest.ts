@@ -63,8 +63,9 @@ export function digestCommand() {
     .description('List saved searches with last digest run summary')
     .option('-q, --q <text>', 'case-insensitive substring filter across id, title, and query')
     .option('--since <iso-date>', 'keep only saved searches whose lastRunTs is strictly less than this ISO date (i.e. those that have NOT been re-run since the cutoff). The natural cron use is finding overdue digests: `clawmind digest list --since "$(date -u -d \'1 hour ago\' +%FT%TZ)"` answers "which saved searches need re-running" without having to mentally subtract dates from the timestamps. Mirrors `digest run --since` semantics byte-for-byte: a digest with lastRunTs === null (never run) is ALWAYS INCLUDED (a never-run digest is the most extreme case of "overdue"), and the cutoff comparison uses strict less-than. Composes with -q as an intersection (substring filter on id/title/query AND lastRunTs predates cutoff). Parse failures abort cleanly with exit 1. Filter applies BEFORE --json / text rendering so both modes see the same survivors.')
+    .option('--sort <key>', 'sort surviving saved searches by one of: lastRunTs (asc — oldest-run first, the natural "what is most overdue" ordering for a cron dashboard; never-run digests sort to the TOP because lastRunTs === null is more overdue than any timestamp), runs (desc — most-frequently-run first; the "which saved searches are getting hammered" question), title (asc alphabetical, for stable cross-snapshot diffs of `digest list --json`). Applied AFTER -q / --since so the sort orders the SURVIVORS of any narrowing filter (matches the operator\'s "sort what I asked for" expectation). Pairs naturally with --since for the canonical overdue audit: `digest list --since "$(...)" --sort lastRunTs --json` returns overdue digests with the longest-overdue at the top. Ties at the same sort key fall back to API order (secondary sort by original index for cross-snapshot determinism). Unknown keys abort cleanly with exit 1. The default (no --sort) preserves the API-returned order so existing scripts diffing `digest list --json` snapshots stay byte-stable.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; sort?: string; json?: boolean }) => {
      await runAction('digest list', async () => {
       const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
       let out = (await apiFetch('GET', `/v1/digests${qs}`)) as {
@@ -113,6 +114,68 @@ export function digestCommand() {
             return it.lastRunTs < cutoff;            // ran before cutoff -> include
           }),
         };
+      }
+      // --sort orders the SURVIVORS of any narrowing filter. The
+      // canonical use is the overdue audit:
+      //   digest list --since "..." --sort lastRunTs --json
+      // which returns overdue digests with the longest-overdue at
+      // the top — the most useful ordering for a cron dashboard
+      // because the operator's eye lands on the worst offender
+      // first.
+      //
+      // Sort keys:
+      //   lastRunTs (asc)  -> oldest-run first; null sorts to TOP
+      //                        because never-run is more overdue
+      //                        than any timestamp (matches the
+      //                        --since contract where null is
+      //                        always included as "most extreme")
+      //   runs (desc)      -> most-frequently-run first; the
+      //                        "which saved searches are getting
+      //                        hammered" question
+      //   title (asc)      -> alphabetical, for stable cross-
+      //                        snapshot diffs of `digest list
+      //                        --json`
+      //
+      // Applied AFTER -q / --since so the sort orders the kept
+      // set — the operator's expectation is "sort what I asked
+      // for, not the original API payload".
+      //
+      // Ties carry a secondary sort by original index for
+      // deterministic cross-snapshot output (V8's Array#sort is
+      // stable since 7.0 but the spec only required stability
+      // after ES2019; secondary sort makes the contract belt-
+      // and-suspenders).
+      //
+      // Unknown keys throw cleanly so a typo cannot silently
+      // fall back to API order.
+      if (opts.sort !== undefined) {
+        const sortKey = opts.sort.toLowerCase();
+        const validKeys = ['lastrunts', 'runs', 'title'];
+        if (!validKeys.includes(sortKey)) {
+          throw new ApiError(`--sort value must be one of: lastRunTs, runs, title (got "${opts.sort}")`);
+        }
+        const ranked = out.items
+          .map((it, idx) => ({ it, idx }))
+          .sort((a, b) => {
+            let cmp = 0;
+            if (sortKey === 'lastrunts') {
+              // null sorts to top: treat null as -Infinity so it
+              // is smaller than any timestamp under ascending
+              // (oldest-first) order.
+              const av = a.it.lastRunTs === null ? -Infinity : a.it.lastRunTs;
+              const bv = b.it.lastRunTs === null ? -Infinity : b.it.lastRunTs;
+              cmp = av - bv;
+            } else if (sortKey === 'runs') {
+              cmp = b.it.runs - a.it.runs;
+            } else if (sortKey === 'title') {
+              cmp = a.it.title.localeCompare(b.it.title);
+            }
+            if (cmp !== 0) return cmp;
+            // Secondary sort by original index for deterministic ties.
+            return a.idx - b.idx;
+          })
+          .map((r) => r.it);
+        out = { ...out, items: ranked };
       }
       if (opts.json) {
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');

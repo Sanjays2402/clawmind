@@ -915,6 +915,95 @@ describe('digest cli', () => {
     expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['s-snip-old']);
   });
 
+  // -----------------------------------------------------------------
+  // digest list --sort <key>: order survivors of -q / --since by an
+  // operator-chosen axis. The natural cron use is the overdue audit:
+  //   digest list --since "..." --sort lastRunTs --json
+  // which returns overdue digests with the longest-overdue at the
+  // top. Mirrors the `feedback list --sort` / `stats --sort`
+  // precedent: AFTER filters, secondary sort by original index for
+  // deterministic ties, unknown keys abort cleanly.
+  // -----------------------------------------------------------------
+
+  it('digest list --sort lastRunTs orders survivors by oldest-run first', async () => {
+    // Three saved searches; --sort lastRunTs should rank from
+    // oldest run to newest run (ascending), which is the natural
+    // "most overdue first" ordering for a cron dashboard.
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [
+      { savedSearchId: 's-fresh', title: 'Fresh', query: 'fresh', lastRunTs: Date.parse('2026-06-21'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      { savedSearchId: 's-oldest', title: 'Oldest', query: 'old', lastRunTs: Date.parse('2026-01-01'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      { savedSearchId: 's-mid', title: 'Mid', query: 'mid', lastRunTs: Date.parse('2026-06-01'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+    ] }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'lastRunTs']);
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string }[] };
+    // Oldest first, newest last.
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['s-oldest', 's-mid', 's-fresh']);
+  });
+
+  it('digest list --sort lastRunTs places never-run (lastRunTs === null) digests at the TOP', async () => {
+    // Never-run is the most extreme case of overdue — it must
+    // sort before every timestamped digest under "oldest first"
+    // ordering. Matches the --since contract where lastRunTs ===
+    // null is ALWAYS included as the most-extreme overdue case.
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [
+      { savedSearchId: 's-old', title: 'Old', query: 'old', lastRunTs: Date.parse('2026-01-01'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      { savedSearchId: 's-never', title: 'Never', query: 'never', lastRunTs: null, lastNewCount: 0, lastRemovedCount: 0, runs: 0 },
+      { savedSearchId: 's-fresh', title: 'Fresh', query: 'fresh', lastRunTs: Date.parse('2026-06-21'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+    ] }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'lastRunTs']);
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string }[] };
+    // s-never first (null < every timestamp), then oldest -> newest.
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['s-never', 's-old', 's-fresh']);
+  });
+
+  it('digest list --sort runs orders survivors most-frequently-run first (descending)', async () => {
+    // The "which saved searches are getting hammered" question.
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [
+      { savedSearchId: 's-rare', title: 'Rare', query: 'rare', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 2 },
+      { savedSearchId: 's-hot', title: 'Hot', query: 'hot', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 50 },
+      { savedSearchId: 's-mid', title: 'Mid', query: 'mid', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 12 },
+    ] }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'runs']);
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string; runs: number }[] };
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['s-hot', 's-mid', 's-rare']);
+    expect(parsed.items.map((it) => it.runs)).toEqual([50, 12, 2]);
+  });
+
+  it('digest list --sort title --since composes (sort orders survivors of --since)', async () => {
+    // --since narrows to overdue, --sort title alphabetizes the
+    // survivors for stable cross-snapshot diffs. The natural
+    // dashboard use: a deterministic ordering inside the
+    // "overdue digests" panel.
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [
+      { savedSearchId: 's-z', title: 'Zeta', query: 'z', lastRunTs: Date.parse('2026-01-01'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      { savedSearchId: 's-a', title: 'Alpha', query: 'a', lastRunTs: Date.parse('2026-02-01'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      { savedSearchId: 's-fresh', title: 'Mu', query: 'm', lastRunTs: Date.parse('2026-06-21'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      { savedSearchId: 's-m', title: 'Mike', query: 'm2', lastRunTs: Date.parse('2026-03-01'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+    ] }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '--since', '2026-06-15', '--sort', 'title']);
+    const parsed = JSON.parse(captured.join('')) as { items: { title: string }[] };
+    // s-fresh dropped by --since (lastRunTs > cutoff); remaining
+    // survivors sorted alphabetically by title.
+    expect(parsed.items.map((it) => it.title)).toEqual(['Alpha', 'Mike', 'Zeta']);
+  });
+
+  it('digest list --sort with an unknown key aborts cleanly with exit 1', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [] }), { status: 200 })) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'list', '--sort', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('digest list failed: --sort value must be one of: lastRunTs, runs, title');
+    expect(err).toContain('"banana"');
+    process.exitCode = 0;
+  });
+
   it('run with id prints diffs', async () => {
     await digestCommand().parseAsync(['node', 'cli', 'run', 's1']);
     const out = captured.join('');
