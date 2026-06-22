@@ -38,6 +38,7 @@ export function searchCommand() {
     .option('--exclude-tags <list>', 'comma-separated tags; drop sources carrying any')
     .option('-t, --threshold <n>', 'drop hits with score strictly below this value (0..1 typical)')
     .option('--rerank-off', 'DEBUG escape hatch: skip the lexical-rerank step in the retrieval pipeline. Surfaces the raw hybrid-merged + boost-adjusted ordering BEFORE the lexical reorder, so an operator can diagnose whether the rerank is HELPING or HURTING on a particular query. Useful when tuning hybridAlpha or chasing a regression where a known-relevant chunk drops out of the top-k. Other stages (embed call, hybrid merge, MMR diversity) stay enabled — only the heuristic lexical-rerank is bypassed. Composes with --json / --threshold / --paths-only / -k for "what does the pipeline rank as #1 without the lexical layer", "what does the top-50 look like without the rerank pull", etc.')
+    .option('--rerank-only', 'DEBUG escape hatch (inverse of --rerank-off): emit ONLY the rerank stage\'s ordering, skipping the MMR diversity pass that the production flow applies on top. Pairs with --rerank-off for a 3-way A/B against the same query: default (rerank+MMR), --rerank-off (raw hybrid+boost, no rerank, with MMR), --rerank-only (rerank applied, no MMR). The use is "is the diversity pass demoting a chunk I think should be #1, or is it the rerank step itself?" — separating the two stages lets the operator point a finger at the right layer. Implementation forwards { skipMmr: true } through retrieve(); the lexical-rerank stage still runs and the top-k is the head N of its score order. Setting both --rerank-off AND --rerank-only is allowed (raw hybrid+boost ordering with NEITHER post-stage applied) for the most extreme "what does the index look like before any heuristic touches it" probe.')
     .option('--no-snippet', 'in --json mode, emit only rank/path/score/startLine (no snippet/highlights). Smaller payload for ranking pipelines')
     .option('--paths-only', 'emit only the matched paths, one per line, with duplicates collapsed in rank order. Pipeline-friendly twin of `forget --paths-only` / `stale --paths`. Ignores --json / --out / --snippet / --highlight; just dumps paths.')
     .option('--json', 'emit results as a JSON array instead of formatted text')
@@ -54,6 +55,7 @@ export function searchCommand() {
           excludeTags?: string;
           threshold?: string;
           rerankOff?: boolean;
+          rerankOnly?: boolean;
           snippet: boolean;
           pathsOnly?: boolean;
           json?: boolean;
@@ -95,16 +97,23 @@ export function searchCommand() {
           { bm25: rt.bm25, lance: rt.lance, embed: rt.embed, llm: rt.llm, embedModel: rt.env.CLAWMIND_EMBED_MODEL },
           q,
           undefined,
-          // --rerank-off is the debug escape hatch. We forward
-          // `skipRerank: true` through the retrieve() options so the
-          // lexical-rerank stage is bypassed entirely (NOT applied and
-          // then hidden — the operator wants to see what the pipeline
-          // actually ranks without the heuristic layer). Other stages
-          // stay enabled because they're either correctness (embed +
-          // hybrid merge are how dense+sparse combine) or UX (MMR
-          // guarantees diversity in the top-k). Only `skipRerank` is
-          // surfaced today; future debug knobs land here too.
-          opts.rerankOff ? { skipRerank: true } : undefined,
+          // --rerank-off + --rerank-only are the two stage-bypass dials.
+          // We combine them into a single RetrieveOptions payload so
+          // the pipeline only sees one merged shape. When neither flag
+          // is set we forward `undefined` (NOT `{}`) so the pipeline
+          // default short-circuits without having to check empty
+          // objects — keeps the regression contract that every existing
+          // caller stays byte-identical.
+          //
+          // --rerank-off  -> skipRerank: true  (no lexical rerank, MMR still runs)
+          // --rerank-only -> skipMmr:    true  (rerank runs, no MMR diversity)
+          // both          -> skipRerank+skipMmr: pure hybrid+boost ordering
+          (opts.rerankOff || opts.rerankOnly)
+            ? {
+                ...(opts.rerankOff ? { skipRerank: true } : {}),
+                ...(opts.rerankOnly ? { skipMmr: true } : {}),
+              }
+            : undefined,
         );
         // --threshold is a post-retrieval filter. We apply it here rather
         // than threading a `minScore` through the retrieve() pipeline because

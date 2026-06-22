@@ -122,4 +122,130 @@ describe('retrieve', () => {
     // And identical scores (the rerank stage ran in both).
     expect(legacy[0]!.score).toBe(explicitFalse[0]!.score);
   });
+
+  // ---------------------------------------------------------------
+  // skipMmr: DEBUG escape hatch wired through RetrieveOptions.
+  // The MMR stage re-orders the rerank output to balance relevance
+  // with cross-document diversity. When `skipMmr: true` is set, the
+  // pipeline forwards the rerank score order directly to the caller
+  // (sliced to q.k). The operator uses this via `clawmind search
+  // --rerank-only` to see what the rerank stage ALONE thinks is the
+  // most relevant set, before MMR smears the order with diversity.
+  // ---------------------------------------------------------------
+
+  it('skipMmr bypasses the MMR diversity pass (returns rerank score order)', async () => {
+    // Build a corpus where MMR would clearly reshape the order: three
+    // chunks from the same document compete with one chunk from a
+    // different document for the top-3 slot. With MMR ON, the
+    // diversity penalty demotes the same-document siblings even
+    // though they score higher in the rerank stage. With MMR OFF
+    // (skipMmr=true), the rerank-score order survives intact: the
+    // top three are the three same-document chunks because their
+    // rerank scores are higher.
+    const bm25 = new BM25Index();
+    // Three "snip" chunks from doc /high.md: same path => MMR penalises diversity
+    bm25.add([
+      { id: 'h1', documentId: 'high', path: '/high.md', namespace: 'memory',
+        text: 'snip snip snip snip snip first chunk', startLine: 1, endLine: 1,
+        tokens: 1, ord: 0, embedding: [0.9, 0.1] },
+      { id: 'h2', documentId: 'high', path: '/high.md', namespace: 'memory',
+        text: 'snip snip snip snip snip second chunk', startLine: 1, endLine: 1,
+        tokens: 1, ord: 1, embedding: [0.9, 0.1] },
+      { id: 'h3', documentId: 'high', path: '/high.md', namespace: 'memory',
+        text: 'snip snip snip snip snip third chunk', startLine: 1, endLine: 1,
+        tokens: 1, ord: 2, embedding: [0.9, 0.1] },
+      // One "snip" chunk from a different path that MMR would promote.
+      { id: 'o', documentId: 'other', path: '/other.md', namespace: 'memory',
+        text: 'snip mention here', startLine: 1, endLine: 1,
+        tokens: 1, ord: 0, embedding: [0.1, 0.9] },
+    ]);
+    const baseDeps = { bm25, lance: fakeLance, embed: fakeEmbed, llm: fakeLlm, embedModel: 'f' };
+    const withMmr = await retrieve(baseDeps, { q: 'snip', k: 3, mmrLambda: 0.3, hybridAlpha: 0.5 });
+    const withoutMmr = await retrieve(
+      baseDeps,
+      { q: 'snip', k: 3, mmrLambda: 0.3, hybridAlpha: 0.5 },
+      undefined,
+      { skipMmr: true },
+    );
+    // Both return exactly k=3 items (skipMmr still honours q.k).
+    expect(withMmr.length).toBe(3);
+    expect(withoutMmr.length).toBe(3);
+    // With MMR off, the rerank-score order survives — the three
+    // same-document chunks (h1/h2/h3) dominate by rerank score
+    // because they each carry 5 exact-term occurrences => big
+    // bonus relative to the single-occurrence "/other.md" chunk.
+    // We assert the rerank-only output contains all three same-doc
+    // chunks (in any order — rerank is score-driven, ties may
+    // shuffle) and crucially DOES NOT include "/other.md" (which
+    // MMR would have promoted for diversity).
+    const skipMmrPaths = new Set(withoutMmr.map((h) => h.path));
+    expect(skipMmrPaths.size).toBe(1); // all from /high.md
+    expect(skipMmrPaths.has('/high.md')).toBe(true);
+    expect(skipMmrPaths.has('/other.md')).toBe(false);
+    // The MMR-on path SHOULD include /other.md (diversity reorder)
+    // — that's the contrast that proves the bypass is doing work.
+    const withMmrPaths = new Set(withMmr.map((h) => h.path));
+    expect(withMmrPaths.has('/other.md')).toBe(true);
+  });
+
+  it('skipMmr=false (omitted) keeps the MMR pass ON (regression: default unchanged)', async () => {
+    // Mirror of the skipRerank regression test: passing the new
+    // options arg as undefined / omitted must behave EXACTLY as
+    // before so every existing caller stays byte-identical.
+    const bm25 = new BM25Index();
+    bm25.add([mk('a', 'snip launched today'), mk('b', 'unrelated note')]);
+    const baseDeps = { bm25, lance: fakeLance, embed: fakeEmbed, llm: fakeLlm, embedModel: 'f' };
+    const legacy = await retrieve(baseDeps, { q: 'snip', k: 5, mmrLambda: 0.5, hybridAlpha: 0.5 });
+    const explicitFalse = await retrieve(
+      baseDeps,
+      { q: 'snip', k: 5, mmrLambda: 0.5, hybridAlpha: 0.5 },
+      undefined,
+      { skipMmr: false },
+    );
+    expect(legacy.map((h) => h.id)).toEqual(explicitFalse.map((h) => h.id));
+    expect(legacy[0]!.score).toBe(explicitFalse[0]!.score);
+  });
+
+  it('skipMmr honours q.k by slicing the rerank output (no overshoot)', async () => {
+    // The bypass walks rerank->slice(0, k) directly, NOT mmrRerank.
+    // We must not return more than k items just because the rerank
+    // stage produced more candidates.
+    const bm25 = new BM25Index();
+    bm25.add([
+      mk('a', 'snip one'),
+      mk('b', 'snip two'),
+      mk('c', 'snip three'),
+      mk('d', 'snip four'),
+      mk('e', 'snip five'),
+    ]);
+    const baseDeps = { bm25, lance: fakeLance, embed: fakeEmbed, llm: fakeLlm, embedModel: 'f' };
+    const hits = await retrieve(
+      baseDeps,
+      { q: 'snip', k: 2, mmrLambda: 0.5, hybridAlpha: 0.5 },
+      undefined,
+      { skipMmr: true },
+    );
+    expect(hits.length).toBe(2);
+  });
+
+  it('skipRerank + skipMmr together returns the raw hybrid+boost ordering (sliced to k)', async () => {
+    // The most extreme bypass: both stages off. The pipeline returns
+    // the head N of the hybrid-merged + boost-adjusted ordering with
+    // NEITHER the rerank bonus NOR the diversity pass applied. Used
+    // when an operator sets both --rerank-off AND --rerank-only on
+    // the cli for a "what does the index look like before any
+    // heuristic touches it" probe.
+    const bm25 = new BM25Index();
+    bm25.add([mk('a', 'snip one'), mk('b', 'snip two'), mk('c', 'snip three')]);
+    const baseDeps = { bm25, lance: fakeLance, embed: fakeEmbed, llm: fakeLlm, embedModel: 'f' };
+    const both = await retrieve(
+      baseDeps,
+      { q: 'snip', k: 2, mmrLambda: 0.5, hybridAlpha: 0.5 },
+      undefined,
+      { skipRerank: true, skipMmr: true },
+    );
+    // The slice honours q.k; we can't assert the order without
+    // baking the hybrid alpha behaviour in, but k must be enforced.
+    expect(both.length).toBe(2);
+  });
 });

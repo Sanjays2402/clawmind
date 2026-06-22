@@ -269,6 +269,95 @@ describe('search --rerank-off forwards skipRerank=true to retrieve()', () => {
   });
 });
 
+describe('search --rerank-only forwards skipMmr=true to retrieve()', () => {
+  // Mirror of the --rerank-off block but for the inverse flag:
+  // --rerank-only tells the pipeline to apply the lexical rerank
+  // stage but SKIP the MMR diversity pass on top. The point is to
+  // see what rerank ALONE ranks as the top-k, before MMR smears
+  // the order with its diversity penalty. Pairs with --rerank-off
+  // for a 3-way A/B against the same query (default / no-rerank /
+  // no-MMR). The two flags can be combined ("show me the raw
+  // hybrid+boost ordering with NEITHER post-stage applied") for
+  // the most extreme retrieval-pipeline probe.
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    retrieveMock.mockReset();
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', score: 0.5, chunk: { text: '' } },
+    ]);
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+  });
+
+  it('exposes --rerank-only on the command surface', () => {
+    const flags = searchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--rerank-only');
+  });
+
+  it('--rerank-only forwards { skipMmr: true } as the fourth argument to retrieve()', async () => {
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--rerank-only', '--json']);
+    const callArgs = retrieveMock.mock.calls[0] as unknown[];
+    expect(callArgs[3]).toEqual({ skipMmr: true });
+  });
+
+  it('without --rerank-only AND without --rerank-off, the options argument is undefined', async () => {
+    // The default path must stay byte-identical so existing callers
+    // continue to get the production rerank+MMR ordering. We forward
+    // `undefined` (NOT `{}`) so the pipeline default short-circuits
+    // without having to special-case empty objects.
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json']);
+    const callArgs = retrieveMock.mock.calls[0] as unknown[];
+    expect(callArgs[3]).toBeUndefined();
+  });
+
+  it('--rerank-off + --rerank-only together merges both flags into one options object', async () => {
+    // Both flags set: the pipeline sees { skipRerank: true, skipMmr: true }.
+    // This is the "show me the raw hybrid+boost ordering with no
+    // heuristic stages applied" probe — useful when chasing a
+    // regression where neither the rerank step nor the diversity
+    // pass is responsible for a missing chunk.
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--rerank-off', '--rerank-only', '--json']);
+    const callArgs = retrieveMock.mock.calls[0] as unknown[];
+    expect(callArgs[3]).toEqual({ skipRerank: true, skipMmr: true });
+  });
+
+  it('--rerank-only composes with --threshold (threshold still applied client-side)', async () => {
+    retrieveMock.mockResolvedValue([
+      { path: '/strong.md', score: 0.92, chunk: { text: '' } },
+      { path: '/weak.md', score: 0.10, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--rerank-only', '--threshold', '0.5', '--json']);
+    const out = JSON.parse(stdout.join('')) as Array<{ path: string }>;
+    expect(out.map((h) => h.path)).toEqual(['/strong.md']);
+    // And the flag still flowed through.
+    const callArgs = retrieveMock.mock.calls[0] as unknown[];
+    expect(callArgs[3]).toEqual({ skipMmr: true });
+  });
+
+  it('--rerank-only composes with --paths-only (paths still emitted from the no-MMR order)', async () => {
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', score: 0.8, chunk: { text: '' } },
+      { path: '/b.md', score: 0.6, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--rerank-only', '--paths-only']);
+    // The paths-only contract is unaffected by the debug flag.
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n');
+    const callArgs = retrieveMock.mock.calls[0] as unknown[];
+    expect(callArgs[3]).toEqual({ skipMmr: true });
+  });
+});
+
 describe('search --no-snippet trims the json payload to ranking fields', () => {
   let stdout: string[];
   let stderr: string[];

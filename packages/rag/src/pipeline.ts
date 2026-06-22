@@ -32,20 +32,37 @@ export interface RetrievalMeta {
 /**
  * Optional knobs the caller can pass to short-circuit individual stages
  * of the retrieval pipeline. Used today by the cli's `search --rerank-off`
- * debug flag to skip the lexical-rerank step and surface the raw
- * hybrid-merged + boost-adjusted ordering. The flag exists so an
- * operator can diagnose whether the rerank is HELPING or HURTING on
- * a particular query — useful when tuning hybridAlpha or chasing a
- * regression where a known-relevant chunk drops out of the top-k.
+ * and `search --rerank-only` debug flags to bypass individual stages so an
+ * operator can diagnose where ranking quality is coming from.
  *
- * Other stages stay mandatory because they're either correctness
- * (the embed call + hybrid merge are how dense+sparse combine) or
- * UX (mmrRerank is what guarantees diversity in the top-k). Only the
- * lexical-rerank stage is presentational enough to bypass without
- * compromising the retrieval contract.
+ * Two flags pair into a 3-way A/B:
+ *   - default            -> rerank + MMR (production behaviour)
+ *   - skipRerank: true   -> raw hybrid+boost ordering, MMR still applied
+ *   - skipMmr: true      -> rerank applied, MMR's diversity pass skipped
+ *                          (the operator sees what the lexical rerank
+ *                          step ranks before diversity smears the order)
+ *
+ * The two flags can be set together (skip both) but that is only useful
+ * for the most extreme "what does the hybrid layer look like raw" probe.
+ *
+ * The embed call + hybrid merge stay mandatory because they're correctness
+ * (dense+sparse combine is how retrieval works); only the rerank and MMR
+ * stages are presentational enough to bypass without compromising the
+ * retrieval contract.
  */
 export interface RetrieveOptions {
   skipRerank?: boolean;
+  /**
+   * Bypass the MMR diversity pass. When set, the pipeline returns the
+   * first `q.k` items from the rerank stage in rerank-score order
+   * (highest score first). Without this flag, MMR re-orders those
+   * candidates to balance relevance with cross-document diversity.
+   *
+   * The natural use is `search --rerank-only`: diagnose what the
+   * lexical-rerank step ALONE thinks is the most relevant set,
+   * without the diversity reorder that MMR applies on top.
+   */
+  skipMmr?: boolean;
 }
 
 export async function retrieve(
@@ -88,7 +105,17 @@ export async function retrieve(
   // chunk is missing from the top-k, or whether the problem is upstream
   // (hybridAlpha tuning, bm25/dense balance, filter misconfiguration).
   const reranked = options?.skipRerank ? boosted : lexicalRerank(effectiveQ, boosted);
-  const top = mmrRerank(reranked, { lambda: q.mmrLambda, k: q.k, queryVector: emb });
+  // MMR is the diversity-aware re-orderer that lays out the final top-k.
+  // `skipMmr` bypasses it so the operator sees the rerank stage's
+  // ordering directly — useful when chasing "why is the diversity pass
+  // promoting that less-relevant chunk?" or when the cli emits
+  // `search --rerank-only` for the 3-way A/B against the default flow
+  // and `--rerank-off`. We still honour `q.k` by slicing the rerank
+  // output, otherwise the operator could see hundreds of hits when
+  // they asked for `-k 10`.
+  const top = options?.skipMmr
+    ? reranked.slice(0, q.k)
+    : mmrRerank(reranked, { lambda: q.mmrLambda, k: q.k, queryVector: emb });
   return top;
 }
 
