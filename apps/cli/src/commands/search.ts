@@ -37,6 +37,7 @@ export function searchCommand() {
     .option('--include-tags <list>', 'comma-separated tags; keep only sources carrying at least one')
     .option('--exclude-tags <list>', 'comma-separated tags; drop sources carrying any')
     .option('-t, --threshold <n>', 'drop hits with score strictly below this value (0..1 typical)')
+    .option('--sort <key>', 'sort survivors of -t/--threshold by one of: score (desc — highest-score-first, matches the default retrieve() ordering; useful as a no-op for symmetry with other commands and as a defence against a future retrieval-pipeline change that returns hits in a different order), path (asc alphabetical, for stable cross-snapshot diffs of `search --json`), namespace (asc alphabetical, groups hits by namespace so diffs against a known set are visually clean — pairs naturally with `search foo --json --sort namespace` for a dashboard panel showing where in the index a query\'s signal clusters). Applied AFTER -t/--threshold so the sort orders the SURVIVORS of any band-filter. Mirrors `related --sort` byte-for-byte: ties carry a secondary sort by original index for cross-snapshot determinism, unknown keys abort cleanly with exit 1, default preserves the retrieve()-returned order so existing scripts diffing `search --json` snapshots stay byte-stable. --paths-only emit (which dedupes by path in rank order) walks the post-sort order, so `--sort namespace --paths-only` emits paths grouped by namespace and `--sort path --paths-only` emits paths in plain alphabetical order — both useful one-liners for `xargs ls` / `xargs git diff` against a known shape.')
     .option('--rerank-off', 'DEBUG escape hatch: skip the lexical-rerank step in the retrieval pipeline. Surfaces the raw hybrid-merged + boost-adjusted ordering BEFORE the lexical reorder, so an operator can diagnose whether the rerank is HELPING or HURTING on a particular query. Useful when tuning hybridAlpha or chasing a regression where a known-relevant chunk drops out of the top-k. Other stages (embed call, hybrid merge, MMR diversity) stay enabled — only the heuristic lexical-rerank is bypassed. Composes with --json / --threshold / --paths-only / -k for "what does the pipeline rank as #1 without the lexical layer", "what does the top-50 look like without the rerank pull", etc.')
     .option('--rerank-only', 'DEBUG escape hatch (inverse of --rerank-off): emit ONLY the rerank stage\'s ordering, skipping the MMR diversity pass that the production flow applies on top. Pairs with --rerank-off for a 3-way A/B against the same query: default (rerank+MMR), --rerank-off (raw hybrid+boost, no rerank, with MMR), --rerank-only (rerank applied, no MMR). The use is "is the diversity pass demoting a chunk I think should be #1, or is it the rerank step itself?" — separating the two stages lets the operator point a finger at the right layer. Implementation forwards { skipMmr: true } through retrieve(); the lexical-rerank stage still runs and the top-k is the head N of its score order. Setting both --rerank-off AND --rerank-only is allowed (raw hybrid+boost ordering with NEITHER post-stage applied) for the most extreme "what does the index look like before any heuristic touches it" probe.')
     .option('--no-snippet', 'in --json mode, emit only rank/path/score/startLine (no snippet/highlights). Smaller payload for ranking pipelines')
@@ -54,6 +55,7 @@ export function searchCommand() {
           includeTags?: string;
           excludeTags?: string;
           threshold?: string;
+          sort?: string;
           rerankOff?: boolean;
           rerankOnly?: boolean;
           snippet: boolean;
@@ -124,7 +126,61 @@ export function searchCommand() {
         // so `--threshold $MAYBE` in a shell script does not break when the
         // variable is empty.
         const minScore = opts.threshold !== undefined ? Number.parseFloat(opts.threshold) : NaN;
-        const hits = Number.isFinite(minScore) ? rawHits.filter((h) => h.score >= minScore) : rawHits;
+        const filteredHits = Number.isFinite(minScore) ? rawHits.filter((h) => h.score >= minScore) : rawHits;
+        // --sort orders the SURVIVORS of -t/--threshold. Three ordering
+        // primitives, all mirroring `related --sort` byte-for-byte:
+        //   score (desc)      -> highest-score-first; matches the
+        //                         retrieve() pipeline's default order
+        //                         (effectively a no-op, useful for
+        //                         symmetry with related/feedback/
+        //                         digest/aliases --sort and as a
+        //                         defence against a future retrieve()
+        //                         change)
+        //   path (asc)        -> alphabetical, for stable cross-
+        //                         snapshot diffs of `search --json`
+        //   namespace (asc)   -> alphabetical by namespace then API
+        //                         order within each namespace via the
+        //                         secondary-by-index sort — groups
+        //                         hits by namespace so a dashboard
+        //                         panel showing where a query's
+        //                         signal clusters is a single call
+        //                         away
+        //
+        // Applied AFTER the threshold filter (so the sort orders the
+        // kept set, not the raw retrieved set — matches the operator's
+        // expectation "sort what I asked for"). Applied BEFORE the
+        // --paths-only emit so the dedupe walks the post-sort order:
+        // `--sort namespace --paths-only` emits paths grouped by
+        // namespace; `--sort path --paths-only` emits paths in pure
+        // alphabetical order.
+        //
+        // Unknown keys throw cleanly with exit 1 (a typo cannot
+        // silently fall back to retrieve() order — which would be
+        // indistinguishable from the operator forgetting --sort).
+        // Ties carry a secondary sort by original index so two
+        // snapshots with identical inputs produce byte-identical
+        // output regardless of the engine's Array#sort stability.
+        let hits = filteredHits;
+        if (opts.sort !== undefined) {
+          const sortKey = opts.sort.toLowerCase();
+          const validKeys = ['score', 'path', 'namespace'];
+          if (!validKeys.includes(sortKey)) {
+            process.stderr.write(kleur.red(`search failed: --sort value must be one of: score, path, namespace (got "${opts.sort}")\n`));
+            process.exitCode = 1;
+            return;
+          }
+          hits = filteredHits
+            .map((h, idx) => ({ h, idx }))
+            .sort((a, b) => {
+              let cmp = 0;
+              if (sortKey === 'score') cmp = b.h.score - a.h.score;
+              else if (sortKey === 'path') cmp = a.h.path.localeCompare(b.h.path);
+              else if (sortKey === 'namespace') cmp = a.h.namespace.localeCompare(b.h.namespace);
+              if (cmp !== 0) return cmp;
+              return a.idx - b.idx;
+            })
+            .map((r) => r.h);
+        }
         // --paths-only is the shortest possible pipeline shape: one
         // path per line, deduplicated in rank order. Search returns
         // chunk-granular hits so the SAME file can appear multiple

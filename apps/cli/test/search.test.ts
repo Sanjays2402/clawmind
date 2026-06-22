@@ -621,3 +621,183 @@ describe('search --paths-only emits a deduplicated path-per-line stream', () => 
     expect(stdout.join('')).toBe('/a.md\n/b.md\n');
   });
 });
+
+// -------------------------------------------------------------------
+// --sort <score|path|namespace>: family-wide ordering primitive on
+// search. Mirrors `related --sort` byte-for-byte — the contract is:
+//   - applied AFTER -t/--threshold (sort orders the survivors)
+//   - applied BEFORE --paths-only (the dedupe walks the post-sort order)
+//   - score (desc), path (asc), namespace (asc) are the three keys
+//   - ties carry a secondary sort by original index for determinism
+//   - unknown keys abort cleanly with exit 1
+//   - default preserves retrieve() order so existing --json snapshots
+//     stay byte-stable
+// -------------------------------------------------------------------
+
+describe('search --sort orders hits by an operator-chosen key', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    retrieveMock.mockReset();
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes --sort on the command surface', () => {
+    const flags = searchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--sort');
+  });
+
+  it('--sort path orders hits alphabetically by path (asc)', async () => {
+    // Inputs are in retrieval order (score-descending); --sort path
+    // must re-order them alphabetically regardless of score. This is
+    // the cross-snapshot diff-stable ordering for `search --json`.
+    retrieveMock.mockResolvedValue([
+      { path: '/c.md', namespace: 'memory', score: 0.91, chunk: { text: '' } },
+      { path: '/a.md', namespace: 'projects', score: 0.74, chunk: { text: '' } },
+      { path: '/b.md', namespace: 'memory', score: 0.60, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--sort', 'path']);
+    const parsed = JSON.parse(stdout.join('')) as { path: string }[];
+    expect(parsed.map((r) => r.path)).toEqual(['/a.md', '/b.md', '/c.md']);
+  });
+
+  it('--sort namespace groups hits by namespace asc, then preserves API order within each namespace', async () => {
+    // Within a namespace, the secondary-by-index sort keeps the
+    // retrieve()-returned order (which is score-descending). So
+    // `memory` (alphabetical first) appears before `projects`, and
+    // within `memory` the original order is preserved.
+    retrieveMock.mockResolvedValue([
+      { path: '/proj-a.md', namespace: 'projects', score: 0.99, chunk: { text: '' } },
+      { path: '/mem-a.md', namespace: 'memory', score: 0.80, chunk: { text: '' } },
+      { path: '/proj-b.md', namespace: 'projects', score: 0.70, chunk: { text: '' } },
+      { path: '/mem-b.md', namespace: 'memory', score: 0.60, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--sort', 'namespace']);
+    const parsed = JSON.parse(stdout.join('')) as { path: string; namespace: string }[];
+    expect(parsed.map((r) => r.path)).toEqual(['/mem-a.md', '/mem-b.md', '/proj-a.md', '/proj-b.md']);
+  });
+
+  it('--sort score is effectively a no-op against the default retrieve() order', async () => {
+    // retrieve() already returns score-descending; --sort score must
+    // produce byte-identical JSON to no --sort at all.
+    const hits = [
+      { path: '/a.md', namespace: 'memory', score: 0.91, chunk: { text: '' } },
+      { path: '/b.md', namespace: 'memory', score: 0.74, chunk: { text: '' } },
+      { path: '/c.md', namespace: 'projects', score: 0.42, chunk: { text: '' } },
+    ];
+    retrieveMock.mockResolvedValue(hits);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json']);
+    const baselineOut = stdout.join('');
+    stdout.length = 0;
+    retrieveMock.mockResolvedValue(hits);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--sort', 'score']);
+    expect(stdout.join('')).toBe(baselineOut);
+  });
+
+  it('--sort with an unknown key aborts cleanly (exit 1, error to stderr, NO JSON emitted)', async () => {
+    // A typo like `--sort socre` must NOT silently fall back to
+    // retrieve() order — that would be indistinguishable from the
+    // operator forgetting --sort entirely, and the cron log would
+    // hide the misconfig. Hard exit 1.
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', namespace: 'memory', score: 0.5, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--sort', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('search failed: --sort value must be one of: score, path, namespace');
+    expect(stderr.join('')).toContain('banana');
+    // Nothing on stdout — the operator's --json consumer must NOT
+    // get a partial payload that looks valid.
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('--sort is case-insensitive (PATH / Path / path all accepted)', async () => {
+    retrieveMock.mockResolvedValue([
+      { path: '/c.md', namespace: 'memory', score: 0.91, chunk: { text: '' } },
+      { path: '/a.md', namespace: 'memory', score: 0.50, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--sort', 'PATH']);
+    const parsed = JSON.parse(stdout.join('')) as { path: string }[];
+    expect(parsed.map((r) => r.path)).toEqual(['/a.md', '/c.md']);
+  });
+
+  it('--sort composes with --threshold: filter narrows first, sort orders the survivors', async () => {
+    // The order matters: --threshold drops /weak.md (0.10) and
+    // /below.md (0.30); --sort path orders the survivors alphabetically.
+    // Without the post-filter sort, /strong.md (0.95) would lead — with
+    // --sort path applied AFTER, /apple.md (0.55) leads alphabetically.
+    retrieveMock.mockResolvedValue([
+      { path: '/strong.md', namespace: 'memory', score: 0.95, chunk: { text: '' } },
+      { path: '/apple.md', namespace: 'memory', score: 0.55, chunk: { text: '' } },
+      { path: '/below.md', namespace: 'memory', score: 0.30, chunk: { text: '' } },
+      { path: '/weak.md', namespace: 'memory', score: 0.10, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--threshold', '0.5', '--sort', 'path']);
+    const parsed = JSON.parse(stdout.join('')) as { path: string }[];
+    // Threshold first (keeps /strong.md and /apple.md), then sort path:
+    expect(parsed.map((r) => r.path)).toEqual(['/apple.md', '/strong.md']);
+  });
+
+  it('--sort path composes with --paths-only: dedupe walks the post-sort order', async () => {
+    // --sort path orders all hits alphabetically before --paths-only
+    // dedupes by path. So duplicates of the same path collapse to one
+    // line, and the final emit is alphabetical.
+    retrieveMock.mockResolvedValue([
+      { path: '/c.md', namespace: 'memory', score: 0.91, chunk: { text: '' } },
+      { path: '/a.md', namespace: 'memory', score: 0.80, chunk: { text: '' } },
+      { path: '/b.md', namespace: 'memory', score: 0.70, chunk: { text: '' } },
+      { path: '/a.md', namespace: 'memory', score: 0.50, chunk: { text: '' } }, // duplicate
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--paths-only', '--sort', 'path']);
+    // Exact byte layout: alphabetical, deduped, no styling, no headers.
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n/c.md\n');
+  });
+
+  it('--sort namespace composes with --paths-only: dedupe walks the namespace-grouped order', async () => {
+    // The natural cron pipe: `clawmind search foo --sort namespace
+    // --paths-only | xargs ls` — paths grouped by namespace, deduped,
+    // ready for xargs. The dedupe MUST walk the post-sort order so
+    // the namespace grouping is visible in the emitted stream.
+    retrieveMock.mockResolvedValue([
+      { path: '/proj-a.md', namespace: 'projects', score: 0.99, chunk: { text: '' } },
+      { path: '/mem-a.md', namespace: 'memory', score: 0.80, chunk: { text: '' } },
+      { path: '/proj-b.md', namespace: 'projects', score: 0.70, chunk: { text: '' } },
+      { path: '/mem-b.md', namespace: 'memory', score: 0.60, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--paths-only', '--sort', 'namespace']);
+    // memory namespace first (alphabetical), then projects; both
+    // namespaces preserve their internal API order.
+    expect(stdout.join('')).toBe('/mem-a.md\n/mem-b.md\n/proj-a.md\n/proj-b.md\n');
+  });
+
+  it('--sort path ties: identical paths preserved by secondary index sort (cross-snapshot determinism)', async () => {
+    // Two hits with the same path but different scores. The
+    // primary sort key (path) ties, so the secondary index sort
+    // takes over and preserves the retrieve()-returned order
+    // (which is score-descending). Without the secondary sort,
+    // V8's Array#sort would be stable in practice but the contract
+    // would be unenforced — this test pins the contract.
+    retrieveMock.mockResolvedValue([
+      { path: '/dup.md', namespace: 'memory', score: 0.91, chunk: { text: 'chunk-1' } },
+      { path: '/dup.md', namespace: 'memory', score: 0.50, chunk: { text: 'chunk-2' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--sort', 'path']);
+    const parsed = JSON.parse(stdout.join('')) as { path: string; score: number }[];
+    // Both rows kept (no dedupe in --json); the 0.91 chunk leads
+    // because the secondary sort by original index preserves
+    // retrieve() order on the path tie.
+    expect(parsed.map((r) => r.score)).toEqual([0.91, 0.50]);
+  });
+});
