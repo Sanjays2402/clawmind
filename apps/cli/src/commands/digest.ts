@@ -395,8 +395,9 @@ export function digestCommand() {
     .option('-q, --q <text>', 'case-insensitive substring filter; keep only history rows that touched a matching path (in newSources or removedSources)')
     .option('--since <iso-date>', 'bound the history window by absolute date; keep only rows whose ts is at-or-after the cutoff. Pairs naturally with -q for "what did saved-search X surface about path Y after date Z" queries from cron. Composes with -q (intersection: row must both touch a matching path AND be at-or-after the cutoff). Parse failures abort cleanly.')
     .option('--last <n>', 'cap the history rows returned to the newest N. Applied AFTER -q / --since so the cap is "the newest N rows that pass the other filters". Useful as a sliding-window companion to --since for cron snapshots ("the 5 most recent runs in the last week") and as a quick "tail" for big histories without --json | jq slicing. A non-positive or non-numeric value is rejected cleanly.', (v) => Number.parseInt(v, 10))
+    .option('--paths-only', 'emit ONLY the paths that appear in the filtered history rows (one path per line, deduplicated in walk order: rows are walked newest-first as returned by the API, and within each row the newSources are emitted first, then removedSources). Pipeline-friendly twin of the rest of the --paths-only family — pairs naturally with --last 1 to feed `xargs ingest` after a digest surfaces a wave of new sources: `clawmind digest show s1 --paths-only --last 1 | xargs clawmind ingest --paths -` is the one-liner. Composes with -q (substring filter narrows the rows first) and --since (date-bounded window narrows the rows first), so `clawmind digest show s1 --paths-only --since "$(date -u -d \'1 week ago\' +%FT%TZ)"` is "every path the saved search touched in the last week, deduped, ready for xargs". Zero matches yields a clean empty stream (no `query:` header, no empty-state hint) so xargs/wc keep working. Wins over --json when both are set (short-circuits BEFORE the --json emit, mirroring search/forget/related --paths-only precedent).')
     .option('--json', 'emit the history as JSON for scripting')
-    .action(async (id: string, opts: { q?: string; since?: string; last?: number; json?: boolean }) => {
+    .action(async (id: string, opts: { q?: string; since?: string; last?: number; pathsOnly?: boolean; json?: boolean }) => {
      await runAction('digest show', async () => {
       const out = (await apiFetch('GET', `/v1/digests/${id}`)) as {
         state: { query: string; history: { ts: number; newSources: { path: string }[]; removedSources: string[]; totalSources: number }[] };
@@ -462,6 +463,56 @@ export function digestCommand() {
       const payload = {
         state: { ...out.state, history: filteredHistory },
       };
+      // --paths-only is the pipeline-friendly twin of the rest of
+      // the --paths-only family (search / forget / related / stale /
+      // pins / mutes / aliases / tags). Walks the filtered history
+      // rows newest-first as the API returns them, and within each
+      // row emits the newSources first then the removedSources.
+      // Deduplicates against a Set sentinel so a path that appears
+      // across multiple history rows surfaces once at its first
+      // occurrence (the newest row mentioning it) — that matches
+      // the operator's "show me the paths touched in this window"
+      // mental model, where the most-recent mention is the one
+      // that anchors the path's position in the stream.
+      //
+      // The canonical cron one-liner:
+      //   clawmind digest show s1 --paths-only --last 1 \
+      //     | xargs clawmind ingest --paths -
+      // is "feed the most-recent run's surfaced paths back into
+      // ingest" — useful when a saved search anchors a daily
+      // re-ingest of a moving target directory.
+      //
+      // Composes naturally with -q / --since / --last because
+      // those filters already shaped `filteredHistory` above. So
+      // `--paths-only --since "$(...)"` is "every path touched
+      // since the cutoff, deduped, xargs-ready" and
+      // `--paths-only --last 1` is "just the most recent run's
+      // paths".
+      //
+      // Wins over --json when both are set (the contract is
+      // unambiguous: pipeline-friendly trumps machine-readable,
+      // matching search/forget/related --paths-only precedent).
+      // Zero matches yields a clean empty stream: no `query:`
+      // header, no empty-state hint, no ANSI. Critically the
+      // empty-stream case must NOT leak the human-readable
+      // "no history rows match" hint to stdout — that would
+      // poison `| xargs` consumers.
+      if (opts.pathsOnly) {
+        const seen = new Set<string>();
+        for (const h of filteredHistory) {
+          for (const s of h.newSources) {
+            if (seen.has(s.path)) continue;
+            seen.add(s.path);
+            process.stdout.write(`${s.path}\n`);
+          }
+          for (const p of h.removedSources) {
+            if (seen.has(p)) continue;
+            seen.add(p);
+            process.stdout.write(`${p}\n`);
+          }
+        }
+        return;
+      }
       if (opts.json) {
         process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
         return;

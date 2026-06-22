@@ -1947,4 +1947,106 @@ describe('digest cli', () => {
     // Sanity: each tick really did call the list endpoint.
     expect(listCallCount).toBe(2);
   });
+
+  // -----------------------------------------------------------------
+  // digest show --paths-only: pipeline-friendly twin of the rest of
+  // the --paths-only family (search / forget / related / stale).
+  // Walks the filtered history rows newest-first; emits newSources
+  // first within each row, then removedSources; deduplicates against
+  // a Set sentinel; short-circuits before --json.
+  // -----------------------------------------------------------------
+
+  it('show --paths-only walks history newest-first, emits newSources then removedSources, deduped', async () => {
+    // The default fixture's history (newest-first):
+    //   ts=2: newSources=[/n1.md], removedSources=[]
+    //   ts=1: newSources=[/p1.md], removedSources=[old]
+    // Expected stream (rows newest-first, within each row new then
+    // removed): /n1.md, /p1.md, old.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only']);
+    expect(captured.join('')).toBe('/n1.md\n/p1.md\nold\n');
+  });
+
+  it('show --paths-only dedupes paths across rows (a path that appears in two rows surfaces once)', async () => {
+    // Override the fixture with a payload where /shared.md
+    // appears in both the newest and the older row. The dedupe
+    // must keep ONE occurrence (the first one encountered, which
+    // anchors the path in the newest row).
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 3, newSources: [{ path: '/shared.md' }, { path: '/only-new.md' }], removedSources: [], totalSources: 3 },
+          { ts: 2, newSources: [{ path: '/older-new.md' }], removedSources: ['/shared.md'], totalSources: 2 },
+          { ts: 1, newSources: [{ path: '/shared.md' }], removedSources: [], totalSources: 1 },
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only']);
+    // /shared.md surfaces ONCE at the newest occurrence (ts=3 newSources).
+    // The walk order is: ts=3 newSources, ts=3 removedSources, ts=2
+    // newSources, ts=2 removedSources (but /shared.md already seen),
+    // ts=1 newSources (but /shared.md already seen).
+    expect(captured.join('')).toBe('/shared.md\n/only-new.md\n/older-new.md\n');
+  });
+
+  it('show --paths-only emits a clean empty stream when the history is empty (no query: header, no hint)', async () => {
+    // Empty history: no rows to walk. The stream must be empty
+    // — no `query:` header, no empty-state hint. Critical for
+    // `clawmind digest show s1 --paths-only | xargs ls`:
+    // leaking either of those to stdout would poison xargs.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: { query: 'snip', history: [] },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only']);
+    expect(captured.join('')).toBe('');
+  });
+
+  it('show --paths-only emits a clean empty stream when filters narrow to zero rows', async () => {
+    // Same fixture as the dedupe test but with --since far in
+    // the future — nothing survives. Must be a clean empty
+    // stream, NOT the unified text-mode "no history rows match"
+    // hint that the text path emits.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--since', '2999-01-01T00:00:00Z']);
+    expect(captured.join('')).toBe('');
+  });
+
+  it('show --paths-only short-circuits --json (the paths-only contract wins when both are set)', async () => {
+    // Mirrors search/forget/related --paths-only: pipeline-friendly
+    // trumps machine-readable when both flags are passed. The
+    // operator's `--json` is silently ignored — they get the
+    // path-per-line stream.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--json']);
+    const out = captured.join('');
+    // Plain paths, NOT a JSON document.
+    expect(out).toBe('/n1.md\n/p1.md\nold\n');
+    expect(out.trim().startsWith('{')).toBe(false);
+    expect(out.trim().startsWith('[')).toBe(false);
+  });
+
+  it('show --paths-only composes with --last 1 (canonical "most-recent run paths" one-liner)', async () => {
+    // The canonical cron pipe:
+    //   clawmind digest show s1 --paths-only --last 1 | xargs clawmind ingest --paths -
+    // is "feed the most-recent run's surfaced paths back into
+    // ingest". Pins that --last narrows the rows BEFORE --paths-only
+    // walks them — only the ts=2 row's paths survive.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--last', '1']);
+    // Just /n1.md (the ts=2 row's only newSource); /p1.md and /old
+    // belong to the ts=1 row which --last 1 dropped.
+    expect(captured.join('')).toBe('/n1.md\n');
+  });
+
+  it('show --paths-only composes with -q (substring filter on row paths narrows the walk)', async () => {
+    // -q "n1" keeps only the ts=2 row (which contains /n1.md);
+    // --paths-only then walks just that row. The ts=1 row's
+    // /p1.md and /old don't survive.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '-q', 'n1']);
+    expect(captured.join('')).toBe('/n1.md\n');
+  });
+
+  it('show --paths-only composes with --since (date-bounded window narrows the walk)', async () => {
+    // --since cutoff between ts=1 and ts=2 keeps only the ts=2
+    // row; --paths-only then walks just that row.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--since', '1970-01-01T00:00:00.002Z']);
+    expect(captured.join('')).toBe('/n1.md\n');
+  });
 });
