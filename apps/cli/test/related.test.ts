@@ -575,4 +575,152 @@ describe('related cli', () => {
     expect(stdout.join('')).toBe('a.md\n');
     expect(stderr.join('')).toBe('');
   });
+
+  // ---------------------------------------------------------------
+  // --above / --below + --paths-only byte-layout family.
+  //
+  // The --above + --paths-only composition is pinned just above.
+  // The symmetric --below + --paths-only AND the asymmetric band
+  // filter (--above + --below + --paths-only) are NOT pinned —
+  // any divergence in the filter ordering or the --paths-only
+  // dedupe across those combinations would slip through silently
+  // because the existing tests cover only:
+  //   - --above alone (the JSON filter behaviour)
+  //   - --below alone (the JSON filter behaviour)
+  //   - --above + --below alone (the JSON band shape)
+  //   - --above + --paths-only (one composition)
+  //   - --threshold + --paths-only (a different composition family)
+  // The combinations below close the gap. Each test pins the EXACT
+  // byte sequence on stdout (`expect(stdout).toBe(...)`) so a
+  // future refactor that subtly re-ordered the filter pipeline
+  // (e.g. running --paths-only dedupe BEFORE the band filter, which
+  // would silently drop survivors when duplicate paths had
+  // differing scores) is caught.
+  // ---------------------------------------------------------------
+
+  it('--below composes with --paths-only (strict-less-than filter applied BEFORE path stream)', async () => {
+    // Symmetric mirror of the --above + --paths-only pin. --below
+    // is strict-less-than; a row at exactly the bar is excluded.
+    // The path-per-line emit happens AFTER the band filter so the
+    // operator pays for the filter exactly once and the stream is
+    // byte-clean (no header, no ANSI, no hint).
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 4,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.91, hits: 3, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.50, hits: 2, excerpt: 'b' },
+            { path: 'c.md', namespace: 'projects', score: 0.40, hits: 2, excerpt: 'c' },
+            { path: 'd.md', namespace: 'projects', score: 0.10, hits: 1, excerpt: 'd' },
+          ],
+          count: 4,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--paths-only', '--below', '0.5']);
+    // b.md (0.50) is EXCLUDED — strict less-than means equality is out.
+    // Only c.md (0.40) and d.md (0.10) survive.
+    expect(stdout.join('')).toBe('c.md\nd.md\n');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--above + --below + --paths-only (band filter) emits ONLY the rank-ordered survivors as a path stream', async () => {
+    // The asymmetric band: --above is strict-greater-than (>),
+    // --below is strict-less-than (<). Together they form an
+    // open interval (above, below). A row at either edge is
+    // excluded. Path-per-line emit preserves the rank order of
+    // survivors and follows the same byte-clean contract as the
+    // single-flag --paths-only cases.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 6,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.95, hits: 3, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.80, hits: 2, excerpt: 'b' }, // edge of --below 0.8: excluded
+            { path: 'c.md', namespace: 'memory', score: 0.70, hits: 2, excerpt: 'c' }, // in band
+            { path: 'd.md', namespace: 'projects', score: 0.60, hits: 2, excerpt: 'd' }, // in band
+            { path: 'e.md', namespace: 'projects', score: 0.50, hits: 1, excerpt: 'e' }, // edge of --above 0.5: excluded
+            { path: 'f.md', namespace: 'projects', score: 0.30, hits: 1, excerpt: 'f' },
+          ],
+          count: 6,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--paths-only', '--above', '0.5', '--below', '0.8']);
+    // Only c.md (0.70) and d.md (0.60) survive the band; both
+    // edges (b.md 0.80 and e.md 0.50) are strictly excluded.
+    // Rank order is preserved (c.md before d.md, matching the
+    // API's input order).
+    expect(stdout.join('')).toBe('c.md\nd.md\n');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--above + --below + --paths-only with the band collapsing to empty yields a clean empty stream (no hint)', async () => {
+    // Critical xargs-safety pin: when the band excludes every
+    // candidate, stdout must be EXACTLY empty (no header, no
+    // "no related sources" hint that would poison `xargs ls`).
+    // Same precedent as --above + --paths-only with no
+    // survivors. A regression where the empty-band case fell
+    // through to the text-mode "no related sources" line would
+    // be caught here.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 3,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.91, hits: 3, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.10, hits: 1, excerpt: 'b' },
+            { path: 'c.md', namespace: 'projects', score: 0.05, hits: 1, excerpt: 'c' },
+          ],
+          count: 3,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    // Band (0.4, 0.85) catches NONE of the rows: a.md (0.91)
+    // is too high, b.md (0.10) and c.md (0.05) are too low.
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--paths-only', '--above', '0.4', '--below', '0.85']);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--threshold + --above + --below + --paths-only composes all three filters as an intersection', async () => {
+    // The tightest possible composition: --threshold (inclusive
+    // lower bound) AND --above (strict lower bound) AND --below
+    // (strict upper bound) AND --paths-only (path-per-line emit).
+    // The combined survivor set is the INTERSECTION of all three
+    // filters, applied BEFORE the --paths-only emit. The natural
+    // operator question is "the marginal band, hardened by the
+    // policy floor": --threshold 0.4 sets the policy ground floor
+    // (inclusive), --above 0.5 hardens it (strict), --below 0.85
+    // caps the top (strict). The survivor set is [score: 0.5+
+    // exclusive, 0.85 exclusive] which is the same as just --above
+    // 0.5 --below 0.85 in this case, but the third filter is
+    // composed and must not be silently dropped.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 5,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.90, hits: 3, excerpt: 'a' }, // above 0.85 -> dropped
+            { path: 'b.md', namespace: 'memory', score: 0.80, hits: 2, excerpt: 'b' }, // in band
+            { path: 'c.md', namespace: 'memory', score: 0.60, hits: 2, excerpt: 'c' }, // in band
+            { path: 'd.md', namespace: 'projects', score: 0.45, hits: 1, excerpt: 'd' }, // above threshold 0.4 (inclusive) BUT below --above 0.5 strict -> dropped
+            { path: 'e.md', namespace: 'projects', score: 0.30, hits: 1, excerpt: 'e' }, // below threshold -> dropped
+          ],
+          count: 5,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--paths-only', '--threshold', '0.4', '--above', '0.5', '--below', '0.85']);
+    // Only b.md (0.80) and c.md (0.60) survive all three filters.
+    // The path stream is rank-ordered (matches input order).
+    expect(stdout.join('')).toBe('b.md\nc.md\n');
+    expect(stderr.join('')).toBe('');
+  });
 });
