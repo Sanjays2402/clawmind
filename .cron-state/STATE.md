@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-22 10:07 PDT (current)
+### Tick 2026-06-22 13:41 PDT (current)
+
+- [x] feat(search): --sort <score|path|namespace> orders survivors of -t/--threshold (5e57ff3)
+- [x] feat(stale): --sort <age|path|size> orders survivors of -q / --since / --days (a8fd3d9)
+- [x] feat(digest): show --paths-only flat-emit of new/removed paths from filtered history rows (990689f)
+- [x] feat(stats): --sort name family-alias + secondary-by-original-index tie sort (19da6aa)
+- [x] test(feedback): pin prune --above --below --apply 3-flag byte-layout under --json (c3f8c56)
+
+### Tick 2026-06-22 10:07 PDT
 
 - [x] feat(feedback): list --sort <boost|path|ups|downs> orders survivors before --top (1f9946a)
 - [x] feat(digest): list --sort <lastRunTs|runs|title> orders survivors of -q/--since (c6cd0e7)
@@ -169,15 +177,16 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved)
 - [ ] fix(rag/hybrid): hybridMerge test on packages/rag/test/hybrid.test.ts expects `out[0].id === 'b'` but the merge orders 'a' (bm25 score 10) above 'b' under alpha=0.5; either the test fixture or the hybrid blend has drifted. Pre-existing failure (verified by typechecking parent commit 3cc6fd1), NOT introduced by any cron tick — was simply unknown because earlier ticks only ran `--filter @clawmind/cli test`, not `pnpm -r test`. Either rewrite the test against the current alpha-blend semantics OR re-derive the expected order from first principles.
 - [ ] fix(status): flake on `status --watch --json --check-after` test — `expect(process.exitCode).toBeFalsy()` occasionally observes 2 instead of undefined when the up-flip clearTimeout races the final cycle's `--check-after` debounce decision. Reproduces ~1 in every 5-10 runs of the full cli suite. Root cause likely: the test's `upFlip` setTimeout fires the up-state inversion at boundary of the cycle counter, and the cycle's exit-code decision happens before clearTimeout cancels the pending flip. Fix candidates: (a) advance fake timers deterministically with vi.useFakeTimers() through the whole --watch loop; (b) increase the cycle interval in the test fixture so the timing has more margin; (c) replace the wall-clock --check-after debounce with a counter-based one that decrements per JSON snapshot rather than per ms (then the test can deterministically count snapshots). Worth ~30min investigation in a future tick.
-- [ ] feat(stats): add --sort key (matches the new family-wide --sort contract: applied AFTER -q / --since / --top, secondary by original index for ties, unknown keys throw, default preserves API alphabetical order). Stats already has --sort but it's a different shape (files | chunks | bytes | namespace) and accepts an explicit default of "namespace" — bring it in line with the new family contract by adding `name` as an alias for `namespace`, supporting the same error path for unknown keys (currently throws via the typed StatsCliError but does not enumerate valid keys consistently with the new family), and adding a regression-pin test for the cross-snapshot determinism property when files/chunks/bytes tie.
 - [ ] feat(tags): add list --sort <tag|count> — currently `tags list --sort` exists with the same two keys but predates the family-wide contract. Verify the secondary-by-original-index sort is in place; if not, add it and pin the cross-snapshot determinism property.
-- [ ] feat(search): add --sort <score|path|namespace> (matches related --sort byte-for-byte). The cron use is the same as related: groups search hits by namespace for dashboard panels, alphabetical paths for stable diffs. Existing search command has --threshold and --paths-only so the contract symmetry argument is the same one that drove related --sort this tick.
 - [ ] feat(forget): add list-by-pattern shim (forget --dry-run --paths-only is the closest, but a dedicated `forget list <pattern>` for "preview what forget would touch" without typing --dry-run + --paths-only every time would be the more natural ergonomic shape). Open question: does the API need a new endpoint or can the cli pre-flight against the existing /v1/sources list?
-- [ ] feat(digest): add `show --paths-only` for the new/removed paths in the LATEST history row (the natural one-liner: `clawmind digest show s1 --paths-only --last 1` to feed `xargs ingest` after a digest surface a wave of new sources). Composes with --since for "what did this saved search add since date Z, just the paths".
-- [ ] feat(stale): add --sort <age|path|size> (the family-wide --sort contract on the stale list). --sort age desc is the "oldest first" ordering (matches stale's intrinsic "what should I clean up first" question); --sort path asc for stable diffs; --sort size desc for "the biggest stale files first" (which the operator may want to forget first to recover the most disk space per delete).
-- [ ] feat(feedback): add prune --above --below 3-flag composition pin under --apply (the existing tests cover --below alone, --above alone, and the dry-run with both; the --apply path with both flags is not pinned at the BYTE level — only the count is asserted. A regression in the report payload's `cleared` / `errors` arrays under the both-flags-apply path could slip through silently).
 - [ ] feat(status): add a `cycle: 0` pin for the first --watch --json snapshot (currently asserted as 1-indexed; pin that the indexing convention is 1-based explicitly, not just "monotonically increasing" — a regression to 0-indexed would silently change the contract for downstream parsers reading the first snapshot).
 - [ ] feat(ask): add --stream-json --no-citations --threshold composition byte-layout pin under the SKIP path (sources event count-only, skipped doc, no token events, exit 1). The 3-flag intersection is already pinned for the happy-path; the SKIP path through emitStreamDoc is structurally different (no token / done events fire) and the byte-layout under that path has not been pinned.
+- [ ] feat(digest): add `show --paths-only --diff` to split the emit into separate "added" and "removed" streams (currently --paths-only is a flat merge of newSources + removedSources per row — for an operator who wants to feed `xargs ingest` with ONLY the new paths, the existing merge means they have to post-process with `comm` or pipe --json through jq. A --diff modifier or a `--new-only` / `--removed-only` flag pair would close this gap, mirroring the `git diff` add/del shape).
+- [ ] feat(stale): add --sort age --reverse (or equivalently --sort -age) for "youngest stale files first" — the natural use is investigating which files crossed the stale threshold MOST RECENTLY (the "what just went stale" question, complementary to the existing "oldest first / biggest first" defaults). Currently the operator has to pipe --json through `jq` for this. The family-wide --sort contract has no reverse modifier yet; this would establish the precedent.
+- [ ] feat(search): add --sort path --reverse for descending alphabetical (the cron use is "what's at the END of the alphabetical run?" — useful for diff snapshots where the operator wants the FIRST change at the bottom of the visible window for a `tail -f`-style log scrape). Same precedent question as the stale entry above; whichever lands first establishes the reverse-modifier shape for the rest of the family.
+- [ ] feat(related): add --sort path --reverse + --sort namespace --reverse — for symmetry with the other sort-bearing commands once the reverse-modifier shape is established. Currently `related --sort namespace` groups alphabetically; descending namespace order is useful for cron snapshots that want the most-recent (alphabetically-last) namespace at the top.
+- [ ] feat(feedback): add `feedback prune --json --slim` shape: `{matched, cleared, errors, dryRun}` — drops the `paths` array (which can be megabytes on a large workspace) for cron dashboards that only need the counts. Mirrors `doctor --json --quiet` / `digest run --json --slim` precedent. Pairs naturally with --apply for tight cron-budget snapshots.
+- [ ] feat(stats): add --slim --paths --json composition byte-layout pin: when --slim, --paths, and --json are all set, which one wins? The current code path is undocumented in the cli help; --paths short-circuits BEFORE --json which short-circuits BEFORE --slim. Pin the precedence so a future refactor that changed the order would surface immediately.
 
 ## Conventions
 
@@ -1866,3 +1875,143 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   preserves API order. The composition rule "filters narrow,
   --sort orders, --top caps" is now consistent across the
   five commands that have all three.
+
+- 2026-06-22 13:41 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: 5e57ff3, a8fd3d9, 990689f, 19da6aa, c3f8c56. Test gate:
+  `@clawmind/cli` 564/564 vitest pass (up from 530). 34 net new
+  tests spread across 5 files: search.test.ts (+9 -> 46 — --sort),
+  stale.test.ts (+8 -> 31 — --sort), feedback-digest.test.ts (+11
+  -> 112 — 8 digest show --paths-only + 3 feedback prune 3-flag
+  byte pin), stats.test.ts (+5 -> 57 — --sort name alias +
+  determinism). `@clawmind/cli` typecheck: clean. First test run
+  hit the known status `--check-after` timer-race flake on 1 test
+  (status --watch --json --check-after; same flake every prior
+  tick); retry was clean 564/564. Status of pre-existing reds
+  outside cli (telemetry OpenTelemetry 1.x/2.x peer mismatch +
+  rag/hybrid alpha-blend drift) unchanged from prior 9 ticks.
+
+  Theme: queued-sweep tick — knocked out 4 of the 13 items from
+  the queued list (search --sort, stale --sort, digest show
+  --paths-only, stats --sort name alias + tie determinism) plus
+  the feedback prune 3-flag byte-pin (the last regression-guard
+  item from the queue). After this tick the queued list shrinks
+  from 13 to 9 items but adds 5 new ones that surfaced from the
+  patterns this batch established (reverse-modifier shape on
+  --sort, stats --slim --paths precedence, feedback prune --slim,
+  digest show --paths-only --diff).
+
+    1. search --sort <score|path|namespace>. The family-wide
+       ordering primitive completion on the cli's main retrieval
+       command. search was the last list-style command with
+       -t/--threshold but without a companion --sort. Mirrors
+       `related --sort` byte-for-byte. Three keys: score (desc,
+       effectively a no-op against retrieve()'s default order
+       but useful for symmetry), path (asc alphabetical, for
+       diff-stable --json snapshots), namespace (asc grouping,
+       for dashboard panels showing where a query's signal
+       clusters). Applied AFTER -t/--threshold; applied BEFORE
+       --paths-only so the dedupe walks the post-sort order —
+       a critical design property: `--sort namespace --paths-only`
+       emits paths grouped by namespace, NOT in retrieve() rank
+       order. Ties carry the family-wide secondary-by-index sort.
+       Unknown keys abort with exit 1 and NO partial JSON body
+       on stdout.
+
+    2. stale --sort <age|path|size>. The family-wide --sort
+       completion on the last cleanup-flow list missing it.
+       Three keys: age (desc, the natural "what should I clean
+       up first" ordering and effectively a no-op against the
+       API's default oldest-first order), path (asc for diff-
+       stable --json / --tsv), size (desc — the canonical
+       cron use is `stale --sort size --paths | xargs forget`
+       to recover the most disk space first when the cleanup
+       budget is tight). Most defensive design property:
+       applied BEFORE EVERY output mode (--json, --tsv, --paths,
+       --paths-only, default text) so each mode sees the SAME
+       ordered subset — a downstream consumer parsing --json
+       and a sibling parsing --tsv get byte-equivalent row
+       orders, they can never silently disagree on which file
+       leads the report. The cross-mode consistency property is
+       pinned by a `--tsv --sort path` test that asserts the
+       full TSV body byte-for-byte.
+
+    3. digest show --paths-only. The family-wide --paths-only
+       completion on the only history-shaped list surface that
+       was missing it. Walks filtered history rows newest-first
+       as the API returns them; within each row emits
+       newSources first, then removedSources; dedupes against
+       a Set sentinel so a path appearing across multiple rows
+       surfaces ONCE at its newest occurrence. The canonical
+       cron one-liner this enables:
+         clawmind digest show s1 --paths-only --last 1 \
+           | xargs clawmind ingest --paths -
+       "feed the most-recent run's surfaced paths back into
+       ingest" — useful when a saved search anchors a daily
+       re-ingest of a moving target directory. Critical
+       empty-stream contract: zero matches yields a CLEAN empty
+       stream — no `query:` header, no empty-state hint, no
+       ANSI. Leaking either would poison `| xargs` consumers.
+
+    4. stats --sort name family-alias + tie determinism. Two
+       changes that bring stats into line with the eight other
+       --sort-bearing commands. (a) `name` as a TRUE alias for
+       `namespace` (the family-wide canonical spelling); both
+       flags behave IDENTICALLY (same code path, same short-
+       circuit on API order), case-insensitive. The error
+       message was extended to enumerate `name` as a valid key,
+       so an operator typo'ing `--sort title` sees the full
+       vocabulary. Critical zero-regression check: the pre-
+       existing assertion `expect(err).toContain('expected:
+       files, chunks, bytes, namespace')` continues to hold
+       because the new error is a strict prefix-superset of
+       the old one. (b) Secondary-by-original-index sort on
+       the numeric keys (files/chunks/bytes) so cross-snapshot
+       ties are deterministic — pinned by a "two consecutive
+       runs over identical-ties input produce byte-identical
+       output" snapshot-diff property test.
+
+    5. feedback prune --above --below --apply byte-layout pin.
+       Pure regression-guard commit (no source change). The
+       existing test for the 3-flag composition asserts the
+       cleared count and the path-set membership (after
+       .sort() — sort first, compare second), but the FULL
+       JSON report payload was not pinned at the byte level.
+       Four invariants under the both-flags-apply path were
+       unprotected: (1) the empty errors[] under all-success,
+       (2) the dryRun=false flag under --apply, (3) both
+       threshold + thresholdAbove fields under the two-flag
+       composition (a regression to a single combined field
+       would lie about which predicate ran), and (4) the
+       paths array walk order (the existing test sorted before
+       comparing — this one asserts the actual API-walk order
+       byte-for-byte). The most defensive of the three new
+       tests is the SKIP-on-failure pin: with one DELETE
+       failing, exactly that path's error appears in errors[],
+       exit 1 fires, and the OTHER three DELETEs STILL fire
+       (the batch did NOT abort on the single failure — the
+       per-iteration try/catch around the DELETE serial loop
+       survives every code path). A regression where the catch
+       became throw would leave the cron tick in a half-
+       cleared state and the dashboard would not detect it.
+
+  Push: ce05108..c3f8c56 main -> main. All five commits
+  authored as `Cake (cron) <51058514+Sanjays2402@users.noreply.
+  github.com>`. Verify-gate note: ran `pnpm --filter @clawmind/
+  cli test` twice (first hit the known status flake; second was
+  clean 564/564). `pnpm --filter @clawmind/cli typecheck` clean.
+  No new pre-existing reds introduced; the telemetry + rag/
+  hybrid pair remains queued unchanged.
+
+  Theme connector: this is the ninth consecutive ship-from-
+  patterns tick. The --sort family-wide contract is now COMPLETE
+  across all 9 list-style commands in the cli: feedback list,
+  digest list, aliases list, tags list, related, search, stale,
+  stats, digest show (via --last newest-first ordering). The
+  --paths-only family-wide contract is now COMPLETE across all
+  9 list-style commands too: search, forget, related, stale,
+  pins, mutes, aliases, tags, and digest show. Two cross-
+  command families that the prior 8 ticks built one command at
+  a time are now uniformly applied. The remaining queued items
+  are smaller deltas (single-flag composition pins, error-path
+  byte-layout pins, --slim shape additions) rather than
+  family-wide completions.
