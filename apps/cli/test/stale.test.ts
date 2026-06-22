@@ -600,4 +600,191 @@ describe('stale cli', () => {
       vi.useRealTimers();
     }
   });
+
+  // -----------------------------------------------------------------
+  // --sort <age|path|size>: family-wide ordering primitive on stale.
+  // Mirrors search/related/feedback/digest/aliases --sort:
+  //   - applied AFTER -q / --since / --days (sort orders the survivors)
+  //   - applied BEFORE every output mode so --json / --tsv / --paths /
+  //     default text all see the SAME ordered subset
+  //   - age (desc), path (asc), size (desc) are the three keys
+  //   - ties carry a secondary sort by original index for determinism
+  //   - unknown keys abort cleanly with exit 1
+  // -----------------------------------------------------------------
+
+  it('exposes --sort on the command surface', () => {
+    const flags = staleCommand().options.map((o) => o.long);
+    expect(flags).toContain('--sort');
+  });
+
+  it('--sort size orders rows desc by byte size (biggest stale files first for disk-recovery priority)', async () => {
+    // Canonical cron use: `stale --sort size --paths | xargs forget`
+    // — recover the most disk space first when the cleanup budget
+    // is tight. The fixture has rows in age order; --sort size
+    // must re-rank by byte size desc regardless of age.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/old-small.md', ageDays: 200, chunkCount: 1, size: 100 },
+        { path: '/mid-mid.md', ageDays: 100, chunkCount: 5, size: 5000 },
+        { path: '/young-huge.md', ageDays: 31, chunkCount: 20, size: 100_000 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'size']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string; size: number }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/young-huge.md', '/mid-mid.md', '/old-small.md']);
+  });
+
+  it('--sort path orders rows asc alphabetical (diff-stable cross-snapshot)', async () => {
+    // For `stale --json` snapshots over time, the operator wants
+    // diff-stable row order independent of which files happened
+    // to be newest. --sort path is the answer.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/c.md', ageDays: 100, chunkCount: 1, size: 100 },
+        { path: '/a.md', ageDays: 50, chunkCount: 2, size: 200 },
+        { path: '/b.md', ageDays: 75, chunkCount: 3, size: 300 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'path']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/a.md', '/b.md', '/c.md']);
+  });
+
+  it('--sort age orders rows desc by ageDays (oldest first — matches the API default but pinned for symmetry)', async () => {
+    // The API already returns oldest-first; --sort age must
+    // produce the same order on a fixture that arrives in a
+    // different order (simulating a future API change). Pins the
+    // contract so the operator can rely on `--sort age` regardless
+    // of what the API does.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/recent.md', ageDays: 35, chunkCount: 1, size: 100 },
+        { path: '/oldest.md', ageDays: 365, chunkCount: 1, size: 100 },
+        { path: '/middling.md', ageDays: 150, chunkCount: 1, size: 100 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'age']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/oldest.md', '/middling.md', '/recent.md']);
+  });
+
+  it('--sort with an unknown key aborts cleanly (exit 1, error mentions valid keys, NO body emitted)', async () => {
+    // Mirrors the family contract: a typo cannot silently fall
+    // back to API order (which would be indistinguishable from
+    // the operator forgetting --sort entirely in the cron log).
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        thresholdDays: 30,
+        total: 1,
+        items: [{ path: '/a.md', ageDays: 50, chunkCount: 1, size: 100 }],
+      }), { status: 200 })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('stale failed: --sort value must be one of: age, path, size');
+    expect(stderr.join('')).toContain('banana');
+    // No partial JSON body on stdout — the operator's --json
+    // consumer must NOT see a half-baked payload.
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('--sort path composes with --tsv: TSV body order matches JSON body order (cross-mode consistency)', async () => {
+    // Critical cross-mode pin: a downstream consumer parsing
+    // --json and a sibling parsing --tsv must see byte-equivalent
+    // row orders. If the sort were applied differently per output
+    // mode, the two scripts would silently disagree.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/c.md', ageDays: 100, chunkCount: 1, size: 100 },
+        { path: '/a.md', ageDays: 50, chunkCount: 2, size: 200 },
+        { path: '/b.md', ageDays: 75, chunkCount: 3, size: 300 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--tsv', '--sort', 'path']);
+    // TSV rows in path order, alphabetical:
+    expect(stdout.join('')).toBe(
+      '/a.md\t50\t2\t200\n' +
+      '/b.md\t75\t3\t300\n' +
+      '/c.md\t100\t1\t100\n',
+    );
+  });
+
+  it('--sort size composes with --paths: path emit order matches the size-sorted row order', async () => {
+    // The canonical cron pipe:
+    //   clawmind stale --sort size --paths | xargs -n1 clawmind forget --apply
+    // The path-per-line emit MUST follow the same order the
+    // --json / text modes see, so the operator never has to
+    // guess which file gets forgotten first.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/small.md', ageDays: 200, chunkCount: 1, size: 100 },
+        { path: '/large.md', ageDays: 50, chunkCount: 5, size: 50_000 },
+        { path: '/medium.md', ageDays: 75, chunkCount: 3, size: 5_000 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--paths', '--sort', 'size']);
+    expect(stdout.join('')).toBe('/large.md\n/medium.md\n/small.md\n');
+  });
+
+  it('--sort ties: rows at the same key preserved by secondary index sort (deterministic cross-snapshot)', async () => {
+    // Two rows with identical size; the primary --sort size ties,
+    // so the secondary-by-original-index sort kicks in and
+    // preserves API order. Without the secondary sort, V8's
+    // Array#sort is stable in practice but the contract would be
+    // unenforced — this test pins it explicitly.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/first.md', ageDays: 100, chunkCount: 1, size: 1000 }, // tied size
+        { path: '/big.md', ageDays: 50, chunkCount: 5, size: 5000 },
+        { path: '/second.md', ageDays: 75, chunkCount: 2, size: 1000 }, // tied size
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'size']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[] };
+    // /big.md leads (largest); the two size===1000 rows tie, so
+    // the secondary index sort preserves their API order
+    // (/first.md before /second.md).
+    expect(parsed.items.map((i) => i.path)).toEqual(['/big.md', '/first.md', '/second.md']);
+  });
 });

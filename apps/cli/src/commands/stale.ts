@@ -63,10 +63,11 @@ export function staleCommand() {
     .option('--since <iso-date>', 'further restrict the report to files whose last ingest predates this ISO date. Complements --days <n> (which is a relative "older than N days from now" threshold) by accepting an absolute cutoff — useful from cron where the cutoff is anchored to a known date. The two filters compose: the kept set is the intersection. Files are kept when their lastIngestedAt < cutoff; lastIngestedAt is derived from the row\'s ageDays (which the API already computes against current time) so a file aged 90 days passes `--since` cutoffs up to 90 days in the past. Parse failures abort cleanly.')
     .option('--paths', 'print just the path column for piping into other commands. Predates the `--paths-only` naming used by search/forget/related/pins etc. and is preserved here for back-compat with byte-layout tests; `--paths-only` is the recommended alias going forward.')
     .option('--paths-only', 'alias for --paths to bring the flag in line with search/forget/related (which all expose --paths-only). Either flag emits exactly the same byte stream (one path per line, no ANSI, no header) so existing scripts using --paths keep working unchanged. When both are passed, --paths-only wins (it is the newer, canonical spelling).')
+    .option('--sort <key>', 'sort survivors of -q / --since / --days by one of: age (desc — oldest-first, the natural "what should I clean up first" ordering and the question stale is built around; equivalent to ageDays descending), path (asc alphabetical, for stable cross-snapshot diffs of `stale --json` / `stale --tsv`), size (desc — biggest stale files first, the natural "which deletes recover the most disk space" ordering). Applied AFTER the narrowing filters so the sort orders the SURVIVORS (matches the operator\'s "sort what I asked for" expectation, consistent with feedback/digest/aliases/related/search --sort). Applied BEFORE every output mode (--json / --tsv / --paths / --paths-only / text) so each mode sees the SAME ordered subset — a downstream consumer parsing --json and a sibling parsing --tsv get byte-equivalent row orders. Mirrors the family contract: ties carry a secondary sort by original index for cross-snapshot determinism, unknown keys abort cleanly with exit 1, default preserves the API-returned order (which is already oldest-first, so --sort age is effectively a no-op against the default but useful for symmetry).')
     .option('--tsv', 'emit tab-separated rows (path<TAB>ageDays<TAB>chunkCount<TAB>size) suitable for awk/cut')
     .option('--header', 'with --tsv: prepend a single tab-separated header row (`path\\tageDays\\tchunkCount\\tsize`) so the stream is friendly to `column -ts$\\\'\\\\t\\\'` / pandas.read_csv / spreadsheet imports without a separate echo. The default header-less shape is preserved when --header is absent so the long-standing awk-pipeline contract (`awk -F$\\\'\\\\t\\\' \\\'{print $1}\\\'`) still works byte-for-byte. Ignored without --tsv (the JSON / --paths / --paths-only / text modes already have their own well-defined shapes; adding a header line to those would break tests pinned to their exact byte layouts). When zero rows pass the filters AND --header is set, the header row STILL fires so a downstream consumer parsing the stream into a typed table never has to special-case an empty body — the schema row is the contract, not the data rows.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { days: string; limit: string; paths?: boolean; pathsOnly?: boolean; tsv?: boolean; header?: boolean; q?: string; since?: string; json?: boolean }) => {
+    .action(async (opts: { days: string; limit: string; paths?: boolean; pathsOnly?: boolean; tsv?: boolean; header?: boolean; q?: string; since?: string; sort?: string; json?: boolean }) => {
       await runOrReport('stale', async () => {
         const params: Record<string, string> = {
           olderThanDays: opts.days,
@@ -107,6 +108,56 @@ export function staleCommand() {
           const dayMs = 86_400_000;
           const items = out.items.filter((it) => (now - it.ageDays * dayMs) < cutoff);
           out = { ...out, items, total: items.length };
+        }
+        // --sort orders the SURVIVORS of -q / --since / --days. Three
+        // ordering primitives, mirroring the family-wide --sort contract:
+        //   age (desc)   -> oldest-first (the natural "what should I
+        //                    clean up first" ordering and the question
+        //                    stale is built around). Effectively a no-op
+        //                    against the API default (which already
+        //                    returns oldest-first), but useful for
+        //                    symmetry with other commands and as a
+        //                    defence against a future API change that
+        //                    reorders rows.
+        //   path (asc)   -> alphabetical, for stable cross-snapshot
+        //                    diffs of `stale --json` / `stale --tsv`.
+        //                    Pairs naturally with --header on TSV mode
+        //                    for a typed-table import where the row
+        //                    order is part of the contract.
+        //   size (desc)  -> biggest stale files first; the natural
+        //                    "which deletes recover the most disk
+        //                    space" ordering. The canonical cron use
+        //                    is `clawmind stale --sort size --paths`
+        //                    to feed `xargs forget` in size-priority
+        //                    order so a tight cleanup budget hits the
+        //                    biggest savings first.
+        //
+        // Applied AFTER the narrowing filters so the sort orders the
+        // kept set. Applied BEFORE every output mode (--json, --tsv,
+        // --paths, --paths-only, default text) so each mode sees the
+        // SAME ordered subset — a downstream consumer parsing --json
+        // and a sibling parsing --tsv get byte-equivalent row orders.
+        //
+        // Ties carry a secondary sort by original index (matches the
+        // family contract). Unknown keys throw cleanly.
+        if (opts.sort !== undefined) {
+          const sortKey = opts.sort.toLowerCase();
+          const validKeys = ['age', 'path', 'size'];
+          if (!validKeys.includes(sortKey)) {
+            throw new StaleCliError(`--sort value must be one of: age, path, size (got "${opts.sort}")`);
+          }
+          const ranked = out.items
+            .map((it, idx) => ({ it, idx }))
+            .sort((a, b) => {
+              let cmp = 0;
+              if (sortKey === 'age') cmp = b.it.ageDays - a.it.ageDays;
+              else if (sortKey === 'path') cmp = a.it.path.localeCompare(b.it.path);
+              else if (sortKey === 'size') cmp = b.it.size - a.it.size;
+              if (cmp !== 0) return cmp;
+              return a.idx - b.idx;
+            })
+            .map((r) => r.it);
+          out = { ...out, items: ranked };
         }
         if (opts.json) {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
