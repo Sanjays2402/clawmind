@@ -86,12 +86,27 @@ export function tagsCommand() {
   cmd.command('paths <tag>')
     .description('List source paths carrying a tag')
     .option('--json', 'emit results as JSON for scripting')
-    .option('--paths', 'pipeline-friendly: emit ONLY the path column (no styling, no headers, no "no sources tagged" hint). Zero matches yields an empty stream so xargs/wc keep working.')
-    .action(async (tag: string, opts: { json?: boolean; paths?: boolean }) => {
+    .option('--paths', 'pipeline-friendly: emit ONLY the path column (no styling, no headers, no "no sources tagged" hint). Zero matches yields an empty stream so xargs/wc keep working. Predates the family-wide `--paths-only` naming used by search/forget/related/stale/pins/mutes/aliases; `--paths-only` is the recommended alias going forward.')
+    .option('--paths-only', 'alias for --paths to bring the tags surface in line with the family-wide `--paths-only` naming exposed by search/forget/related/stale. Either flag emits exactly the same byte stream (one path per line, no ANSI, no header, no "no sources tagged" hint) so existing scripts using --paths keep working unchanged. When both are passed, the effect is identical (no precedence — they are truly equivalent). Mirrors the stale --paths / --paths-only alias relationship byte-for-byte. Composes with --json (--paths-only short-circuits --json).')
+    .action(async (tag: string, opts: { json?: boolean; paths?: boolean; pathsOnly?: boolean }) => {
       const enc = encodeURIComponent(tag);
       const out = (await apiFetch('GET', `/v1/tags/${enc}`)) as {
         tag: string; paths: string[]; count: number;
       };
+      // --paths and --paths-only emit the same byte stream. We check
+      // BOTH before --json so the pipeline-friendly contract trumps
+      // the machine-readable one (matches the precedent set by
+      // search/forget/related/stale --paths-only). The pair of flags
+      // is the alias relationship: --paths was the original spelling
+      // for this command, --paths-only is the family-wide canonical
+      // name. We OR them so either spelling triggers the path-stream
+      // shape; when both are passed the effect is identical. This
+      // keeps the flag family uniform without breaking the existing
+      // --paths contract that the tests pin to its exact byte layout.
+      if (opts.paths || opts.pathsOnly) {
+        for (const p of out.paths) process.stdout.write(`${p}\n`);
+        return;
+      }
       if (opts.json) {
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
         return;
@@ -102,10 +117,6 @@ export function tagsCommand() {
       // text mode already prints "no sources tagged <tag>" for empty
       // results and a styled-bold path body for matches, neither of which
       // a `| xargs` consumer wants.
-      if (opts.paths) {
-        for (const p of out.paths) process.stdout.write(`${p}\n`);
-        return;
-      }
       if (out.count === 0) {
         process.stdout.write(kleur.gray(`no sources tagged ${out.tag}\n`));
         return;

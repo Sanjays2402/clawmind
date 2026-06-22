@@ -82,6 +82,76 @@ describe('tags paths cli', () => {
     // sensitivity.
     expect(stdout.join('')).toContain('no sources tagged unused');
   });
+
+  // -----------------------------------------------------------------
+  // --paths-only: alias for --paths. Brings the tags surface in line
+  // with the family-wide --paths-only naming (search/forget/related/
+  // stale all expose --paths-only as the canonical spelling). Either
+  // flag emits exactly the same byte stream so existing scripts using
+  // --paths keep working unchanged. Mirrors the stale --paths /
+  // --paths-only alias relationship byte-for-byte.
+  // -----------------------------------------------------------------
+
+  it('--paths-only emits the same byte stream as --paths (canonical-spelling alias)', async () => {
+    stubFetch({
+      tag: 'work',
+      paths: ['/a.md', '/b.md', '/c.md'],
+      count: 3,
+    });
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--paths-only']);
+    // Byte-identical to the --paths case pinned above. The two
+    // flags are genuine aliases — any divergence between them
+    // would catch a regression where someone "optimized" one path
+    // and not the other.
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n/c.md\n');
+    expect(stdout.join('')).not.toMatch(/\x1b\[/);
+  });
+
+  it('--paths-only with zero matches yields a clean empty stream (xargs/wc-friendly)', async () => {
+    stubFetch({ tag: 'unused', paths: [], count: 0 });
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'unused', '--paths-only']);
+    // Same as --paths: no "no sources tagged" hint, no header,
+    // no ANSI. wc -l sees exactly 0 lines.
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--paths and --paths-only passed TOGETHER behave identically (no precedence — they are genuine aliases)', async () => {
+    // The pair of flags is the alias relationship: --paths was the
+    // original spelling, --paths-only is the family-wide canonical.
+    // Passing both is harmless; the effect is identical.
+    stubFetch({
+      tag: 'work',
+      paths: ['/a.md', '/b.md'],
+      count: 2,
+    });
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--paths', '--paths-only']);
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n');
+  });
+
+  it('--paths-only short-circuits --json (pipeline-friendly trumps machine-readable)', async () => {
+    // Matches the precedent set by search/forget/related/stale
+    // --paths-only: the path-stream contract wins so a cron script
+    // can pass --json unconditionally (for ApiError handling) but
+    // get a path stream when --paths-only is also set.
+    stubFetch({
+      tag: 'work',
+      paths: ['/a.md'],
+      count: 1,
+    });
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--json', '--paths-only']);
+    // Path stream, NOT JSON.
+    expect(stdout.join('')).toBe('/a.md\n');
+    expect(() => JSON.parse(stdout.join(''))).toThrow();
+  });
+
+  it('exposes --paths-only on the paths command surface', () => {
+    const paths = tagsCommand().commands.find((c) => c.name() === 'paths')!;
+    const flags = paths.options.map((o) => o.long);
+    expect(flags).toContain('--paths-only');
+    // --paths still exposed (back-compat).
+    expect(flags).toContain('--paths');
+  });
 });
 
 describe('tags list --sort / --top', () => {
