@@ -723,4 +723,119 @@ describe('related cli', () => {
     expect(stdout.join('')).toBe('b.md\nc.md\n');
     expect(stderr.join('')).toBe('');
   });
+
+  // -----------------------------------------------------------------
+  // --sort <key>: order survivors of --threshold / --above / --below
+  // by an operator-chosen axis. Mirrors `feedback list --sort` /
+  // `digest list --sort` / `aliases list --sort` precedent: applied
+  // AFTER the band filters, secondary sort by index for ties,
+  // unknown keys abort cleanly with exit 1.
+  // -----------------------------------------------------------------
+
+  it('--sort path orders survivors alphabetically ascending', async () => {
+    // The API returns items score-descending; --sort path
+    // overrides to alphabetical for stable cross-snapshot diffs.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 3,
+        items: [
+          { path: 'zeta.md', namespace: 'memory', score: 0.90, hits: 1, excerpt: 'z' },
+          { path: 'alpha.md', namespace: 'memory', score: 0.85, hits: 1, excerpt: 'a' },
+          { path: 'mu.md', namespace: 'memory', score: 0.80, hits: 1, excerpt: 'm' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--sort', 'path']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((it) => it.path)).toEqual(['alpha.md', 'mu.md', 'zeta.md']);
+  });
+
+  it('--sort namespace groups neighbours alphabetically by namespace', async () => {
+    // Mixed namespaces should resolve to alphabetical namespace
+    // order; within each namespace the secondary sort by original
+    // index preserves API order (which is score-descending).
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 4,
+        items: [
+          { path: 'p1.md', namespace: 'projects', score: 0.90, hits: 1, excerpt: 'p1' },
+          { path: 'm1.md', namespace: 'memory', score: 0.85, hits: 1, excerpt: 'm1' },
+          { path: 'p2.md', namespace: 'projects', score: 0.80, hits: 1, excerpt: 'p2' },
+          { path: 'm2.md', namespace: 'memory', score: 0.75, hits: 1, excerpt: 'm2' },
+        ],
+        count: 4,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--sort', 'namespace']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string; namespace: string }[] };
+    // All `memory` namespace items first (in API order: m1, m2),
+    // then all `projects` items (in API order: p1, p2).
+    expect(parsed.items.map((it) => `${it.namespace}/${it.path}`)).toEqual([
+      'memory/m1.md', 'memory/m2.md', 'projects/p1.md', 'projects/p2.md',
+    ]);
+  });
+
+  it('--sort score is a no-op (matches default API ordering descending)', async () => {
+    // Useful for symmetry with other commands; also a guard
+    // against a future API change that returned items in a
+    // different order — --sort score would still produce the
+    // expected score-descending stream.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 3,
+        // Deliberately scrambled to prove --sort works regardless
+        // of input order.
+        items: [
+          { path: 'mid.md', namespace: 'memory', score: 0.65, hits: 1, excerpt: 'm' },
+          { path: 'high.md', namespace: 'memory', score: 0.90, hits: 1, excerpt: 'h' },
+          { path: 'low.md', namespace: 'memory', score: 0.40, hits: 1, excerpt: 'l' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--sort', 'score']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[] };
+    // Score-descending: high (0.90), mid (0.65), low (0.40).
+    expect(parsed.items.map((it) => it.path)).toEqual(['high.md', 'mid.md', 'low.md']);
+  });
+
+  it('--sort path composes with --above (sort orders survivors of band filter)', async () => {
+    // --above 0.5 narrows to the strong-signal half, --sort path
+    // alphabetizes those survivors for a deterministic stream
+    // suitable for diffing.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 4,
+        items: [
+          { path: 'zeta.md', namespace: 'memory', score: 0.90, hits: 1, excerpt: 'z' },
+          { path: 'alpha.md', namespace: 'memory', score: 0.40, hits: 1, excerpt: 'a' }, // dropped by --above 0.5
+          { path: 'beta.md', namespace: 'memory', score: 0.75, hits: 1, excerpt: 'b' },
+          { path: 'omega.md', namespace: 'memory', score: 0.35, hits: 1, excerpt: 'o' }, // dropped
+        ],
+        count: 4,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--above', '0.5', '--sort', 'path']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    // Only beta.md + zeta.md survive --above 0.5; --sort path
+    // orders them alphabetically.
+    expect(parsed.items.map((it) => it.path)).toEqual(['beta.md', 'zeta.md']);
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--sort with an unknown key aborts cleanly with exit 1', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 1,
+        items: [{ path: 'bar.md', namespace: 'memory', score: 0.8, hits: 1, excerpt: 'b' }],
+        count: 1,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--sort', 'banana']);
+    expect(process.exitCode).toBe(1);
+    const err = stderr.join('');
+    expect(err).toContain('related failed: --sort value must be one of: score, path, namespace');
+    expect(err).toContain('"banana"');
+  });
 });
