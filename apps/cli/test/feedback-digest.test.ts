@@ -305,6 +305,110 @@ describe('feedback cli', () => {
     expect(out).not.toContain('/quiet.md');
   });
 
+  // -----------------------------------------------------------------
+  // --sort <key>: explicit ordering primitive distinct from --top.
+  // --top ranks by absolute distance from neutral (|boost - 1.0|);
+  // --sort ranks by an operator-chosen axis (boost desc, path asc,
+  // ups desc, downs desc). The two compose: --sort wins ordering,
+  // --top caps the head of that ordering.
+  // -----------------------------------------------------------------
+
+  it('feedback list --sort boost orders survivors by boost descending', async () => {
+    // Fixture covers both directions so we can prove "desc" is
+    // truly desc (highest first) and not just "API order".
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/mid.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/high.md', ups: 5, downs: 0, boost: 1.40 },
+        { path: '/low.md', ups: 0, downs: 4, boost: 0.65 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--sort', 'boost', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string }[] };
+    // Highest boost first, lowest last.
+    expect(parsed.items.map((it) => it.path)).toEqual(['/high.md', '/mid.md', '/low.md']);
+  });
+
+  it('feedback list --sort path orders survivors alphabetically ascending', async () => {
+    // Cross-snapshot stable ordering — the natural cron use is
+    // `feedback list --json --sort path | diff snap-prev.json -`
+    // where alphabetical order is the only diff-stable ordering
+    // regardless of insertion order.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/zeta.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/alpha.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/mu.md', ups: 1, downs: 0, boost: 1.05 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--sort', 'path', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((it) => it.path)).toEqual(['/alpha.md', '/mu.md', '/zeta.md']);
+  });
+
+  it('feedback list --sort downs --top 2 caps the head of the downvote ranking', async () => {
+    // The whole point of --sort being a separate primitive from
+    // --top: an operator asking "the 2 most-downvoted paths"
+    // wants the head of the downs-descending ordering, NOT the
+    // 2 loudest by |boost - 1.0|. /heavy-downs.md has the most
+    // downs but a milder boost (0.80) than /huge-up.md (1.50)
+    // which has zero downs. --sort downs --top 2 must pick the
+    // top-2 by downs (heavy-downs, mid-downs), NOT the top-2 by
+    // distance (which would be huge-up + heavy-downs).
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/huge-up.md', ups: 5, downs: 0, boost: 1.50 },
+        { path: '/mid-downs.md', ups: 0, downs: 3, boost: 0.90 },
+        { path: '/heavy-downs.md', ups: 0, downs: 8, boost: 0.80 },
+        { path: '/quiet.md', ups: 1, downs: 1, boost: 1.0 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--sort', 'downs', '--top', '2', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string; downs: number }[] };
+    expect(parsed.items.map((it) => it.path)).toEqual(['/heavy-downs.md', '/mid-downs.md']);
+    expect(parsed.items.map((it) => it.downs)).toEqual([8, 3]);
+  });
+
+  it('feedback list --sort with an unknown key aborts cleanly with exit 1', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [{ path: '/a.md', ups: 1, downs: 0, boost: 1.05 }],
+    }), { status: 200 })) as never;
+    try {
+      await feedbackCommand().parseAsync(['node', 'cli', 'list', '--sort', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const out = stderrBuf.join('');
+    expect(out).toContain('feedback list failed: unknown --sort key "banana"');
+    expect(out).toContain('boost, path, ups, downs');
+    process.exitCode = 0;
+  });
+
+  it('feedback list --sort ups with ties preserves API order as secondary sort', async () => {
+    // Two entries with ups=5 — the secondary sort by original
+    // index pins the relative order to whatever the API returned.
+    // Without the secondary sort, V8's Array#sort COULD in
+    // principle flip ties (stable since V8 7.0, but the spec
+    // only required stability after ES2019).
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/first-tied.md', ups: 5, downs: 0, boost: 1.20 },
+        { path: '/loud-loner.md', ups: 9, downs: 0, boost: 1.45 },
+        { path: '/second-tied.md', ups: 5, downs: 0, boost: 1.25 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--sort', 'ups', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string; ups: number }[] };
+    // loud-loner first (ups=9), then the two tied entries in API
+    // order (first-tied at index 0, second-tied at index 2).
+    expect(parsed.items.map((it) => it.path)).toEqual(['/loud-loner.md', '/first-tied.md', '/second-tied.md']);
+    expect(parsed.items.map((it) => it.ups)).toEqual([9, 5, 5]);
+  });
+
   it('reports a clean message when the api is unreachable', async () => {
     const stderrBuf: string[] = [];
     const origErr = process.stderr.write.bind(process.stderr);

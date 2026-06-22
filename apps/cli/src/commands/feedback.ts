@@ -87,8 +87,9 @@ export function feedbackCommand() {
     .option('--above <n>', 'keep only entries whose boost multiplier is strictly greater than this value (typical: --above 1.0 to show only upvote-dominant paths)', (v) => Number.parseFloat(v))
     .option('--below <n>', 'keep only entries whose boost multiplier is strictly less than this value (typical: --below 1.0 to show only downvote-dominant paths)', (v) => Number.parseFloat(v))
     .option('--top <n>', 'cap the listed entries to the N loudest votes by absolute distance from neutral (|boost - 1.0|), descending. Answers "which votes are the LOUDEST regardless of direction" in a single call — the natural cron-audit invocation is `clawmind feedback list --top 10 --json` to surface the entries that drag retrieval ranking the hardest in either direction. Applied AFTER -q / --above / --below so the cap is "the N loudest entries that pass the other filters". Ties at the same |boost - 1.0| distance preserve the API-provided order (deterministic across snapshots). A non-positive or NaN value falls back to "no cap" so a typo like `--top 0` still yields a useful response rather than an empty list (matches `tags list --top` / `stats --top` precedent). Composes naturally with --above/--below: `--above 1.0 --top 5` is "the 5 strongest upvotes", `--below 1.0 --top 5` is "the 5 strongest downvotes", `--top 10` alone (no band filter) is "the 10 loudest entries either direction".', (v) => Number.parseInt(v, 10))
+    .option('--sort <key>', 'sort entries by one of: boost (desc — highest-boost first, "show me my most-trusted paths"), path (asc alphabetical, for stable cross-snapshot diffs), ups (desc — most-upvoted first), downs (desc — most-downvoted first). Applied AFTER -q / --above / --below so the sort orders the SURVIVORS of any narrowing filter. Applied BEFORE --top so `--sort downs --top 10` is "the 10 entries with the most downvotes regardless of boost magnitude" — distinct from the existing --top semantic ("the 10 loudest votes by |boost-1.0|") which is a SEPARATE ranking primitive answering a different question. Ties at the same sort key fall back to API order (deterministic across snapshots; secondary sort by the original index). Unknown keys abort cleanly with exit 1 — a typo cannot silently fall back to API order which would be indistinguishable from an empty `--sort` invocation in the cron log. The default (no --sort) preserves the API-returned order — existing scripts diffing `feedback list --json` snapshots stay byte-stable.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; above?: number; below?: number; top?: number; json?: boolean }) => {
+    .action(async (opts: { q?: string; above?: number; below?: number; top?: number; sort?: string; json?: boolean }) => {
       await runOrReport('feedback list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/feedback${qs}`)) as {
@@ -127,6 +128,59 @@ export function feedbackCommand() {
             }),
           };
         }
+        // --sort orders the SURVIVORS of any narrowing filter. It is a
+        // separate ranking primitive from --top: --top ranks by absolute
+        // distance from neutral (|boost - 1.0|), while --sort ranks by an
+        // operator-chosen axis. The two compose deliberately:
+        //   --sort downs --top 10  -> the 10 entries with the most
+        //                              downvotes (regardless of boost
+        //                              magnitude); --sort wins the
+        //                              ordering, --top caps the head
+        //   --sort boost           -> highest-boost first ("show me my
+        //                              most-trusted paths")
+        //   --sort path            -> alphabetical, for stable cross-
+        //                              snapshot diffs of `feedback list
+        //                              --json`
+        //
+        // We apply --sort AFTER the narrowing filters (-q / --above /
+        // --below) so the sort orders the kept set — the operator's
+        // expectation is "sort what I asked for, not the original API
+        // payload". We apply it BEFORE --top so --top caps the head of
+        // the --sort ordering, which is the natural reading of the
+        // composition.
+        //
+        // Ties at the same sort key carry a secondary sort by the
+        // original index (the order the API returned items in) so two
+        // snapshots that contain the same entries produce byte-
+        // identical output. Without the secondary sort, V8's Array#sort
+        // — which is stable since 7.0 but the spec only required
+        // stability after ES2019 — could in principle flip ties, and
+        // the snapshot would drift between runs of identical input.
+        //
+        // Unknown keys throw cleanly so a typo cannot silently fall
+        // back to API order (which would be indistinguishable from an
+        // empty `--sort` invocation in the cron log).
+        if (opts.sort !== undefined) {
+          const sortKey = opts.sort.toLowerCase();
+          const validKeys = ['boost', 'path', 'ups', 'downs'];
+          if (!validKeys.includes(sortKey)) {
+            throw new FeedbackCliError(`unknown --sort key "${opts.sort}" (expected one of: ${validKeys.join(', ')})`);
+          }
+          const ranked = out.items
+            .map((it, idx) => ({ it, idx }))
+            .sort((a, b) => {
+              let cmp = 0;
+              if (sortKey === 'boost') cmp = b.it.boost - a.it.boost;
+              else if (sortKey === 'ups') cmp = b.it.ups - a.it.ups;
+              else if (sortKey === 'downs') cmp = b.it.downs - a.it.downs;
+              else if (sortKey === 'path') cmp = a.it.path.localeCompare(b.it.path);
+              if (cmp !== 0) return cmp;
+              // Secondary sort by original index for deterministic ties.
+              return a.idx - b.idx;
+            })
+            .map((r) => r.it);
+          out = { ...out, items: ranked };
+        }
         // --top caps the kept entries to the N loudest by absolute
         // distance from neutral (|boost - 1.0|), descending. The
         // contract is "show me the loudest votes regardless of
@@ -159,23 +213,37 @@ export function feedbackCommand() {
         // The text-mode header line / count is recomputed below
         // from the post-top length so the operator sees the
         // right number.
+        //
+        // Composition with --sort: when --sort is set, the
+        // operator has already picked their ordering primitive
+        // (boost / path / ups / downs); --top just caps the head
+        // of THAT ordering rather than re-sorting by |boost-1.0|.
+        // Without this branch, `--sort downs --top 10` would
+        // silently throw away the --sort and produce "the 10
+        // loudest by distance" — exactly what --top alone does
+        // and exactly what the composition is supposed to NOT do.
         if (opts.top !== undefined && Number.isFinite(opts.top) && opts.top > 0) {
-          const ranked = out.items
-            .map((it, idx) => ({
-              it,
-              idx,
-              // Snap to 6 decimals so floating-point error in the
-              // raw subtraction does not de-tie genuinely-equal
-              // distances at boost precision.
-              dist: Math.round(Math.abs(it.boost - 1.0) * 1e6) / 1e6,
-            }))
-            .sort((a, b) => {
-              if (b.dist !== a.dist) return b.dist - a.dist;
-              // Ties: preserve API order (lower idx first).
-              return a.idx - b.idx;
-            })
-            .map((r) => r.it);
-          out = { ...out, items: ranked.slice(0, opts.top) };
+          if (opts.sort !== undefined) {
+            // --sort already determined ordering; --top just caps the head.
+            out = { ...out, items: out.items.slice(0, opts.top) };
+          } else {
+            const ranked = out.items
+              .map((it, idx) => ({
+                it,
+                idx,
+                // Snap to 6 decimals so floating-point error in the
+                // raw subtraction does not de-tie genuinely-equal
+                // distances at boost precision.
+                dist: Math.round(Math.abs(it.boost - 1.0) * 1e6) / 1e6,
+              }))
+              .sort((a, b) => {
+                if (b.dist !== a.dist) return b.dist - a.dist;
+                // Ties: preserve API order (lower idx first).
+                return a.idx - b.idx;
+              })
+              .map((r) => r.it);
+            out = { ...out, items: ranked.slice(0, opts.top) };
+          }
         }
         if (opts.json) {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
