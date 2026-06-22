@@ -333,6 +333,71 @@ describe('ask --out writes answer to a file', () => {
     const body = await readFile(out, 'utf8');
     expect(body).toContain('hello world');
   });
+
+  // ---------------------------------------------------------------
+  // --out - (stdout sentinel). A single hyphen is the standard *nix
+  // convention for "treat stdout as the output file". A script that
+  // passes --out $VAR with $VAR === "-" must NOT create a literal
+  // file named "-" in the cwd; the cli normalizes `-` to undefined
+  // up front so every downstream --out check falls through to the
+  // regular stdout path. The contract holds across text mode, --json,
+  // AND --stream-json so the cron operator's argv shape works
+  // uniformly. Same precedent as `clawmind search -` reading the
+  // query from stdin: a single hyphen is the universal sentinel for
+  // "use the standard stream instead of a file path".
+  // ---------------------------------------------------------------
+
+  it('text mode --out - writes to stdout (no literal "-" file created in cwd)', async () => {
+    // The hyphen sentinel turns --out off so the answer streams
+    // token-by-token to stdout exactly like the plain `clawmind
+    // ask` invocation. A literal `-` file must NOT appear in the
+    // test temp dir.
+    const { readdir } = await import('node:fs/promises');
+    const before = (await readdir(dir)).sort();
+    await askCommand().parseAsync(['node', 'cli', '-o', '-', 'q']);
+    const after = (await readdir(dir)).sort();
+    // No new file in dir.
+    expect(after).toEqual(before);
+    // Stdout carries the streamed answer (token-by-token) AND the
+    // citations footer — i.e. the regular stdout path is back.
+    const out = stdout.join('');
+    expect(out).toContain('hello world');
+    expect(out).toContain('citations:');
+    expect(out).toContain('[^1] /a.md:1-5');
+    // No "wrote answer" stderr confirmation — that line is the
+    // file-capture marker, which never fires when stdout took over.
+    expect(stderr.join('')).not.toContain('wrote answer');
+  });
+
+  it('--json --out - emits the assembled payload to stdout (the literal stdout document, not a file)', async () => {
+    // The JSON shape mirrors plain `clawmind ask --json` exactly —
+    // a downstream `jq` consumer can keep using `clawmind ask
+    // --json --out $VAR` and the script keeps working even when
+    // $VAR is the conventional "-".
+    await askCommand().parseAsync(['node', 'cli', '--json', '-o', '-', 'q']);
+    const parsed = JSON.parse(stdout.join('')) as Record<string, unknown>;
+    expect(parsed.answer).toBe('hello world');
+    expect(parsed.latencyMs).toBe(42);
+    expect(parsed.count).toBe(2);
+    // No "wrote answer" confirmation — that's the file-capture
+    // marker, not the stdout path.
+    expect(stderr.join('')).not.toContain('wrote answer');
+  });
+
+  it('--stream-json --out - falls through to the regular live stdout NDJSON stream', async () => {
+    // The hyphen sentinel disables the streamJsonToFile branch so
+    // each event arrives on stdout (one append per event) exactly
+    // like plain --stream-json. No file handle is opened, no
+    // truncation, no stderr "wrote answer" confirmation.
+    await askCommand().parseAsync(['node', 'cli', '--stream-json', '-o', '-', 'q']);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    // Same 4 NDJSON docs as the plain --stream-json case.
+    expect(lines).toHaveLength(4);
+    const docs = lines.map((l) => JSON.parse(l));
+    expect(docs.map((d) => d.kind)).toEqual(['sources', 'token', 'token', 'done']);
+    expect(docs[3]).toEqual({ kind: 'done', latencyMs: 42, model: 'fake-model' });
+    expect(stderr.join('')).not.toContain('wrote answer');
+  });
 });
 
 // ----------------------------------------------------------------

@@ -14,7 +14,7 @@ export function askCommand() {
     .option('-t, --threshold <n>', 'require at least one retrieved source with score >= n; if all sources fall below this bar the LLM is NOT called and a non-zero exit code is returned')
     .option('--no-citations', 'in text mode, hide the citations footer; in --json mode, omit the citations[] array. The streamed answer is unchanged.')
     .option('--json', 'emit answer, citations, and metadata as JSON for scripting')
-    .option('-o, --out <file>', 'write the answer (and citations footer / JSON payload, depending on mode) to a file instead of stdout. Stderr still gets progress / error chatter. Mirrors the same flag on `clawmind search`.')
+    .option('-o, --out <file>', 'write the answer (and citations footer / JSON payload, depending on mode) to a file instead of stdout. Stderr still gets progress / error chatter. Mirrors the same flag on `clawmind search`. The standard *nix convention `-o -` is honoured: a single hyphen is treated as the "use stdout" sentinel so a script passing `--out $VAR` with `$VAR === "-"` falls through to the regular stdout path (across text mode, --json, AND --stream-json) instead of trying to create a literal file named `-` in the cwd.')
     .option('--stream-json', 'live-stream the answer as NDJSON events, one document per line: `{kind:"sources", count, items:[...]}` first (one doc with the full retrieval set), then `{kind:"token", value:"..."}` for EACH generated token as it arrives from the LLM, then `{kind:"done", latencyMs, model}` after the last token. Pairs with --threshold (a skip emits `{kind:"skipped", reason, threshold, bestScore, count}` instead of the token stream) and with --no-citations (drops the items[] array from the sources doc but still emits `{kind:"sources", count}` as the leading marker). The natural use is a live UI (terminal or web) that wants to render the answer token-by-token AND see the citation set up front for a sidebar — `--json` (the existing flag) only emits the final assembled payload AFTER the stream completes, which forces the UI to wait the full latencyMs before showing anything. --stream-json is single-line-JSON per event by construction (no indent) so a `jq -c .` consumer over `clawmind ask ... --stream-json | jq -c .` round-trips cleanly. Mutually exclusive with --json (which emits the assembled payload at the end); when both are passed, --stream-json wins because the streaming contract is the stricter / more time-sensitive shape. Pairs with --out: the NDJSON event stream is appended to the file as it arrives (one append per event so a `tail -f` of the file can read the stream in real time) and stdout stays SILENT; stderr still gets the green "wrote answer" confirmation when the stream completes. This makes `clawmind ask ... --stream-json --out stream.ndjson` a one-shot way to persist the live event stream AND have a live UI tail it without the operator having to shell-redirect.')
     .action(async (question: string[], opts: { k: string; namespaces?: string; json?: boolean; citations: boolean; threshold?: string; out?: string; streamJson?: boolean }) => {
       const rt = await buildRuntime();
@@ -24,6 +24,23 @@ export function askCommand() {
         namespaces: opts.namespaces?.split(',').filter(Boolean),
       });
       const deps = { bm25: rt.bm25, lance: rt.lance, embed: rt.embed, llm: rt.llm, embedModel: rt.env.CLAWMIND_EMBED_MODEL };
+      // --out - is the standard *nix convention for "treat stdout
+      // as the output file". A script that passes `--out $VAR`
+      // and happens to have `$VAR === "-"` (because the operator
+      // wanted to skip the file-capture step on a one-off run)
+      // would, without this normalization, try to create a literal
+      // file named `-` in the cwd — which both pollutes the
+      // working directory AND silences stdout (because the file-
+      // capture branches all short-circuit the stdout writes).
+      // Normalizing `-` to undefined up front lets every downstream
+      // --out check fall through to the regular stdout path so
+      // `clawmind ask ... --out -` behaves identically to
+      // `clawmind ask ...` across text mode, --json, AND
+      // --stream-json. Same precedent as the `-` argument on
+      // `clawmind search` reading the query from stdin: a single
+      // hyphen is the universal sentinel for "use the standard
+      // stream instead of a file path".
+      if (opts.out === '-') opts.out = undefined;
       // --stream-json is the live-NDJSON-event shape. It wins over
       // --json (the assembled-at-end payload) AND composes with
       // --out: when both --stream-json and --out are set, the
