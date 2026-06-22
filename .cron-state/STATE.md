@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-21 20:00 PDT (current)
+### Tick 2026-06-21 23:08 PDT (current)
+
+- [x] feat(status): emit --watch startup banner to stderr at loop start (696cce6)
+- [x] feat(status): add --watch --check-after <n> to debounce 1-cycle blips (c712abb)
+- [x] feat(watch): add --once --paths-only pure preview (no ingest, xargs-safe) (738037b)
+- [x] feat(ask): --stream-json --out writes NDJSON event stream to file (no shell redirect needed) (c8f3810)
+- [x] test(digest): pin --json --slim --since exact byte layout (NDJSON-friendly diff contract) (1b4b63c)
+
+### Tick 2026-06-21 20:00 PDT
 
 - [x] feat(status): add --watch <ms> + --max-polls <n> for a refreshing dashboard (11718bd)
 - [x] feat(related): add --above/--below filter pair mirroring feedback list (a7e8e96)
@@ -143,13 +151,14 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(export): add --since composition test that round-trips through the live API end-to-end (the CLI test mocks fetch; the API test injects routes; a third test could spin up the real Fastify app + bind a tcp port and call through `clawmind export` to catch wire-format regressions)
 - [ ] feat(search): add --rerank-only --json --no-snippet shortcut — slim payload (no snippet/highlights) on the no-MMR debug path so a rerank-only A/B run can compare the bare rank/path/score shape across the 3-way (default / --rerank-off / --rerank-only) without snippet noise inflating each payload 10x. Three flags compose naturally; the test is the smoke (current --no-snippet contract + current --rerank-only contract should already produce this for free, but pinning the byte shape would guard against a future regression).
 - [ ] feat(stats): add --json --slim --since composition test that pins the byte layout when both flags fire (the new --slim --tsv contract is similar but covers --tsv only; --since composition is exercised elsewhere but not the EXACT byte layout that the slim shape produces under the cutoff)
-- [ ] feat(digest): add run --json --slim --since composition test — three-flag pipe `--max N --since X --json --slim` is the canonical cron probe shape; existing tests cover the pairs but the triple-flag exact-byte-layout under empty / partial / full survivors would be a useful regression for the dashboard contract
-- [ ] feat(status): add --watch --check threshold-of-down — e.g. `--check-after <n>` to only flip exit code 2 if N consecutive cycles were down (avoids alerting on a 1-cycle blip). Pairs with --watch + --check + --max-polls.
-- [ ] feat(status): add --watch banner — emit one `{"kind":"banner","apiBase","interval","ts"}` doc to stderr at the start of a watch loop (mirrors `watch` command's startup banner) so a log scraper can detect dashboard restarts vs continuous-poll snapshots.
-- [ ] feat(ask): add --stream-json --out composition — instead of silently ignoring --out under --stream-json, write the NDJSON event stream to the file. The current "silent ignore" path is pragmatic but a real UI may want both (terminal preview + persistent log).
 - [ ] feat(related): add --above --paths-only composition test — pin the band filter's interaction with the pipeline-friendly emit (existing test pins --above alone but the combination with --paths-only deserves an explicit byte-layout pin).
-- [ ] feat(watch): add --once --since --paths-only — pure preview (no ingest), emit the list of files that WOULD be ingested by `watch --once --since X`. Mirrors `ingest --dry-run --paths-only --since` but on the watch command surface for cron muscle memory.
 - [ ] feat(watch): add --once --since composition test that pairs the new --since with --debounce (both should be silently accepted in --once mode; --since drives the filter, --debounce is a no-op).
+- [ ] feat(status): add --watch --check-after --json composition test pinning the exit code stays 0 even when JSON snapshots all show ok=false (the --check-after debounce applies to exit code only, NOT to the per-cycle JSON shape; pin that contract so a dashboard reading the snapshots is never confused by the exit code's silence).
+- [ ] feat(status): add --watch --json with embedded `cycle: N` index per snapshot so a downstream NDJSON consumer can detect dropped snapshots or sort across restart boundaries (currently each snapshot is self-contained but has no monotonic counter — a missing snapshot in the stream is silent).
+- [ ] feat(watch): add --once --paths-only --json shortcut — instead of short-circuiting --json with --paths-only (current contract), emit `{root, count, files:[...]}` (mirrors `reindex --dry-run --json`). Currently --paths-only WINS over --json (matches forget/search/related precedent), but a `--paths-only --json` reader who explicitly wanted the JSON wrapper has no way to get it. Worth considering: maybe expose `--preview-json` as a separate flag for that consumer.
+- [ ] feat(ask): add --stream-json --out --no-citations composition test — pin that --no-citations drops items[] from the file's sources doc but keeps the marker, just like the stdout shape (currently --no-citations is honoured in emitStreamDoc by the shared `if (opts.citations !== false)` branch; a regression where --no-citations only affected stdout and leaked items[] to the file would be invisible without a test pin).
+- [ ] feat(ask): add --stream-json --out with empty answer (no token events between sources and done) — pin that the file body is exactly 2 lines (sources + done, no tokens) and the green stderr confirmation still fires with `(0 chars)`. The "empty answer" case is rare but real (a model that thinks it shouldn't reply) and the cron operator's `wc -l stream.ndjson` should still produce a sensible number.
+- [ ] feat(ask): add --stream-json with `--out -` writing to stdout (the standard cli convention for "treat stdout as the output file"). Currently `--out -` would try to open a literal `-` file; a small special-case would let `clawmind ask --stream-json --out -` behave identically to `clawmind ask --stream-json`. Useful when a script passes `--out $VAR` and `$VAR` happens to be `-`.
 
 ## Conventions
 
@@ -1205,3 +1214,144 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
       one-shot path as cheap as `ingest --since`, completing
       the parity between the two commands' cron-friendly
       surfaces
+
+- 2026-06-21 23:08 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: 696cce6, c712abb, 738037b, c8f3810, 1b4b63c. Test gate:
+  `@clawmind/cli` 450/450 vitest pass (up from 423). 27 net new tests
+  spread across 4 files: status.test.ts (+11 -> 25, banner + check-after),
+  watch.test.ts (+9 -> 47, --paths-only block), ask.test.ts (+3 -> 24,
+  --stream-json --out replaces silent-ignore + adds 3 new), feedback-
+  digest.test.ts (+4 -> 81, slim --since byte-layout pins).
+  `@clawmind/cli` typecheck: clean. Same two pre-existing reds outside
+  cli (telemetry OpenTelemetry 1.x/2.x peer mismatch + rag/hybrid test
+  alpha-blend drift); both verified pre-existing in this tick by
+  running `pnpm --filter @clawmind/rag test` (47/48, the alpha-blend
+  fail is the queued one, error identical to every prior tick) and
+  `pnpm --filter @clawmind/api test` (1229/1230, the timing flake on
+  api-key-bruteforce/expires-the-lock-naturally is the queued one,
+  identical to every prior tick). Neither introduced this tick.
+
+  Theme: the queued sweep, again — but this time TWO of the queued
+  items had subtle subtext that made them more than just "tick the
+  box". The --check-after debounce on status --watch is the first
+  cli flag that semantically operates on EXIT CODE only (not on body
+  shape) — every previous --check-style flag flipped both. The
+  --stream-json --out composition is the first time the cli has held
+  a FileHandle open across a generator's lifetime (every prior --out
+  call collected in memory + writeFile-once at the end); needed
+  careful close() bookkeeping on every early-exit path so a tail -f
+  consumer never sees a stale partial stream.
+
+    1. status --watch banner. The third "stderr restart marker"
+       contract in the cli (after watch's own banner, plus the
+       implicit "Watching <root>" stdout line). Mirrors the watch
+       command's banner byte-for-byte in SHAPE (kind=banner + ts)
+       but with two extra fields that make sense for the polling
+       use-case: apiBase (which dashboard restarted) and interval
+       (at what cadence — useful when a single host runs multiple
+       --watch instances at different intervals for different
+       criticality tiers). Fires ONCE at loop start, BEFORE the
+       first cycle, unconditionally regardless of --json mode so
+       a stderr-tailing scraper detects restarts without parsing
+       the (potentially noisy) stdout snapshot stream. Suppressed
+       on the one-shot path (no loop to mark) and on the --watch
+       validation error path (no half-started process to mark) —
+       both paths exit before reaching the banner emit. The
+       `apiBase` field also helps an operator running the same
+       command across staging + prod from a single shell catch
+       a "wait I pointed at the wrong env" mistake immediately.
+
+    2. status --watch --check-after <n>. The "1-cycle blip" guard
+       on the --check exit code. Without it, --check on a 5-min
+       --watch loop with a flaky provider trips exit 2 on a single
+       probe timeout — operators learned to wrap the command in
+       a manual "retry 3 times" shell loop to avoid alert fatigue.
+       --check-after N counts CONSECUTIVE down-cycles ending at
+       the final snapshot; only if the streak is >= N does --check
+       fire exit 2. A recovery cycle resets the streak to 0 so a
+       single probe coming back up immediately re-arms the
+       debounce — the contract is "alert only on sustained
+       outages", not "alert on any blip you ever saw". Critical
+       design: the debounce applies to EXIT CODE only — every
+       cycle's snapshot body is unchanged, so a JSON consumer
+       graphing `ok` over time sees every blip (which it should).
+       Without --check-after the legacy contract holds verbatim
+       (any final non-ok trips exit 2). Validation rejects 0 / NaN
+       because a typo'd --check-after 0 silently behaving like
+       --check alone is the worst possible failure mode for the
+       flag's purpose. Silently ignored without --check (matches
+       the precedent set by --max-polls without --watch).
+
+    3. watch --once --paths-only. Pure preview, no ingest. Mirrors
+       `ingest --dry-run --paths-only` and `reindex --dry-run
+       --paths-only` byte-for-byte (same xargs-safe path-per-line
+       contract) but lives on the watch command surface so the
+       cron muscle memory carries: `watch --once --since X
+       --paths-only` is the natural "what would the next
+       scheduled refresh tick touch?" probe without spending any
+       read/embed/upsert work. The dedupe uses a Set + ordered
+       deduped[] array (NOT a for-of over the Set, which TS2802
+       would flag on the cli's es2018 target). Composes with
+       --since: the preview list is exactly the post-cutoff
+       survivors — pin that the preview is byte-faithful to what
+       `--once --since` (without --paths-only) would have ingested.
+       Wins over --json (matches forget/search/related --paths-only
+       short-circuit precedent). Skips ingestPaths() entirely —
+       the lance/bm25/manifest are not touched, no metric
+       counters increment. Silently ignored without --once (live
+       watcher emits per-event NDJSON which is the preview shape
+       for that surface).
+
+    4. ask --stream-json --out. Previously a silent-ignore combo:
+       --out won, --stream-json was dropped, the operator who
+       wanted both a live stream AND a persistent file had to
+       shell-redirect (`clawmind ask ... --stream-json >
+       stream.ndjson`). That works but reads awkwardly in a script
+       and the operator loses the stderr confirmation. Now the
+       two flags compose: the NDJSON event stream is appended to
+       the file as each event arrives (one write per event so a
+       `tail -f` consumer reads the stream in real time), stdout
+       stays SILENT, stderr gets the green "wrote answer (N chars)
+       -> file" confirmation when the stream completes. Critical
+       implementation detail: open('w') clears the file ONCE up
+       front (stale stream from a previous run cannot poison the
+       new one), then writes via a held FileHandle. The handle is
+       closed on completion AND on every early-exit path
+       (--threshold skip, error event, errored flag) — the close
+       calls had to be plumbed in carefully because the existing
+       skip/error paths used `process.exit(1)` which skips
+       finally blocks. Also short-circuits the text-mode --out
+       fallback below so the file only ever contains the NDJSON
+       events, never the human-readable body. The first --out
+       contract in the cli that holds a file open across a
+       generator's lifetime — useful precedent for any future
+       streaming-to-file flag.
+
+    5. test(digest): --json --slim --since exact byte-layout pin.
+       Pure regression-guard commit (no source change). The slim
+       shape + --since composition was already covered at the
+       COUNT level (existing tests assert {ran, deferred,
+       sinceSkipped} are the right integers). What was missing:
+       an exact-byte-layout pin for the canonical cron probe
+       shape `clawmind digest run --since X --max N --json --slim`.
+       A future regression where the slim shape silently grew an
+       extra key (`skipped` re-added "for backwards compat", or
+       a `ts` timestamp) would break NDJSON snapshot diffs across
+       ticks without surfacing a test failure under count-only
+       assertions. The three shapes pinned are the three meaningful
+       cron-probe outcomes: mixed survivors, all-deferred (cap
+       exhausts before cutoff matters), all-sinceSkipped (cutoff
+       hides everything). Plus a cross-tick stability test: two
+       consecutive ticks against the same data produce IDENTICAL
+       byte layouts.
+
+  Push: 8dc6ea1..1b4b63c main -> main. All five commits authored
+  as `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+  Verify-gate note: ran `pnpm run ci:verify` which hit the same
+  pre-existing telemetry typecheck red (queued since 2026-06-20
+  04:25 PDT; pnpm typecheck on `@clawmind/cli` alone is clean).
+  Ran the full `@clawmind/cli` test suite at 450/450; full
+  `@clawmind/rag` at 47/48 (queued hybrid alpha-blend); full
+  `@clawmind/api` at 1229/1230 (timing flake on api-key-bruteforce
+  expires-the-lock-naturally — identical to every prior tick).
+  No new reds introduced this tick.
