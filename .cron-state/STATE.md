@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-21 16:57 PDT (current)
+### Tick 2026-06-21 20:00 PDT (current)
+
+- [x] feat(status): add --watch <ms> + --max-polls <n> for a refreshing dashboard (11718bd)
+- [x] feat(related): add --above/--below filter pair mirroring feedback list (a7e8e96)
+- [x] feat(ask): add --stream-json for live NDJSON event streaming (75c5e05)
+- [x] test(stale): pin --tsv --since composition byte layout (4d45a42)
+- [x] feat(watch): add --once --since for one-shot incremental refresh (8496320)
+
+### Tick 2026-06-21 16:57 PDT
 
 - [x] feat(search): add --rerank-only debug flag (skipMmr through RAG retrieve) (2d9f396)
 - [x] test(related): pin -n/--namespaces end-to-end forwarding contract (c1d622f)
@@ -128,22 +136,20 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 
 - [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved)
 - [ ] fix(rag/hybrid): hybridMerge test on packages/rag/test/hybrid.test.ts expects `out[0].id === 'b'` but the merge orders 'a' (bm25 score 10) above 'b' under alpha=0.5; either the test fixture or the hybrid blend has drifted. Pre-existing failure (verified by typechecking parent commit 3cc6fd1), NOT introduced by any cron tick — was simply unknown because earlier ticks only ran `--filter @clawmind/cli test`, not `pnpm -r test`. Either rewrite the test against the current alpha-blend semantics OR re-derive the expected order from first principles.
-- [ ] feat(status): add --watch <ms> to repoll periodically for terminal dashboards
-- [ ] feat(ask): add --stream-json to emit one NDJSON event per token (kind=token/sources/done) for live UI piping
-- [ ] feat(status): add --json-watch that emits one NDJSON snapshot per poll cycle (pairs with --watch)
-- [ ] feat(digest): add `digest show --since-last` shortcut — bound to the saved-search's previous run timestamp ("what has this saved search surfaced since the last time I read it") without an explicit cutoff arg
-- [ ] feat(watch): add a `--debounce` companion that decays based on idle time (so a quiet workspace re-ingests fast but a noisy `npm install` burst still rides the debounce up to the cap)
-- [ ] feat(ingest): wire --since into the ingestRoot path too so downstream consumers (reindex, web) can pass the same flag without restructuring the code (currently only the cli command surfaces it; the @clawmind/ingest API stays unchanged)
-- [ ] feat(tags): add --counts mode listing namespaces with their tag-frequency totals (for "what tags are dominating my index" questions) — the new `tags list --sort count --top N` covers the lookup but a per-namespace breakdown is still missing
+- [ ] feat(digest): add `digest show --since-last` shortcut — bound to the saved-search's previous run timestamp ("what has this saved search surfaced since the last time I read it") without an explicit cutoff arg. NOTE: the most useful semantic is non-obvious: lastRunTs === history[0].ts always, so `>= lastRunTs` keeps only the newest row (identical to `--last 1`). A cleaner reading is "cutoff = history[1].ts (the previous run), filter ts > cutoff" so the only survivor is the newest row's diff against the prior run. Worth thinking about before shipping.
+- [ ] feat(tags): add --counts mode listing namespaces with their tag-frequency totals (for "what tags are dominating my index" questions) — the new `tags list --sort count --top N` covers the lookup but a per-namespace breakdown is still missing. Requires API change too: needs a `/v1/tags?byNamespace=true` shape that joins paths -> namespace -> tags.
 - [ ] feat(doctor): add --since <iso-date> for filtering findings by ts (cron dashboards want only the recent ones); pairs naturally with --json --quiet. NOTE: requires API change too — DoctorReport.findings entries don't carry a `ts` field today; either add one server-side or anchor the filter on report.generatedAt at the report level (less useful) — design decision pending.
-- [ ] feat(reindex): add --since combined with --paths-only that pipes the filtered set into a single reindex call without touching the live path (preview-only, partial-reindex companion to the new --since)
-- [ ] feat(stale): add --tsv --since composition test (pin the byte layout when both flags fire on the same invocation)
+- [ ] feat(reindex): add --since combined with --paths-only that pipes the filtered set into a single reindex call without touching the live path (preview-only, partial-reindex companion to the new --since). Already exists as `reindex --dry-run --since --paths-only` — possibly close to redundant; verify before re-shipping.
 - [ ] feat(export): add --since composition test that round-trips through the live API end-to-end (the CLI test mocks fetch; the API test injects routes; a third test could spin up the real Fastify app + bind a tcp port and call through `clawmind export` to catch wire-format regressions)
-- [ ] feat(watch): add --once --since <iso-date> composition (one-shot incremental refresh; pairs the new --once with the ingest --since semantics so a cron tick can ride out the burst without re-walking the workspace)
 - [ ] feat(search): add --rerank-only --json --no-snippet shortcut — slim payload (no snippet/highlights) on the no-MMR debug path so a rerank-only A/B run can compare the bare rank/path/score shape across the 3-way (default / --rerank-off / --rerank-only) without snippet noise inflating each payload 10x. Three flags compose naturally; the test is the smoke (current --no-snippet contract + current --rerank-only contract should already produce this for free, but pinning the byte shape would guard against a future regression).
-- [ ] feat(related): add --above <n> / --below <n> filter pair mirroring `feedback list` — the cron use is "the strongest signal neighbours" (--above 0.9) for "is this source semantically isolated or part of a tight cluster", and "the weakest survivors" (--below 0.4) for "is the source about to drop out of the related set". Composes with --threshold for an asymmetric band (--above 0.6 --below 0.85 = the "marginal" range).
 - [ ] feat(stats): add --json --slim --since composition test that pins the byte layout when both flags fire (the new --slim --tsv contract is similar but covers --tsv only; --since composition is exercised elsewhere but not the EXACT byte layout that the slim shape produces under the cutoff)
 - [ ] feat(digest): add run --json --slim --since composition test — three-flag pipe `--max N --since X --json --slim` is the canonical cron probe shape; existing tests cover the pairs but the triple-flag exact-byte-layout under empty / partial / full survivors would be a useful regression for the dashboard contract
+- [ ] feat(status): add --watch --check threshold-of-down — e.g. `--check-after <n>` to only flip exit code 2 if N consecutive cycles were down (avoids alerting on a 1-cycle blip). Pairs with --watch + --check + --max-polls.
+- [ ] feat(status): add --watch banner — emit one `{"kind":"banner","apiBase","interval","ts"}` doc to stderr at the start of a watch loop (mirrors `watch` command's startup banner) so a log scraper can detect dashboard restarts vs continuous-poll snapshots.
+- [ ] feat(ask): add --stream-json --out composition — instead of silently ignoring --out under --stream-json, write the NDJSON event stream to the file. The current "silent ignore" path is pragmatic but a real UI may want both (terminal preview + persistent log).
+- [ ] feat(related): add --above --paths-only composition test — pin the band filter's interaction with the pipeline-friendly emit (existing test pins --above alone but the combination with --paths-only deserves an explicit byte-layout pin).
+- [ ] feat(watch): add --once --since --paths-only — pure preview (no ingest), emit the list of files that WOULD be ingested by `watch --once --since X`. Mirrors `ingest --dry-run --paths-only --since` but on the watch command surface for cron muscle memory.
+- [ ] feat(watch): add --once --since composition test that pairs the new --since with --debounce (both should be silently accepted in --once mode; --since drives the filter, --debounce is a no-op).
 
 ## Conventions
 
@@ -1030,3 +1036,172 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   ("strip --json conditionally before --paths-only or you get
   the wrong shape") that the queued item carved out as worth a
   smoke test.
+
+- 2026-06-21 20:00 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: 11718bd, a7e8e96, 75c5e05, 4d45a42, 8496320. Test gate:
+  `@clawmind/cli` 423/423 vitest pass (up from 393). 30 net new tests
+  spread across 5 files: status.test.ts (+7 -> 14), related.test.ts
+  (+7 -> 24), ask.test.ts (+5 -> 21), stale.test.ts (+3 -> 18),
+  watch.test.ts (+7 -> 38, with a new node:fs/promises mock for the
+  --since path). `@clawmind/cli` typecheck: clean. `@clawmind/api`
+  1229/1230 in parallel (the api-key-bruteforce timing flake — same
+  one that flakes every tick; 10/10 in isolation, not my changes).
+  `@clawmind/rag` 47/48 (the queued hybrid alpha-blend red, neither
+  introduced nor touched this tick). Same two pre-existing reds
+  outside cli (telemetry OpenTelemetry 1.x/2.x peer mismatch +
+  rag/hybrid alpha-blend drift); neither introduced this tick.
+
+  Theme: knock out a queued sweep that mixes substantive new
+  features with smaller queued items. Three of five were named
+  in the queued list by exact shape (--watch, --above/--below,
+  --stream-json); the fourth (--tsv --since composition test) was
+  named by exact shape; the fifth (--once --since composition)
+  was named in the queue. Together they bring the cli's cron
+  surface up another notch on real-time monitoring (--watch),
+  live UI streaming (--stream-json), retrieval diagnostics
+  (--above/--below), and incremental refresh (--once --since).
+
+    1. status --watch <ms> + --max-polls <n>. Turns the one-shot
+       status into a polling loop for a refreshing terminal
+       dashboard. Pre-this, an operator monitoring a recovering
+       provider used `watch -n 5 clawmind status` which re-warms
+       the runtime on every tick (re-reading the manifest,
+       re-loading the bm25, re-opening the lance handle). The
+       --watch loop reuses the SAME runtime across cycles, so
+       per-cycle latency is dominated by the two health probes,
+       not the cli warmup. Output shapes:
+         - text + TTY stdout: ANSI cursor-up + clear-line in-place
+           render (one refreshing panel, the htop/top UX)
+         - text + non-TTY stdout: print each snapshot in full (logs
+           benefit from the historic context)
+         - --json: one self-contained JSON document per cycle on
+           its own line (NDJSON by construction)
+       --max-polls <n> bounds the loop; required for cron-style
+       probes wanting exactly N snapshots before exit, and required
+       by the test suite to exercise the loop without leaking
+       timers. Without --max-polls the loop runs until SIGINT
+       (intercepted so the loop breaks cleanly and the final exit
+       code still reflects the final probe state). --check on a
+       watch loop sets the FINAL exit code to 2 if the LAST
+       snapshot is unhealthy — deliberately not exiting early on
+       the first bad probe because the watcher is a monitoring
+       tool, not a circuit breaker; the operator wants to see the
+       recovery cycle. Validation: --watch < 100ms rejected up
+       front (typo'd --watch 0 would melt CPU); --max-polls
+       non-positive / NaN rejected (silent degrade to "no cap"
+       would defeat the entire purpose). --max-polls without
+       --watch is silently ignored (matches the precedent set by
+       --slim without --json on digest run).
+
+       Refactor: pulled snapshotStatus() + renderText() +
+       emitCheckStderr() out of the action body so both the
+       one-shot path AND the watch loop produce identical
+       output shapes per cycle. A dashboard consuming
+       `clawmind status --json` does not have to special-case
+       the --watch variant.
+
+    2. related --above/--below filter pair. Symmetric sibling of
+       --threshold mirroring `feedback list --above/--below`
+       byte-for-byte. Strict comparisons (> and <), non-numeric
+       silently ignored (matches --threshold), both flags compose
+       as an intersection with each other AND with --threshold.
+       The classic cron use family in one invocation each:
+         --above 0.9                  -> the strongest signal
+                                         neighbours (isolation
+                                         diagnostic)
+         --below 0.4                  -> the weakest survivors
+                                         (about-to-drop-out
+                                         diagnostic)
+         --above 0.5 --below 0.8      -> the marginal band
+         --threshold 0.5 --above 0.7  -> half-open [0.5, ...]
+                                         hardened by a strict
+                                         tighter floor
+       Strict inequality matches `feedback list --above/--below`
+       and is the right semantic for diagnostic questions like
+       "only the strongest signals" — a neighbour exactly at the
+       bar is on the edge, not past it. The API does not
+       currently accept above/below query parameters, so the
+       filter is client-side — same precedent as --threshold.
+
+    3. ask --stream-json. Live NDJSON event stream, one document
+       per line, emitted as the underlying askStream generator
+       produces them:
+         {"kind":"sources","count":2,"items":[...]}          // first
+         {"kind":"token","value":"hello "}                    // per token
+         {"kind":"token","value":"world"}
+         {"kind":"done","latencyMs":42,"model":"fake-model"} // last
+       Bridges the gap between text mode (token-by-token to stdout
+       with ANSI a JSON consumer cannot parse) and --json (assembled
+       payload AFTER the LLM completes, forcing the UI to wait the
+       full latencyMs). A live UI sees the citation set up front
+       (sidebar) AND paints the answer letter-by-letter (main
+       panel). Single-line JSON per event so `jq -c .` round-trips
+       cleanly. Pairs with --threshold (skip emits
+       {kind:"sources"} + {kind:"skipped"}, no tokens), --no-citations
+       (drops items[] from the sources doc but keeps the count
+       marker), and --json (--stream-json wins because the
+       streaming contract is stricter / more time-sensitive).
+       Ignored with --out — they are incompatible (live emit vs
+       file capture); the operator wanting both should shell-
+       redirect.
+
+    4. test(stale): --tsv --since composition pin. The --tsv and
+       --since flags landed on stale at different times and were
+       each pinned independently. The combined byte layout — the
+       tab-separated rows that survive the absolute-date filter
+       — was never anchored. Three new tests pin: the base
+       composition (only the surviving row in canonical
+       path\\tageDays\\tchunkCount\\tsize\\n shape), the order
+       preservation (no re-sort introduced by the --since
+       filter), and the empty-composition (cutoff dropping every
+       row yields a clean empty stream, wc -l sees exactly 0).
+       Pure regression-guard commit; no source change.
+
+    5. watch --once --since. Pairs the previous tick's --once
+       mode with the `ingest --since` mtime filter so a cron
+       tick can ride out a quiet workspace without re-walking
+       every file. Implementation mirrors `ingest --since`
+       byte-for-byte: cutoff inclusive (>=), parse failures
+       abort up front BEFORE buildRuntime (typo cannot waste
+       runtime warmup), stat() failures on individual files are
+       non-fatal (silent drop, cron log stays clean). --since
+       is IGNORED without --once (the live watcher relies on
+       chokidar to fire on actual file events, so an mtime
+       cutoff would be a confusing no-op). Test approach: added
+       a node:fs/promises mock that returns configured mtimes
+       per path and throws ENOENT for unconfigured paths (which
+       the production --since swallows silently); seven tests
+       pin the full contract including the inclusive boundary
+       (mtime === cutoff is KEPT), the validation order
+       (--since's error wins when --debounce is valid but
+       --since is typo'd), and the empty-survivor tick (still
+       calls ingestPaths([]) so metric counters increment
+       normally).
+
+  Push: e3ca380..8496320 main -> main. All five commits authored
+  as `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+  Verify-gate note: ran `pnpm --filter @clawmind/cli test`
+  (423/423 pass), `pnpm --filter @clawmind/cli typecheck`
+  (clean), `pnpm typecheck` (only red is the queued telemetry
+  OpenTelemetry peer mismatch — same as every prior tick),
+  `pnpm --filter @clawmind/rag test` (47/48 pass — queued
+  hybrid alpha-blend red, neither introduced nor touched this
+  tick), `pnpm --filter @clawmind/api test` (1229/1230 in
+  parallel; api-key-bruteforce timing flake isolated to 10/10
+  on a clean re-run, same flake as every prior tick).
+
+  Theme connector: this is the fifth consecutive queued-sweep
+  tick. The cli's "cron-friendly" identity is now noticeably
+  stronger across four dimensions:
+    - real-time monitoring: --watch + --max-polls on status
+      gives a refreshing dashboard with bounded exit semantics
+    - retrieval diagnostics: --above/--below on related closes
+      the symmetric-filter family that pins/mutes/aliases and
+      feedback already had
+    - live UI streaming: --stream-json on ask gives a token-
+      by-token NDJSON shape that the existing --json (assembled
+      at end) and text mode (ANSI on stdout) could not provide
+    - incremental refresh: --once --since on watch makes the
+      one-shot path as cheap as `ingest --since`, completing
+      the parity between the two commands' cron-friendly
+      surfaces
