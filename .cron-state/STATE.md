@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-22 02:28 PDT (current)
+### Tick 2026-06-22 06:27 PDT (current)
+
+- [x] feat(stale): add --tsv --header for typed-table parsers (column -t / pandas.read_csv) (f2bb590)
+- [x] feat(feedback): list --top <n> ranks the loudest votes by |boost - 1.0| (1e51e5d)
+- [x] feat(digest): list --since <iso-date> surfaces overdue saved searches (b7dd8c6)
+- [x] feat(aliases): list --since <iso-date> for daily snapshots of recent additions (27c6fc2)
+- [x] feat(tags): paths <tag> --paths-only alias for --paths (family-wide naming) (e5e73db)
+
+### Tick 2026-06-22 02:28 PDT
 
 - [x] feat(status): --watch --json embeds a monotonic cycle:N per snapshot (c9490bc)
 - [x] feat(ask): --out - treats single hyphen as the stdout sentinel (c9d27f5)
@@ -1578,3 +1586,153 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   composed cleanly with 1-2 existing flags, and each pure-pin
   commit closed a gap that an earlier feature ship had left open.
 
+- 2026-06-22 06:27 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: f2bb590, 1e51e5d, b7dd8c6, 27c6fc2, e5e73db. Test gate:
+  `@clawmind/cli` 498/498 vitest pass (up from 473). 25 net new tests
+  spread across 4 files: stale.test.ts (+5 -> 23 — --tsv --header
+  schema-row pins), feedback-digest.test.ts (+10 -> 91 — --top
+  loudest-by-distance + --since list pins), aliases.test.ts (+5 ->
+  11 — --since family completion), tags.test.ts (+5 -> 19 —
+  --paths-only family-wide alias). `@clawmind/cli` typecheck:
+  clean. Same two pre-existing reds outside cli (telemetry
+  OpenTelemetry 1.x/2.x peer mismatch + rag/hybrid alpha-blend
+  drift); both verified pre-existing in this tick by running
+  `pnpm --filter @clawmind/rag test` (47/48, identical to every
+  prior tick).
+
+  Theme: extend cron-friendly surface in ways that close real
+  ergonomic gaps OR complete cross-command family contracts.
+  Three features add brand-new capabilities; two complete the
+  family contract by adding the same flag to a command that was
+  missing it.
+
+    1. stale --tsv --header. The TSV emit shape has always been
+       header-less (the awk-pipeline contract: `clawmind stale
+       --tsv | awk -F'\t' '{print $1}'` and friends). For typed-
+       table consumers (column -ts$'\t', pandas.read_csv(...,
+       sep='\t'), Excel/Numbers tab-paste) the column names live
+       out-of-band, which drifts the moment the cli's emit shape
+       changes. --header opts in to a single tab-separated schema
+       row prepended to the body so the typed-table parser sees
+       the schema embedded in the stream — column-count drift
+       surfaces as a test failure rather than a silent data
+       corruption.
+
+       Critical design property: header fires UNCONDITIONALLY
+       under --header, even when zero data rows pass the filters.
+       A typed-table parser on an empty workspace sees a valid
+       empty table with column names, not an empty stream that
+       crashes the parser with "No columns to parse". Mirrors the
+       JSON-shape-preserved-on-empty precedent from
+       --preview-json's empty case.
+
+       Silent-ignore under non-TSV modes (--json, --paths,
+       --paths-only, default text). Each of those has its own
+       byte-layout contract; adding a header line would break
+       them. Matches the silent-ignore precedent for --slim
+       without --json, --debounce under --once, etc.
+
+    2. feedback list --top <n>. Sorts the listed entries by
+       absolute distance from neutral (|boost - 1.0|), descending,
+       and keeps the head N. Answers "which votes are LOUDEST
+       regardless of direction" in a single call — a question
+       the existing --above / --below can NOT answer because each
+       only sees one direction. The canonical cron-audit call
+       `clawmind feedback list --top 10 --json` surfaces the 10
+       entries dragging retrieval hardest in either direction.
+
+       Critical implementation detail: distances are SNAPPED to
+       6-decimal precision before sorting to dodge the float
+       trap where 1.40 - 1.0 evaluates to 0.3999999999999999
+       while 0.60 - 1.0 evaluates to 0.40000000000000004. At
+       boost precision these ARE tied; without the snap the FP
+       noise would silently flip them in the snapshot. Original
+       index is also carried as a secondary tie-breaker so
+       genuine ties preserve API order across runs (deterministic
+       even on hypothetical non-stable Array#sort implementations).
+
+       Composes with --above/--below: `--above 1.0 --top 5` is
+       "the 5 strongest upvotes" — --above narrows direction
+       FIRST so downvotes are excluded entirely, then --top picks
+       the loudest survivors within the upvotes-only set. Non-
+       positive / NaN values fall back to "no cap" — matches the
+       `tags list --top` / `stats --top` clamping precedent.
+
+    3. digest list --since <iso-date>. Keeps only saved searches
+       whose lastRunTs is strictly less than the cutoff — i.e.
+       those that have NOT been re-run since the cutoff. The
+       inverse of `digest run --since` (which actually runs the
+       matching batch). Together they form the canonical cron
+       pattern:
+         ts=$(date -u -d '1 hour ago' +%FT%TZ)
+         clawmind digest list --since "$ts" --json   # count overdue
+         clawmind digest run  --since "$ts"          # run them
+       Both consume the same cutoff so a dashboard probe and the
+       run command stay in sync.
+
+       Contract mirrors `digest run --since` byte-for-byte:
+         - lastRunTs === null (never-run digest) is ALWAYS
+           INCLUDED — the most extreme case of "overdue"; a
+           filter that hid never-runs would lie to a dashboard
+           the moment the operator added a new saved search.
+         - Strict less-than (<) so a digest at exactly the
+           cutoff is EXCLUDED. It ran AT the cutoff, satisfying
+           the operator's "leave alone if it ran within the last
+           hour" intent.
+         - Parse failures abort cleanly with exit 1 via the
+           existing runAction wrapper.
+         - Composes with -q as an intersection: -q forwards
+           to the API server-side, --since narrows client-side.
+
+    4. aliases list --since <iso-date>. The last list-style
+       command missing the --since family flag. pins / mutes /
+       stats / stale / digest list / digest show all carry the
+       same flag now; aliases was the only outlier. Completes
+       the cross-command family contract: any operator scripting
+       per-day snapshots can use the same flag spelling on every
+       command they care about.
+
+       Cutoff is INCLUSIVE (>=) matching pins / mutes byte-for-
+       byte. The recomputed count reflects the post-filter length
+       so a downstream `jq .count` consumer sees the right number
+       and the text-mode empty-state path is taken correctly.
+       Composes with --paths and -q in the usual ways.
+
+    5. tags paths <tag> --paths-only. The last list-style
+       command whose pipeline-friendly emit was named --paths
+       rather than the canonical --paths-only. Brings tags in
+       line with the family-wide naming exposed by search /
+       forget / related / stale. Implemented as a TRUE alias
+       (both flags emit the same byte stream; passing either or
+       both produces identical output) so existing scripts using
+       --paths keep working unchanged but the canonical spelling
+       is now available for muscle-memory consistency.
+
+       Implementation note: the new --paths-only check is
+       evaluated AT THE SAME branch as --paths so the two are
+       indistinguishable from the action body's POV. Mirrors the
+       stale --paths / --paths-only alias relationship byte-for-
+       byte (where stale was the first command to expose both
+       spellings as genuine aliases).
+
+  Push: 79d3708..e5e73db main -> main. All five commits authored
+  as `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+  Verify-gate note: ran `pnpm --filter @clawmind/cli test`
+  (498/498 pass on second run; the first run hit the known
+  status `--check-after` timer-race flake on 1 test, but the
+  retry was clean — same timing-flake pattern as every prior
+  tick, NOT caused by anything in this batch). `pnpm --filter
+  @clawmind/cli typecheck` clean. Full `@clawmind/rag` test
+  47/48 (queued hybrid alpha-blend), neither introduced nor
+  touched this tick.
+
+  Theme connector: this is the seventh consecutive ship-from-
+  patterns tick. The cli's cron surface gained one new emit
+  capability (--tsv --header), one new ranking primitive
+  (--top |distance|), and three family-contract extensions
+  (--since on digest list + aliases list, --paths-only on
+  tags paths). All five compose with at least one existing
+  flag without requiring any other command change. The pattern
+  is the same one the prior ticks established: small, deeply-
+  tested feature slices that complete a contract or close a
+  gap an earlier ship left open.
