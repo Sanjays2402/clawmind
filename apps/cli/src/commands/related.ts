@@ -12,11 +12,13 @@ export function relatedCommand() {
     .option('-k, --k <n>', 'how many related sources to return', (v) => parseInt(v, 10), 8)
     .option('-n, --namespaces <list>', 'comma-separated namespaces to restrict to')
     .option('-t, --threshold <n>', 'drop neighbours with score strictly below this value (0..1 typical). Mirrors `search --threshold` semantics: a missing or non-numeric value is silently treated as "no filter" so `--threshold $MAYBE` in a shell script does not break when the env var is empty. The filter applies BEFORE --paths-only / --json / text rendering so every output mode sees the same subset, and the `count` in --json reflects the filtered length.')
+    .option('--above <n>', 'keep only neighbours whose score is STRICTLY greater than this value. The classic cron use is "the strongest signal neighbours" — `--above 0.9` answers "is this source semantically isolated or is it part of a tight cluster" without piping --json through jq. Strict comparison (>) so a neighbour at exactly the threshold is excluded — paired with --threshold (inclusive lower bound) the operator gets a clean half-open interval `[--threshold, ...]`. Non-numeric values are silently ignored (matches --threshold) so `--above $MAYBE` does not break on an empty env var. Composes with --below as an intersection to form an asymmetric band: `--above 0.5 --below 0.8` is the "marginal" range (\"strong enough to keep but weak enough to flag for re-rank tuning\"). Applies BEFORE --paths-only / --json / text rendering and the `count` in --json reflects the filtered length.', (v) => Number.parseFloat(v))
+    .option('--below <n>', 'keep only neighbours whose score is STRICTLY less than this value. The classic cron use is "the weakest survivors" — `--below 0.4` answers "is this source about to drop out of the related set the next time the rerank shuffles". Strict comparison (<) so a neighbour at exactly the threshold is excluded. Non-numeric values are silently ignored. Composes with --above (intersection forms a band) and with --threshold (intersection with the inclusive lower bound). Applies BEFORE --paths-only / --json / text rendering and the `count` in --json reflects the filtered length.', (v) => Number.parseFloat(v))
     .option('--paths-only', 'pipeline-friendly: emit ONLY the neighbour paths, one per line, in rank order. No styling, no header, no "no related sources" hint. Zero matches yields a clean empty stream so xargs/wc keep working. Mirrors the contract used by search --paths-only, forget --paths-only, and the pins/mutes/aliases/tags --paths family.')
     .option('--json', 'emit results as JSON for scripting')
     .description('Find sources semantically similar to a given indexed path');
 
-  cmd.action(async (path: string, opts: { k: number; namespaces?: string; threshold?: string; pathsOnly?: boolean; json?: boolean }) => {
+  cmd.action(async (path: string, opts: { k: number; namespaces?: string; threshold?: string; above?: number; below?: number; pathsOnly?: boolean; json?: boolean }) => {
     const env = loadEnv();
     const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
     const url = new URL(`${base}/v1/related`);
@@ -72,9 +74,35 @@ export function relatedCommand() {
     // is not narrowed by the filter (it is a property of the source,
     // not of the returned set).
     const minScore = opts.threshold !== undefined ? Number.parseFloat(opts.threshold) : NaN;
-    const filteredItems = Number.isFinite(minScore)
-      ? raw.items.filter((it) => it.score >= minScore)
-      : raw.items;
+    // --above / --below are post-retrieval client-side filters
+    // applied on top of --threshold. The naming and semantics mirror
+    // `feedback list --above/--below` byte-for-byte: strict
+    // comparisons (> and <), non-numeric values silently ignored
+    // (matches --threshold), and both flags compose as an
+    // intersection. The combined filter answers a richer family of
+    // questions in one invocation than --threshold alone:
+    //   --above 0.9                -> the strongest signal neighbours
+    //                                 ("is this source isolated?")
+    //   --below 0.4                -> the weakest survivors
+    //                                 ("about to drop out of related")
+    //   --above 0.5 --below 0.8    -> the marginal range
+    //                                 ("strong enough to keep, weak
+    //                                  enough to flag for re-rank tuning")
+    //   --threshold 0.5 --above 0.7-> the half-open [0.5,...] hardened
+    //                                 by a strict tighter floor
+    // Commander already parses the numbers via the parseFloat
+    // coercer above, so opts.above / opts.below arrive as either
+    // a finite number (good) or NaN (bad). We treat NaN as "no
+    // filter" — same precedent as --threshold — so an empty env
+    // var (`--above $MAYBE`) does not break a cron pipeline.
+    const above = opts.above !== undefined && Number.isFinite(opts.above) ? opts.above : NaN;
+    const below = opts.below !== undefined && Number.isFinite(opts.below) ? opts.below : NaN;
+    const filteredItems = raw.items.filter((it) => {
+      if (Number.isFinite(minScore) && it.score < minScore) return false;
+      if (Number.isFinite(above) && it.score <= above) return false;
+      if (Number.isFinite(below) && it.score >= below) return false;
+      return true;
+    });
     const out = { ...raw, items: filteredItems, count: filteredItems.length };
     // --paths-only is the pipeline-friendly twin of search --paths-only
     // / forget --paths-only / pins-mutes-aliases-tags --paths. We emit

@@ -405,4 +405,174 @@ describe('related cli', () => {
     expect(parsed.items.map((i) => i.path)).toEqual(['a.md']);
     expect(parsed.count).toBe(1);
   });
+
+  // -------------------------------------------------------------
+  // --above / --below filter pair. Mirrors `feedback list
+  // --above/--below` byte-for-byte: strict comparisons (> and <),
+  // non-numeric silently ignored (matches --threshold), composes
+  // as intersection. The cron use family:
+  //   --above 0.9             -> the strongest signal neighbours
+  //                              (isolation diagnostic)
+  //   --below 0.4             -> the weakest survivors
+  //                              (about-to-drop-out diagnostic)
+  //   --above 0.5 --below 0.8 -> the marginal band
+  // -------------------------------------------------------------
+
+  it('exposes --above and --below on the command surface', () => {
+    const flags = relatedCommand().options.map((o) => o.long);
+    expect(flags).toContain('--above');
+    expect(flags).toContain('--below');
+  });
+
+  it('--above is STRICTLY greater than (excludes exact equality with the bar)', async () => {
+    // Strict comparison: a neighbour at score === 0.5 must be
+    // excluded by --above 0.5 (it is ON the bar, not above it).
+    // Same semantics as `feedback list --above`.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 4,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.95, hits: 3, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.50, hits: 2, excerpt: 'b' }, // ON the bar
+            { path: 'c.md', namespace: 'memory', score: 0.30, hits: 1, excerpt: 'c' },
+          ],
+          count: 3,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--above', '0.5']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    // Only a.md (0.95) clears the strict > 0.5 — b.md (0.50) is
+    // on the bar and excluded; c.md (0.30) is below.
+    expect(parsed.items.map((i) => i.path)).toEqual(['a.md']);
+    expect(parsed.count).toBe(1);
+  });
+
+  it('--below is STRICTLY less than (excludes exact equality with the bar)', async () => {
+    // Symmetric strict comparison: neighbour at score === 0.5 is
+    // excluded by --below 0.5. Pairs with the --above test above
+    // — together they pin the strict-inequality contract.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 4,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.95, hits: 3, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.50, hits: 2, excerpt: 'b' }, // ON the bar
+            { path: 'c.md', namespace: 'memory', score: 0.30, hits: 1, excerpt: 'c' },
+          ],
+          count: 3,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--below', '0.5']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    // Only c.md (0.30) clears the strict < 0.5.
+    expect(parsed.items.map((i) => i.path)).toEqual(['c.md']);
+    expect(parsed.count).toBe(1);
+  });
+
+  it('--above + --below composes as an intersection (band filter)', async () => {
+    // The marginal range: keep neighbours in the open interval
+    // (0.5, 0.8). Both 0.95 and 0.30 fall outside; 0.65 is the
+    // only survivor.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 5,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.95, hits: 3, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.65, hits: 2, excerpt: 'b' },
+            { path: 'c.md', namespace: 'memory', score: 0.50, hits: 1, excerpt: 'c' }, // boundary
+            { path: 'd.md', namespace: 'memory', score: 0.30, hits: 1, excerpt: 'd' },
+          ],
+          count: 4,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--above', '0.5', '--below', '0.8']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    expect(parsed.items.map((i) => i.path)).toEqual(['b.md']);
+    expect(parsed.count).toBe(1);
+  });
+
+  it('--above composes with --threshold (intersection: inclusive floor + strict tighter floor)', async () => {
+    // --threshold is inclusive (>=); --above is strict (>). When
+    // both are set the intersection is "score >= threshold AND
+    // score > above". The natural use is `--threshold 0.5` for
+    // the policy floor + `--above 0.8` for the tight diagnostic
+    // narrow on top. The fixture has 0.50 (passes threshold but
+    // fails above), 0.85 (passes both), 0.30 (fails threshold).
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 5,
+          items: [
+            { path: 'strong.md', namespace: 'memory', score: 0.85, hits: 3, excerpt: 's' },
+            { path: 'floor.md', namespace: 'memory', score: 0.50, hits: 2, excerpt: 'f' },
+            { path: 'weak.md', namespace: 'memory', score: 0.30, hits: 1, excerpt: 'w' },
+          ],
+          count: 3,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--threshold', '0.5', '--above', '0.8']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    expect(parsed.items.map((i) => i.path)).toEqual(['strong.md']);
+    expect(parsed.count).toBe(1);
+  });
+
+  it('--above with a non-numeric value is silently ignored (matches --threshold)', async () => {
+    // `--above $MAYBE` with an empty env var would forward "" here.
+    // The contract is "no filter" so a cron pipeline stays useful
+    // when the env var is unset. Matches --threshold byte-for-byte.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 2,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.91, hits: 3, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.10, hits: 1, excerpt: 'b' },
+          ],
+          count: 2,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--above', '']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    // Both items kept; the empty value is treated as "no filter".
+    expect(parsed.items).toHaveLength(2);
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--above composes with --paths-only (filter applies BEFORE the path stream is emitted)', async () => {
+    // The band filter must shape the output of EVERY mode the
+    // same way — same precedent as --threshold composing with
+    // --paths-only.
+    globalThis.fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          path: 'foo.md',
+          sourceChunkCount: 3,
+          items: [
+            { path: 'a.md', namespace: 'memory', score: 0.91, hits: 3, excerpt: 'a' },
+            { path: 'b.md', namespace: 'memory', score: 0.40, hits: 2, excerpt: 'b' },
+            { path: 'c.md', namespace: 'projects', score: 0.20, hits: 1, excerpt: 'c' },
+          ],
+          count: 3,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--paths-only', '--above', '0.5']);
+    // Only a.md clears > 0.5; the pipeline-friendly contract is
+    // honoured (no header, no ANSI, no hint).
+    expect(stdout.join('')).toBe('a.md\n');
+    expect(stderr.join('')).toBe('');
+  });
 });
