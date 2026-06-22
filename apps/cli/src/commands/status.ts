@@ -269,7 +269,28 @@ export function statusCommand() {
             // Single-line JSON, no trailing newline-newline — pure
             // NDJSON shape. A downstream `jq -c .` (or any line-
             // based consumer) gets one document per line.
-            process.stdout.write(JSON.stringify(snap) + '\n');
+            //
+            // We embed a monotonic `cycle:N` counter (1-indexed,
+            // increments each polling pass) into the per-cycle
+            // snapshot so a downstream NDJSON consumer can:
+            //   1. detect DROPPED snapshots (e.g. a consumer that
+            //      pulls every 30s from a watcher polling every 1s
+            //      sees `cycle:1, cycle:31, cycle:61` and knows
+            //      29 snapshots fell on the floor each window);
+            //   2. SORT across restart boundaries (the watcher
+            //      restarts → cycle resets to 1, but combined with
+            //      the stderr banner's ts the consumer can stitch
+            //      the snapshots back into a single timeline);
+            //   3. branch on the FIRST snapshot in a stream
+            //      (`if cycle == 1` is a clean restart marker
+            //      without parsing the stderr banner separately).
+            // The field is ONLY emitted under --watch — the one-
+            // shot --json path has no cycle to count. Existing
+            // consumers that did not know about the field see one
+            // extra integer key which is harmless (the assertions
+            // in tests are field-level, not whole-object `.toEqual`,
+            // so this is non-breaking by construction).
+            process.stdout.write(JSON.stringify({ ...snap, cycle: polls }) + '\n');
           } else {
             // Clear the previous render in-place on a TTY so the
             // operator sees one refreshing panel. On a non-TTY

@@ -481,4 +481,92 @@ describe('status cli', () => {
     const lines = stdout.join('').split('\n').filter(Boolean);
     expect(lines).toHaveLength(2);
   });
+
+  // ---------------------------------------------------------------
+  // --watch --json `cycle:N` monotonic counter. Each snapshot
+  // carries a 1-indexed cycle field so a downstream NDJSON consumer
+  // can (a) detect dropped snapshots (gaps in the integer sequence),
+  // (b) sort across restart boundaries (combined with the stderr
+  // banner's ts), and (c) branch on the first snapshot of a stream
+  // (`cycle == 1` is a clean restart marker). One-shot --json mode
+  // does NOT emit cycle — there is nothing to count.
+  // ---------------------------------------------------------------
+
+  it('--watch --json embeds a 1-indexed monotonic cycle counter on every snapshot', async () => {
+    embedHealthy = true;
+    llmHealthy = true;
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '4', '--json']);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(4);
+    const docs = lines.map((l) => JSON.parse(l));
+    // Monotonic, 1-indexed, no gaps. A consumer can compare the
+    // sequence to the wall-clock cadence and detect drops.
+    expect(docs.map((d) => d.cycle)).toEqual([1, 2, 3, 4]);
+    // The cycle field is an integer (not a string / float) so
+    // numeric jq filters work without coercion.
+    for (const d of docs) expect(Number.isInteger(d.cycle)).toBe(true);
+    // The rest of the snapshot is unchanged so existing
+    // dashboards reading workspace/embed/llm/ok keep working.
+    expect(docs[0].workspace).toBe('/tmp/workspace');
+    expect(docs[0].ok).toBe(true);
+  });
+
+  it('--watch --json cycle starts at 1 on the FIRST snapshot (clean restart marker)', async () => {
+    // The contract is "cycle == 1 means this is the first snapshot
+    // of a freshly-started watcher". Combined with the stderr
+    // banner's `ts` field, a log correlator can stitch the
+    // NDJSON snapshot stream back together across watcher restarts
+    // even when the same dashboard consumes multiple runs back-to-
+    // back. Without the 1-anchor, a consumer would have to track
+    // the first-ever-seen-cycle as ambiguous (could be a normal
+    // mid-stream snapshot if the dashboard joined late).
+    embedHealthy = true;
+    llmHealthy = true;
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '1', '--json']);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0]!).cycle).toBe(1);
+  });
+
+  it('one-shot --json mode does NOT emit cycle (no loop to count)', async () => {
+    // The cycle counter is meaningful only under --watch. A plain
+    // `clawmind status --json` is a single snapshot — a stray
+    // `cycle:1` would confuse a consumer that uses the field's
+    // presence as the "this came from a polling loop" signal.
+    embedHealthy = true;
+    llmHealthy = true;
+    await statusCommand().parseAsync(['node', 'cli', '--json']);
+    const doc = JSON.parse(stdout.join(''));
+    expect(doc.workspace).toBe('/tmp/workspace');
+    expect('cycle' in doc).toBe(false);
+  });
+
+  it('--watch --json cycle increments across mixed healthy/unhealthy snapshots (counter is independent of probe state)', async () => {
+    // Regression guard: the cycle counter is a polling-pass index,
+    // NOT a "healthy-cycle index". Even when probes flip mid-loop
+    // (or the --check-after streak resets), the cycle counter
+    // keeps incrementing monotonically. A consumer graphing
+    // `ok` over `cycle` should see a continuous x-axis even
+    // during incidents.
+    embedHealthy = true;
+    llmHealthy = true;
+    const downFlip = setTimeout(() => {
+      embedHealthy = false;
+      llmHealthy = false;
+    }, 80);
+    downFlip.unref?.();
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '3', '--json']);
+    clearTimeout(downFlip);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(3);
+    const docs = lines.map((l) => JSON.parse(l));
+    // Cycle counter is unaffected by the probe flip.
+    expect(docs.map((d) => d.cycle)).toEqual([1, 2, 3]);
+    // The snapshot ok flag flips though — pin both behaviours
+    // so a future regression that mixed the two contracts
+    // (e.g. "only increment cycle on healthy snapshots") is
+    // caught.
+    expect(docs[0].ok).toBe(true);
+    expect(docs[2].ok).toBe(false);
+  });
 });
