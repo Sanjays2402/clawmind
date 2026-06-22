@@ -634,4 +634,113 @@ describe('ask --stream-json', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  // ---------------------------------------------------------------
+  // --stream-json --no-citations --out composition byte-layout pin.
+  // The shared `if (opts.citations !== false)` branch in
+  // emitStreamDoc governs whether the sources doc carries the
+  // items[] array. When --out is set, the events land in the file
+  // instead of stdout — but the SHAPE of each event must be
+  // byte-identical to the stdout case. A regression where
+  // --no-citations only affected the stdout sink (e.g. a stray
+  // `if (!streamFileHandle)` guard around the citations check)
+  // would leak items[] to the file without any test catching it,
+  // because the existing --no-citations test asserts the stdout
+  // shape and the existing --out test asserts the citations-on
+  // shape. Pinning the cross-composition here makes a regression
+  // impossible to ship silently.
+  // ---------------------------------------------------------------
+
+  it('--stream-json --no-citations --out: file sources doc has count but NO items[] (byte-identical to stdout shape)', async () => {
+    // The headline contract: the file is byte-for-byte the same as
+    // what stdout would have received under --stream-json
+    // --no-citations alone. Plus the token + done events still
+    // arrive verbatim.
+    const dir = await mkdtemp(path.join(tmpdir(), 'ask-stream-nc-out-'));
+    try {
+      const outFile = path.join(dir, 'stream.ndjson');
+      await askCommand().parseAsync(['node', 'cli', '--stream-json', '--no-citations', '-o', outFile, 'q']);
+      // Stdout stays silent — the file is the canonical sink.
+      expect(stdout.join('')).toBe('');
+      // Stderr carries the green confirmation line.
+      expect(stderr.join('')).toContain('wrote answer');
+      const body = await readFile(outFile, 'utf8');
+      const lines = body.split('\n').filter(Boolean);
+      // Same 4-document shape: sources marker + 2 tokens + done.
+      expect(lines).toHaveLength(4);
+      const docs = lines.map((l) => JSON.parse(l));
+      // The sources doc carries the count (UI still wants the
+      // sidebar number) but NOT the items[] array.
+      expect(docs[0].kind).toBe('sources');
+      expect(docs[0].count).toBe(2);
+      expect(docs[0].items).toBeUndefined();
+      // Tokens and done unchanged.
+      expect(docs[1]).toEqual({ kind: 'token', value: 'hello ' });
+      expect(docs[2]).toEqual({ kind: 'token', value: 'world' });
+      expect(docs[3]).toEqual({ kind: 'done', latencyMs: 42, model: 'fake-model' });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('--stream-json --no-citations --out matches plain --stream-json --no-citations stdout byte-for-byte', async () => {
+    // The strongest possible regression guard: capture stdout from
+    // one invocation, capture the file body from a second
+    // invocation with --out added, and assert they are IDENTICAL
+    // strings. A future refactor that diverged the two sinks (e.g.
+    // pretty-printing the file with indent=2 while keeping stdout
+    // single-line) would be caught immediately. Same fixture,
+    // same flags except for --out, same byte stream.
+    const dir = await mkdtemp(path.join(tmpdir(), 'ask-stream-nc-cmp-'));
+    try {
+      // First invocation: stdout sink.
+      await askCommand().parseAsync(['node', 'cli', '--stream-json', '--no-citations', 'q']);
+      const stdoutBody = stdout.join('');
+      // Reset for the second invocation.
+      stdout.length = 0;
+      stderr.length = 0;
+      // Second invocation: file sink. Same events fire (nextEvents
+      // is the shared fixture from beforeEach).
+      const outFile = path.join(dir, 'stream.ndjson');
+      await askCommand().parseAsync(['node', 'cli', '--stream-json', '--no-citations', '-o', outFile, 'q']);
+      const fileBody = await readFile(outFile, 'utf8');
+      // Identical NDJSON streams across the two sinks. The only
+      // difference is WHERE the bytes landed.
+      expect(fileBody).toBe(stdoutBody);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('--stream-json --no-citations --out --threshold below-bar lands sources(count-only)+skipped, no items[] in either', async () => {
+    // The 3-flag intersection. The skip path emits {kind:sources,
+    // count} followed by {kind:skipped, reason, threshold, bestScore,
+    // count}. Neither doc should carry items[] because --no-citations
+    // is on. Pin this so a future regression where the skipped doc
+    // somehow grew items[] (no plausible reason but worth guarding)
+    // is caught.
+    const dir = await mkdtemp(path.join(tmpdir(), 'ask-stream-nc-skip-'));
+    try {
+      const outFile = path.join(dir, 'stream.ndjson');
+      await askCommand().parseAsync(['node', 'cli', '--stream-json', '--no-citations', '--threshold', '0.99', '-o', outFile, 'q']);
+      expect(process.exitCode).toBe(1);
+      const body = await readFile(outFile, 'utf8');
+      const lines = body.split('\n').filter(Boolean);
+      // Exactly 2 lines: sources + skipped. No tokens, no done.
+      expect(lines).toHaveLength(2);
+      const docs = lines.map((l) => JSON.parse(l));
+      // sources doc: count present, items absent.
+      expect(docs[0].kind).toBe('sources');
+      expect(docs[0].count).toBe(2);
+      expect(docs[0].items).toBeUndefined();
+      // skipped doc: same as the citations-on case (the skip doc
+      // never carried items[] in the first place).
+      expect(docs[1].kind).toBe('skipped');
+      expect(docs[1].threshold).toBe(0.99);
+      expect(docs[1].bestScore).toBe(0.91);
+      expect(docs[1].items).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
