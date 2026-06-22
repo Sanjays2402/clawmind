@@ -787,4 +787,187 @@ describe('stale cli', () => {
     // (/first.md before /second.md).
     expect(parsed.items.map((i) => i.path)).toEqual(['/big.md', '/first.md', '/second.md']);
   });
+
+  // -----------------------------------------------------------------
+  // --reverse: family-wide reverse-modifier shape, ESTABLISHED on stale
+  // first because the three-key per-direction matrix (age/path/size +
+  // asc/desc) gives the broadest coverage. The contract every other
+  // --sort-bearing command will mirror:
+  //   - flips the primary comparator sign
+  //   - ALSO flips the secondary index tie-break so cross-snapshot
+  //     determinism holds in either direction
+  //   - silently ignored without --sort (the default API order is a
+  //     fixed contract, not a sort-direction choice)
+  //   - composes byte-identically with every output mode
+  // -----------------------------------------------------------------
+
+  it('exposes --reverse on the command surface', () => {
+    const flags = staleCommand().options.map((o) => o.long);
+    expect(flags).toContain('--reverse');
+  });
+
+  it('--sort age --reverse orders rows YOUNGEST-first (flips the default oldest-first)', async () => {
+    // The canonical "what just crossed the threshold" question: with
+    // a 30-day threshold, the operator wants the files that ticked
+    // over from fresh to stale most recently. The default --sort age
+    // gives oldest-first (highest ageDays); --reverse must give
+    // youngest-first (lowest ageDays among the survivors of -d).
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/old.md', ageDays: 200, chunkCount: 1, size: 100 },
+        { path: '/just-stale.md', ageDays: 31, chunkCount: 1, size: 100 },
+        { path: '/middle.md', ageDays: 90, chunkCount: 1, size: 100 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'age', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[] };
+    // ageDays ascending (the reverse of the default desc): 31, 90, 200.
+    expect(parsed.items.map((i) => i.path)).toEqual(['/just-stale.md', '/middle.md', '/old.md']);
+  });
+
+  it('--sort path --reverse orders rows desc alphabetical (flips the default asc)', async () => {
+    // Useful for `tail -f`-style log scrapes where the operator wants
+    // the FIRST change at the bottom of the visible window.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/a.md', ageDays: 50, chunkCount: 1, size: 100 },
+        { path: '/c.md', ageDays: 100, chunkCount: 1, size: 100 },
+        { path: '/b.md', ageDays: 75, chunkCount: 1, size: 100 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'path', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/c.md', '/b.md', '/a.md']);
+  });
+
+  it('--sort size --reverse orders rows smallest-first (flips the default biggest-first)', async () => {
+    // Useful when the cleanup budget can afford to skip big files
+    // and you want to bulk-clear the small ones first.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/huge.md', ageDays: 100, chunkCount: 1, size: 100_000 },
+        { path: '/tiny.md', ageDays: 50, chunkCount: 1, size: 50 },
+        { path: '/medium.md', ageDays: 75, chunkCount: 1, size: 5_000 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'size', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[] };
+    // Smallest first: 50, 5_000, 100_000.
+    expect(parsed.items.map((i) => i.path)).toEqual(['/tiny.md', '/medium.md', '/huge.md']);
+  });
+
+  it('--reverse without --sort is silently ignored (default API ordering preserved)', async () => {
+    // The default API order (oldest-first) is a fixed contract, not a
+    // sort-direction choice. --reverse alone has nothing to flip, so
+    // it does nothing — matches the --header-without-tsv silent-ignore
+    // precedent.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/oldest.md', ageDays: 200, chunkCount: 1, size: 100 },
+        { path: '/middle.md', ageDays: 100, chunkCount: 1, size: 100 },
+        { path: '/newest.md', ageDays: 35, chunkCount: 1, size: 100 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[] };
+    // API order preserved (no flip).
+    expect(parsed.items.map((i) => i.path)).toEqual(['/oldest.md', '/middle.md', '/newest.md']);
+  });
+
+  it('--sort path --reverse composes byte-identically across --json and --tsv (cross-mode consistency under reverse)', async () => {
+    // The cross-mode consistency property MUST hold under --reverse too:
+    // a downstream --json consumer and a sibling --tsv consumer must see
+    // byte-equivalent row orders. If --reverse were applied differently
+    // per output mode, the two scripts would silently disagree.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/c.md', ageDays: 100, chunkCount: 1, size: 100 },
+        { path: '/a.md', ageDays: 50, chunkCount: 2, size: 200 },
+        { path: '/b.md', ageDays: 75, chunkCount: 3, size: 300 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--tsv', '--sort', 'path', '--reverse']);
+    // TSV rows in desc alphabetical order: c, b, a.
+    expect(stdout.join('')).toBe(
+      '/c.md\t100\t1\t100\n' +
+      '/b.md\t75\t3\t300\n' +
+      '/a.md\t50\t2\t200\n',
+    );
+  });
+
+  it('--reverse preserves cross-snapshot determinism on ties (secondary index sort also reversed)', async () => {
+    // The critical determinism property: under --reverse, the secondary
+    // tie-break by original index must ALSO flip. Otherwise ties would
+    // silently shift on every other run because the primary comparator
+    // returned 0 but the secondary kept ascending while the visible
+    // ordering of every other row was descending — a snapshot consumer
+    // would have no way to tell whether the underlying data changed.
+    // Pinned by a "two consecutive runs over identical-ties input
+    // produce byte-identical output" property.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/first.md', ageDays: 100, chunkCount: 1, size: 1000 }, // tied size
+        { path: '/big.md', ageDays: 50, chunkCount: 5, size: 5000 },
+        { path: '/second.md', ageDays: 75, chunkCount: 2, size: 1000 }, // tied size
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'size', '--reverse']);
+    const firstRun = stdout.join('');
+    stdout.length = 0;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'size', '--reverse']);
+    expect(stdout.join('')).toBe(firstRun);
+    const parsed = JSON.parse(firstRun) as { items: { path: string }[] };
+    // --sort size desc + --reverse = asc. Two size===1000 ties; under
+    // the reversed secondary, /second.md (index 2) comes BEFORE
+    // /first.md (index 0). The big.md (size 5000) ends up last because
+    // the entire size ordering is reversed.
+    expect(parsed.items.map((i) => i.path)).toEqual(['/second.md', '/first.md', '/big.md']);
+  });
 });

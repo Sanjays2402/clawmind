@@ -64,10 +64,11 @@ export function staleCommand() {
     .option('--paths', 'print just the path column for piping into other commands. Predates the `--paths-only` naming used by search/forget/related/pins etc. and is preserved here for back-compat with byte-layout tests; `--paths-only` is the recommended alias going forward.')
     .option('--paths-only', 'alias for --paths to bring the flag in line with search/forget/related (which all expose --paths-only). Either flag emits exactly the same byte stream (one path per line, no ANSI, no header) so existing scripts using --paths keep working unchanged. When both are passed, --paths-only wins (it is the newer, canonical spelling).')
     .option('--sort <key>', 'sort survivors of -q / --since / --days by one of: age (desc — oldest-first, the natural "what should I clean up first" ordering and the question stale is built around; equivalent to ageDays descending), path (asc alphabetical, for stable cross-snapshot diffs of `stale --json` / `stale --tsv`), size (desc — biggest stale files first, the natural "which deletes recover the most disk space" ordering). Applied AFTER the narrowing filters so the sort orders the SURVIVORS (matches the operator\'s "sort what I asked for" expectation, consistent with feedback/digest/aliases/related/search --sort). Applied BEFORE every output mode (--json / --tsv / --paths / --paths-only / text) so each mode sees the SAME ordered subset — a downstream consumer parsing --json and a sibling parsing --tsv get byte-equivalent row orders. Mirrors the family contract: ties carry a secondary sort by original index for cross-snapshot determinism, unknown keys abort cleanly with exit 1, default preserves the API-returned order (which is already oldest-first, so --sort age is effectively a no-op against the default but useful for symmetry).')
+    .option('--reverse', 'flip the --sort direction. With --sort age the default is oldest-first (desc); --reverse gives "youngest stale first" — the natural "what just crossed the threshold" question, complementary to the "oldest first" default. With --sort path the default is asc alphabetical; --reverse gives desc alphabetical — useful for `tail -f`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom. With --sort size the default is biggest-first (desc); --reverse gives smallest-first (asc) — useful when the cleanup budget can afford to skip the big files and you want to bulk-clear the small ones. Ignored without --sort (the default API ordering is a fixed contract, not a sort-direction choice). Composes byte-identically with every output mode (--json / --tsv / --paths / --paths-only / text). The secondary tie-break by original index is ALSO reversed so cross-snapshot determinism is preserved in either direction (two consecutive `--sort path --reverse` runs over identical-ties input produce byte-identical output). Establishes the family-wide reverse-modifier shape for the rest of the --sort-bearing commands to mirror.')
     .option('--tsv', 'emit tab-separated rows (path<TAB>ageDays<TAB>chunkCount<TAB>size) suitable for awk/cut')
     .option('--header', 'with --tsv: prepend a single tab-separated header row (`path\\tageDays\\tchunkCount\\tsize`) so the stream is friendly to `column -ts$\\\'\\\\t\\\'` / pandas.read_csv / spreadsheet imports without a separate echo. The default header-less shape is preserved when --header is absent so the long-standing awk-pipeline contract (`awk -F$\\\'\\\\t\\\' \\\'{print $1}\\\'`) still works byte-for-byte. Ignored without --tsv (the JSON / --paths / --paths-only / text modes already have their own well-defined shapes; adding a header line to those would break tests pinned to their exact byte layouts). When zero rows pass the filters AND --header is set, the header row STILL fires so a downstream consumer parsing the stream into a typed table never has to special-case an empty body — the schema row is the contract, not the data rows.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { days: string; limit: string; paths?: boolean; pathsOnly?: boolean; tsv?: boolean; header?: boolean; q?: string; since?: string; sort?: string; json?: boolean }) => {
+    .action(async (opts: { days: string; limit: string; paths?: boolean; pathsOnly?: boolean; tsv?: boolean; header?: boolean; q?: string; since?: string; sort?: string; reverse?: boolean; json?: boolean }) => {
       await runOrReport('stale', async () => {
         const params: Record<string, string> = {
           olderThanDays: opts.days,
@@ -146,6 +147,29 @@ export function staleCommand() {
           if (!validKeys.includes(sortKey)) {
             throw new StaleCliError(`--sort value must be one of: age, path, size (got "${opts.sort}")`);
           }
+          // --reverse flips the per-key direction. The natural cron
+          // questions in each reverse case:
+          //   --sort age --reverse   -> youngest stale first ("what
+          //                             just crossed the threshold")
+          //   --sort path --reverse  -> desc alphabetical ("the
+          //                             last name in the report")
+          //   --sort size --reverse  -> smallest first ("bulk-clear
+          //                             the small files when the
+          //                             budget can afford to skip
+          //                             the big ones")
+          //
+          // Critical determinism property: the secondary tie-break
+          // by original index is ALSO reversed under --reverse so a
+          // two-snapshot diff over identical-ties input is byte-
+          // stable in either direction. Without the index reverse,
+          // ties would silently flip on every other run because
+          // the primary comparator returned 0 and the secondary
+          // would keep ascending while the visible ordering of
+          // every other row was descending — a snapshot consumer
+          // would see two adjacent rows with the same metric in
+          // a different order across runs and have no way to tell
+          // whether the underlying data changed.
+          const dir = opts.reverse ? -1 : 1;
           const ranked = out.items
             .map((it, idx) => ({ it, idx }))
             .sort((a, b) => {
@@ -153,8 +177,8 @@ export function staleCommand() {
               if (sortKey === 'age') cmp = b.it.ageDays - a.it.ageDays;
               else if (sortKey === 'path') cmp = a.it.path.localeCompare(b.it.path);
               else if (sortKey === 'size') cmp = b.it.size - a.it.size;
-              if (cmp !== 0) return cmp;
-              return a.idx - b.idx;
+              if (cmp !== 0) return cmp * dir;
+              return (a.idx - b.idx) * dir;
             })
             .map((r) => r.it);
           out = { ...out, items: ranked };
