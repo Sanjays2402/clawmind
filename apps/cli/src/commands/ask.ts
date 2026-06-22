@@ -15,7 +15,8 @@ export function askCommand() {
     .option('--no-citations', 'in text mode, hide the citations footer; in --json mode, omit the citations[] array. The streamed answer is unchanged.')
     .option('--json', 'emit answer, citations, and metadata as JSON for scripting')
     .option('-o, --out <file>', 'write the answer (and citations footer / JSON payload, depending on mode) to a file instead of stdout. Stderr still gets progress / error chatter. Mirrors the same flag on `clawmind search`.')
-    .action(async (question: string[], opts: { k: string; namespaces?: string; json?: boolean; citations: boolean; threshold?: string; out?: string }) => {
+    .option('--stream-json', 'live-stream the answer as NDJSON events, one document per line: `{kind:"sources", count, items:[...]}` first (one doc with the full retrieval set), then `{kind:"token", value:"..."}` for EACH generated token as it arrives from the LLM, then `{kind:"done", latencyMs, model}` after the last token. Pairs with --threshold (a skip emits `{kind:"skipped", reason, threshold, bestScore, count}` instead of the token stream) and with --no-citations (drops the items[] array from the sources doc but still emits `{kind:"sources", count}` as the leading marker). The natural use is a live UI (terminal or web) that wants to render the answer token-by-token AND see the citation set up front for a sidebar — `--json` (the existing flag) only emits the final assembled payload AFTER the stream completes, which forces the UI to wait the full latencyMs before showing anything. --stream-json is single-line-JSON per event by construction (no indent) so a `jq -c .` consumer over `clawmind ask ... --stream-json | jq -c .` round-trips cleanly. Mutually exclusive with --json (which emits the assembled payload at the end); when both are passed, --stream-json wins because the streaming contract is the stricter / more time-sensitive shape. Ignored with --out (the file capture path is incompatible with the live emit — the operator wanting a stream + a file should redirect: `clawmind ask ... --stream-json > stream.ndjson`).')
+    .action(async (question: string[], opts: { k: string; namespaces?: string; json?: boolean; citations: boolean; threshold?: string; out?: string; streamJson?: boolean }) => {
       const rt = await buildRuntime();
       const q = QuerySchema.parse({
         q: question.join(' '),
@@ -23,6 +24,15 @@ export function askCommand() {
         namespaces: opts.namespaces?.split(',').filter(Boolean),
       });
       const deps = { bm25: rt.bm25, lance: rt.lance, embed: rt.embed, llm: rt.llm, embedModel: rt.env.CLAWMIND_EMBED_MODEL };
+      // --stream-json is the live-NDJSON-event shape. We resolve it
+      // up front so the inner loop can branch on a single flag
+      // without re-checking opts on every token. The flag is
+      // mutually exclusive with --out (the file capture path is
+      // incompatible with a live emit — the operator wanting both
+      // a stream AND a file should shell-redirect) and wins over
+      // --json (which assembles the final payload at the end,
+      // making it strictly slower for a UI consumer).
+      const streamJson = Boolean(opts.streamJson) && !opts.out;
       // --threshold is a pre-LLM gate. We resolve it once up front so a
       // missing or non-numeric value (`--threshold $MAYBE` in a script
       // where the variable is empty) silently degrades to "no threshold"
@@ -59,6 +69,28 @@ export function askCommand() {
               score: s.score,
             });
           }
+          // --stream-json: emit the leading sources marker BEFORE the
+          // threshold check so a UI sees the citation set even when
+          // the gate aborts. With --no-citations we still emit the
+          // marker (operator may be tracking "how many sources did
+          // retrieval find" for the sidebar count) but drop the
+          // items[] array. Single-line JSON for clean NDJSON.
+          if (streamJson) {
+            const doc: Record<string, unknown> = {
+              kind: 'sources',
+              count: sources.length,
+            };
+            if (opts.citations !== false) {
+              doc.items = sources.map((s, i) => ({
+                index: i + 1,
+                path: s.path,
+                startLine: s.startLine,
+                endLine: s.endLine,
+                score: s.score,
+              }));
+            }
+            process.stdout.write(JSON.stringify(doc) + '\n');
+          }
           // Threshold check happens RIGHT after sources arrive and
           // BEFORE we pull a single token from the stream. Because
           // `askStream` is a generator, it has not yet started the
@@ -74,7 +106,22 @@ export function askCommand() {
             const best = sources.reduce((m, s) => Math.max(m, s.score), -Infinity);
             if (!Number.isFinite(best) || best < threshold) {
               belowThreshold = true;
-              if (opts.json) {
+              if (streamJson) {
+                // Skip marker as a single NDJSON event. The UI sees
+                // `{kind:"sources",...}` followed by
+                // `{kind:"skipped", ...}` and knows to render the
+                // citations sidebar + a "threshold not met" toast
+                // without expecting any tokens.
+                process.stdout.write(
+                  JSON.stringify({
+                    kind: 'skipped',
+                    reason: 'no citation cleared --threshold',
+                    threshold,
+                    bestScore: Number.isFinite(best) ? best : null,
+                    count: sources.length,
+                  }) + '\n',
+                );
+              } else if (opts.json) {
                 process.stdout.write(
                   JSON.stringify(
                     {
@@ -102,6 +149,18 @@ export function askCommand() {
             }
           }
         } else if (evt.type === 'token') {
+          // --stream-json emits a token event per token AS it arrives
+          // so a UI can paint the answer in real time. The value is
+          // the raw token string the LLM produced — we do NOT
+          // accumulate or transform it (the UI assembles by
+          // concatenating .value across events). Single-line JSON
+          // so a `jq -c .` pipeline does not have to handle
+          // multi-line documents on a per-token basis.
+          if (streamJson) {
+            process.stdout.write(JSON.stringify({ kind: 'token', value: evt.value }) + '\n');
+            answer += evt.value;
+            continue;
+          }
           if (opts.json) {
             answer += evt.value;
             continue;
@@ -122,6 +181,16 @@ export function askCommand() {
           process.stdout.write(evt.value);
           answer += evt.value;
         } else if (evt.type === 'error') {
+          if (streamJson) {
+            // Error event still NDJSON. The UI sees
+            // `{kind:"error", message:"..."}` and renders an error
+            // toast. Exit code is 1 (consistent with the other
+            // error paths) so the wrapper script can branch.
+            process.stdout.write(
+              JSON.stringify({ kind: 'error', message: evt.value.message }) + '\n',
+            );
+            process.exit(1);
+          }
           if (opts.json) {
             process.stdout.write(
               JSON.stringify({ question: q.q, error: evt.value.message }, null, 2) + '\n',
@@ -134,7 +203,17 @@ export function askCommand() {
         } else if (evt.type === 'done') {
           latencyMs = evt.value.latencyMs;
           model = evt.value.model;
-          if (!opts.json && !captureToFile) {
+          if (streamJson) {
+            // Done marker: latency + model so the UI can render
+            // "Answered in 1.2s via mistral" in the footer. We do
+            // NOT include the answer body in the done event —
+            // the UI already has it from the per-token events,
+            // and re-sending would double the bandwidth on long
+            // answers.
+            process.stdout.write(
+              JSON.stringify({ kind: 'done', latencyMs, model }) + '\n',
+            );
+          } else if (!opts.json && !captureToFile) {
             // Latency footer only goes to stdout when we are streaming
             // the answer to stdout. When --out is set, the latency is
             // appended to the file body below so the operator's saved
@@ -144,6 +223,11 @@ export function askCommand() {
         }
       }
       if (errored || belowThreshold) return;
+      // --stream-json has already emitted every event the consumer
+      // needs (sources, tokens, done). Return cleanly so we do NOT
+      // also dump the assembled --json payload or the text-mode
+      // footer.
+      if (streamJson) return;
       if (opts.json) {
         // --no-citations drops the citations[] array AND the count field
         // from the JSON payload. Pipelines that only want the prose

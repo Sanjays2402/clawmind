@@ -334,3 +334,152 @@ describe('ask --out writes answer to a file', () => {
     expect(body).toContain('hello world');
   });
 });
+
+// ----------------------------------------------------------------
+// --stream-json: live NDJSON event stream. One JSON document per
+// line, in the order: sources, token, token, ..., done. A UI can
+// render the citation set up front and paint the answer
+// token-by-token as it arrives.
+// ----------------------------------------------------------------
+
+describe('ask --stream-json', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    askStreamCalls = 0;
+    nextEvents = [
+      { type: 'sources', value: [
+        { path: '/a.md', startLine: 1, endLine: 5, score: 0.91 },
+        { path: '/b.md', startLine: 10, endLine: 20, score: 0.62 },
+      ] },
+      { type: 'token', value: 'hello ' },
+      { type: 'token', value: 'world' },
+      { type: 'done', value: { latencyMs: 42, model: 'fake-model' } },
+    ];
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+    vi.restoreAllMocks();
+  });
+
+  it('exposes --stream-json on the command surface', () => {
+    const flags = askCommand().options.map((o) => o.long);
+    expect(flags).toContain('--stream-json');
+  });
+
+  it('emits one NDJSON event per source / token / done (single-line JSON, exact order)', async () => {
+    await askCommand().parseAsync(['node', 'cli', '--stream-json', 'q']);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    // 1 sources doc + 2 token docs + 1 done doc = 4 lines.
+    expect(lines).toHaveLength(4);
+    // Each line is a single-line JSON document (NDJSON shape).
+    for (const line of lines) {
+      expect(line.startsWith('{')).toBe(true);
+      // Single line — no embedded newlines from JSON.stringify(_, _, 2).
+      expect(line).not.toMatch(/\n/);
+    }
+    const docs = lines.map((l) => JSON.parse(l));
+    // Order is fixed: sources first, then tokens in arrival order, then done.
+    expect(docs[0]).toEqual({
+      kind: 'sources',
+      count: 2,
+      items: [
+        { index: 1, path: '/a.md', startLine: 1, endLine: 5, score: 0.91 },
+        { index: 2, path: '/b.md', startLine: 10, endLine: 20, score: 0.62 },
+      ],
+    });
+    expect(docs[1]).toEqual({ kind: 'token', value: 'hello ' });
+    expect(docs[2]).toEqual({ kind: 'token', value: 'world' });
+    expect(docs[3]).toEqual({ kind: 'done', latencyMs: 42, model: 'fake-model' });
+  });
+
+  it('--stream-json --no-citations drops items[] from the sources doc but keeps the marker', async () => {
+    // The UI may still want to know "how many sources did retrieval
+    // find" for the sidebar count even when the operator asked to
+    // suppress the per-citation details. The marker stays, items
+    // goes — same precedent as --json --no-citations.
+    await askCommand().parseAsync(['node', 'cli', '--stream-json', '--no-citations', 'q']);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    const sourcesDoc = JSON.parse(lines[0]!);
+    expect(sourcesDoc.kind).toBe('sources');
+    expect(sourcesDoc.count).toBe(2);
+    expect(sourcesDoc.items).toBeUndefined();
+    // The token + done events still fire.
+    expect(JSON.parse(lines[1]!).kind).toBe('token');
+    expect(JSON.parse(lines[lines.length - 1]!).kind).toBe('done');
+  });
+
+  it('--stream-json --threshold below the bar emits {kind:"sources"} + {kind:"skipped"} and skips tokens / done', async () => {
+    // The skip path SHORT-CIRCUITS before any token is pulled — the
+    // LLM never runs. The UI sees the citation set + a skipped
+    // marker and renders a "threshold not met" toast with the
+    // best score for context. No token events, no done event.
+    await askCommand().parseAsync(['node', 'cli', '--stream-json', '--threshold', '0.99', 'q']);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    // 1 sources doc + 1 skipped doc = 2 lines exactly. No tokens, no done.
+    expect(lines).toHaveLength(2);
+    const sourcesDoc = JSON.parse(lines[0]!);
+    expect(sourcesDoc.kind).toBe('sources');
+    const skippedDoc = JSON.parse(lines[1]!);
+    expect(skippedDoc).toMatchObject({
+      kind: 'skipped',
+      reason: 'no citation cleared --threshold',
+      threshold: 0.99,
+      bestScore: 0.91,
+      count: 2,
+    });
+    // Exit code is 1 so a wrapper script can branch on the skip.
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('--stream-json + --json: --stream-json wins (no assembled payload at the end)', async () => {
+    // When both are passed the streaming contract takes precedence
+    // because the UI consumer is more time-sensitive than the
+    // final-payload consumer. The assembled --json document is
+    // NOT emitted (it would corrupt the NDJSON stream by adding a
+    // multi-line indented doc at the end).
+    await askCommand().parseAsync(['node', 'cli', '--stream-json', '--json', 'q']);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    // Same 4 NDJSON docs as the plain --stream-json case.
+    expect(lines).toHaveLength(4);
+    const docs = lines.map((l) => JSON.parse(l));
+    expect(docs.map((d) => d.kind)).toEqual(['sources', 'token', 'token', 'done']);
+    // No trailing "question/answer/citations" assembled payload.
+    const joined = stdout.join('');
+    expect(joined).not.toContain('"question"');
+    expect(joined).not.toContain('"answer"');
+  });
+
+  it('--stream-json ignored with --out (file capture wins; no NDJSON to stdout)', async () => {
+    // --stream-json is the live-emit shape; --out is the file-capture
+    // shape. They are incompatible — an operator wanting both should
+    // shell-redirect (`clawmind ask ... --stream-json > stream.ndjson`).
+    // When --out is set, --stream-json is silently ignored and the
+    // command falls through to the regular --out path (text-mode
+    // file write). This matches the precedent of silently ignored
+    // flag combos elsewhere in the cli.
+    const dir = await mkdtemp(path.join(tmpdir(), 'ask-stream-out-'));
+    try {
+      const outFile = path.join(dir, 'a.txt');
+      await askCommand().parseAsync(['node', 'cli', '--stream-json', '-o', outFile, 'q']);
+      // No NDJSON to stdout — the regular --out path takes over.
+      expect(stdout.join('')).toBe('');
+      // File got the regular text-mode body.
+      const body = await readFile(outFile, 'utf8');
+      expect(body).toContain('hello world');
+      expect(body).toContain('42ms');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
