@@ -319,4 +319,127 @@ describe('stale cli', () => {
     const err = stderr.join('');
     expect(err).toContain('stale failed: --since value "banana" is not a valid ISO date');
   });
+
+  // -------------------------------------------------------------
+  // --tsv + --since composition. The two flags landed on stale at
+  // different times (--tsv first to give awk/cut a tab-separated
+  // shape; --since later to add an absolute-date cutoff alongside
+  // the relative --days threshold). Each was pinned independently
+  // but the COMBINED byte layout — the tab-separated rows that
+  // survive the absolute-date filter — was never anchored. A
+  // future change to the --since filter that altered the row
+  // ordering, or to the --tsv shape that changed the field
+  // delimiter / order, would silently break a cron pipeline like:
+  //   clawmind stale --tsv --since "$(date -u -d '1 week ago' +%FT%TZ)" \
+  //     | awk -F'\t' '$2 > 30 {print $1}'
+  // These three tests pin the contract.
+  // -------------------------------------------------------------
+
+  it('--tsv --since emits ONLY the filtered subset in the canonical 4-col tab layout', async () => {
+    // Wall-clock anchored so the assertion is deterministic. With
+    // the clock pinned at 2026-06-20, a 100d-old file was ingested
+    // 2026-03-12 (passes --since 2026-04-01) and a 5d-old file
+    // was ingested 2026-06-15 (does NOT). The TSV rows in the
+    // output must contain ONLY the surviving row, in the byte
+    // layout `<path>\t<ageDays>\t<chunkCount>\t<size>\n` — same
+    // as the unfiltered --tsv contract pinned above.
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse('2026-06-20T00:00:00Z'));
+    try {
+      const payload = {
+        thresholdDays: 1,
+        total: 2,
+        items: [
+          { path: '/old.md', ageDays: 100, chunkCount: 3, size: 1024 },
+          { path: '/recent.md', ageDays: 5, chunkCount: 1, size: 512 },
+        ],
+      };
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })) as never;
+      await staleCommand().parseAsync(['node', 'cli', '--tsv', '--since', '2026-04-01']);
+      // EXACT byte layout: only the 100d-old row, in the canonical
+      // path\tageDays\tchunkCount\tsize\n shape. No header, no
+      // ANSI, no trailing extra newline. The recent.md row is
+      // GONE (--since drops it before --tsv emits).
+      expect(stdout.join('')).toBe('/old.md\t100\t3\t1024\n');
+      // No ANSI styling slipped in despite the filter composition.
+      expect(stdout.join('')).not.toMatch(/\x1b\[/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('--tsv --since with multiple survivors preserves the API row order in the TSV output', async () => {
+    // The --since filter is a stable predicate-keep: it does NOT
+    // reorder the surviving rows. The TSV shape inherits that
+    // stability, so an operator who relied on the API's
+    // newest-first / oldest-first ordering for --tsv (e.g. piping
+    // through `head -5` to grab the worst offenders) keeps working
+    // unchanged when --since is added.
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse('2026-06-20T00:00:00Z'));
+    try {
+      const payload = {
+        thresholdDays: 1,
+        total: 4,
+        items: [
+          // API returns oldest-first; rows that survive --since
+          // 2026-04-01 are the two 100d+ rows in this fixture.
+          { path: '/oldest.md', ageDays: 200, chunkCount: 5, size: 2048 },
+          { path: '/old.md', ageDays: 100, chunkCount: 3, size: 1024 },
+          { path: '/middle.md', ageDays: 50, chunkCount: 2, size: 768 },
+          { path: '/recent.md', ageDays: 5, chunkCount: 1, size: 512 },
+        ],
+      };
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })) as never;
+      await staleCommand().parseAsync(['node', 'cli', '--tsv', '--since', '2026-04-01']);
+      // Order matches the input: /oldest.md before /old.md. NO
+      // re-sort. /middle.md (50d-old → ingested ~2026-05-01, just
+      // missing the cutoff) and /recent.md are dropped.
+      expect(stdout.join('')).toBe(
+        '/oldest.md\t200\t5\t2048\n' +
+        '/old.md\t100\t3\t1024\n',
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('--tsv --since with the cutoff dropping every row yields a clean empty stream (xargs/wc-friendly)', async () => {
+    // The contract is "give me TSV rows, possibly none". A cron
+    // pipeline like `clawmind stale --tsv --since X | wc -l` must
+    // get 0 (not 1) when nothing survives — same as the
+    // empty-state pins for --tsv-alone and --since-alone, but
+    // explicitly composed.
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.parse('2026-06-20T00:00:00Z'));
+    try {
+      const payload = {
+        thresholdDays: 1,
+        total: 1,
+        items: [{ path: '/recent.md', ageDays: 1, chunkCount: 1, size: 512 }],
+      };
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify(payload), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })) as never;
+      // Cutoff way in the past — nothing in the fixture is old
+      // enough to pre-date 2020.
+      await staleCommand().parseAsync(['node', 'cli', '--tsv', '--since', '2020-01-01']);
+      // Empty stream — no header, no "no sources stale" hint, no
+      // error. A downstream `wc -l` sees exactly 0 lines.
+      expect(stdout.join('')).toBe('');
+      expect(stderr.join('')).toBe('');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
