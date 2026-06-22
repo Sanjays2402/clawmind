@@ -308,4 +308,69 @@ describe('aliases cli', () => {
     // in API order (tied-first at index 0, tied-second at index 2).
     expect(parsed.items.map((it) => it.name)).toEqual(['newer', 'tied-first', 'tied-second']);
   });
+
+  // -----------------------------------------------------------------
+  // --paths-only: family-wide canonical alias for --paths. Both flags
+  // emit the byte-identical stream. Mirrors `pins list --paths-only`
+  // / `mutes list --paths-only` / `stale --paths-only` / `tags paths
+  // --paths-only`.
+  // -----------------------------------------------------------------
+
+  it('--paths-only emits the byte-identical stream as --paths', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'notes', path: '/Users/me/.openclaw/workspace/notes', createdAt: 1700000000000, createdBy: 'me' },
+          { name: 'work',  path: '/Users/me/work', createdAt: 1700000001000, createdBy: 'me' },
+          { name: 'wiki',  path: '/Volumes/data/wiki', createdAt: 1700000002000, createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--paths-only']);
+    expect(stdout.join('')).toBe(
+      '/Users/me/.openclaw/workspace/notes\n' +
+      '/Users/me/work\n' +
+      '/Volumes/data/wiki\n',
+    );
+    expect(stdout.join('')).not.toMatch(/\x1b\[/);
+    expect(stdout.join('')).not.toContain('@');
+    expect(stdout.join('')).not.toContain('->');
+  });
+
+  it('--paths and --paths-only together produce the same stream (true alias)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'a', path: '/a', createdAt: 1, createdBy: 'me' },
+          { name: 'b', path: '/b', createdAt: 2, createdBy: 'me' },
+        ],
+        count: 2,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--paths', '--paths-only']);
+    // Same branch — passing both is harmless.
+    expect(stdout.join('')).toBe('/a\n/b\n');
+  });
+
+  it('--paths-only composes with --since (filter applies BEFORE the --paths-only short-circuit)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'old',   path: '/old.md',   createdAt: Date.parse('2026-01-01'), createdBy: 'me' },
+          { name: 'fresh', path: '/fresh.md', createdAt: Date.parse('2026-06-21'), createdBy: 'me' },
+        ],
+        count: 2,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--paths-only', '--since', '2026-06-15']);
+    // Same survivor as the --paths + --since test (proves
+    // --paths-only is byte-faithful with --paths).
+    expect(stdout.join('')).toBe('/fresh.md\n');
+  });
+
+  it('--paths-only with zero matches yields a clean empty stream (no "no aliases" hint)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ items: [], count: 0 }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--paths-only']);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
 });

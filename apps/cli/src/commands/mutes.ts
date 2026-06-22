@@ -85,8 +85,9 @@ export function mutesCommand() {
     .option('--since <iso-date>', 'keep only mutes whose mutedAt is at-or-after this ISO date. Mirrors `pins list --since` byte-for-byte (cron snapshot of "what got muted in the last 24h"). Composes with -q as an intersection. Cutoff is INCLUSIVE (>=). Parse failures abort cleanly with exit code 1.')
     .option('--by <user>', 'keep only mutes whose mutedBy matches this user id EXACTLY. Mirrors `pins list --by` byte-for-byte — the symmetry is intentional because a cron operator scripting per-user snapshots wants the same flag on both sides of the pin/mute pair. Exact-match semantics so overlapping user-id prefixes do not bleed. Composes with -q and --since as an intersection. Filter applies BEFORE --paths / --json / text rendering so every output mode sees the same subset and the recomputed count reflects the filtered length.')
     .option('--paths', 'emit only the muted paths, one per line, with no styling or reasons (pipe-friendly)')
+    .option('--paths-only', 'family-wide canonical alias for --paths. Mirrors `stale --paths-only` / `tags paths --paths-only` (which also expose both spellings) so the muscle-memory contract is uniform across every list-style command. Both flags emit the byte-identical stream; passing either or both produces the same output. The `--paths` spelling stays for backwards compatibility with existing scripts.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; by?: string; paths?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; by?: string; paths?: boolean; pathsOnly?: boolean; json?: boolean }) => {
       await runOrReport('mutes list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/mutes${qs}`)) as {
@@ -137,7 +138,13 @@ export function mutesCommand() {
         // (or `xargs -n1 clawmind forget --apply`) works without
         // conditional skips. -q still narrows the set first; zero matches
         // yields a clean empty stream.
-        if (opts.paths) {
+        //
+        // --paths-only is the family-wide canonical alias for --paths.
+        // Checked at the same branch so the two flags are byte-
+        // indistinguishable from the action body's POV — passing either
+        // or both produces the same stream. Mirrors `stale --paths-only`
+        // / `tags paths --paths-only` byte-for-byte.
+        if (opts.paths || opts.pathsOnly) {
           for (const it of out.items) process.stdout.write(`${it.path}\n`);
           return;
         }

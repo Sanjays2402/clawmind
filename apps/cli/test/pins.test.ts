@@ -277,4 +277,65 @@ describe('pins cli', () => {
     await pinsCommand().parseAsync(['node', 'cli', 'list', '--by', 'sanjay']);
     expect(stdout.join('')).toContain('no pinned sources');
   });
+
+  // -----------------------------------------------------------------
+  // --paths-only: family-wide canonical alias for --paths. Both flags
+  // emit the byte-identical stream. Mirrors `stale --paths-only` /
+  // `tags paths --paths-only` byte-for-byte.
+  // -----------------------------------------------------------------
+
+  it('--paths-only emits the byte-identical stream as --paths', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', note: 'why a', pinnedAt: 1700000000000, pinnedBy: 'me' },
+        { path: '/b.md', pinnedAt: 1700000001000, pinnedBy: 'me' },
+        { path: '/c.md', note: 'why c', pinnedAt: 1700000002000, pinnedBy: 'me' },
+      ],
+      count: 3,
+    });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--paths-only']);
+    // Exact same byte layout as --paths — pin the contract.
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n/c.md\n');
+    expect(stdout.join('')).not.toMatch(/\x1b\[/);
+    expect(stdout.join('')).not.toContain('by me');
+    expect(stdout.join('')).not.toContain('why');
+  });
+
+  it('--paths and --paths-only together produce the same stream (true alias)', async () => {
+    // Passing BOTH flags is harmless — they take the same branch.
+    // Pin that no double-emit happens and no flag overrides the other.
+    stubFetch({
+      items: [
+        { path: '/a.md', pinnedAt: 1, pinnedBy: 'me' },
+        { path: '/b.md', pinnedAt: 2, pinnedBy: 'me' },
+      ],
+      count: 2,
+    });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--paths', '--paths-only']);
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n');
+  });
+
+  it('--paths-only composes with --since (filter applies BEFORE the --paths-only short-circuit)', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', pinnedAt: 3000, pinnedBy: 'me' },
+        { path: '/b.md', pinnedAt: 2000, pinnedBy: 'me' },
+        { path: '/c.md', pinnedAt: 1000, pinnedBy: 'me' },
+      ],
+      count: 3,
+    });
+    await pinsCommand().parseAsync([
+      'node', 'cli', 'list', '--since', new Date(2500).toISOString(), '--paths-only',
+    ]);
+    // Same survivor as the --paths + --since test (proves
+    // --paths-only is byte-faithful with --paths).
+    expect(stdout.join('')).toBe('/a.md\n');
+  });
+
+  it('--paths-only with zero matches yields a clean empty stream (no "no pinned" hint)', async () => {
+    stubFetch({ items: [], count: 0 });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--paths-only']);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
 });

@@ -85,8 +85,9 @@ export function pinsCommand() {
     .option('--since <iso-date>', 'keep only pins whose pinnedAt is at-or-after this ISO date. The natural cron use is a daily snapshot of "what got pinned in the last 24h" without scrolling through every entry: `clawmind pins list --since "$(date -u -d \'1 day ago\' +%FT%TZ)" --paths`. Composes with -q (intersection: pin must both match the substring AND be recent enough). Cutoff is INCLUSIVE (>=) so a pin created exactly at the cutoff is kept — matches the existing --since semantics on stale / stats / digest show. Parse failures abort cleanly with exit code 1.')
     .option('--by <user>', 'keep only pins whose pinnedBy matches this user id EXACTLY. The natural cron use is scoping a daily snapshot to a specific creator in a multi-user workspace where the pin map grows fast — `clawmind pins list --by sanjay --since "$(date -u -d \'1 day ago\' +%FT%TZ)"` answers "what did Sanjay pin today" without scrolling through every member\'s additions. Exact-match semantics (not substring) so the filter is deterministic and pin maps with overlapping user-id prefixes (`sanjay-readonly` vs `sanjay`) don\'t bleed. Composes with -q and --since as an intersection. Filter applies BEFORE --paths / --json / text rendering so every output mode sees the same filtered subset and the recomputed count reflects the filtered length. An empty match yields a clean empty stream / `count: 0` payload — same shape as zero matches from --since or -q.')
     .option('--paths', 'emit only the pinned paths, one per line, with no styling or notes (pipe-friendly)')
+    .option('--paths-only', 'family-wide canonical alias for --paths. Mirrors `stale --paths-only` / `tags paths --paths-only` (which also expose both spellings) so the muscle-memory contract is uniform across every list-style command. Both flags emit the byte-identical stream; passing either or both produces the same output. The `--paths` spelling stays for backwards compatibility with existing scripts.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; by?: string; paths?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; by?: string; paths?: boolean; pathsOnly?: boolean; json?: boolean }) => {
       await runOrReport('pins list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/pins${qs}`)) as {
@@ -157,7 +158,13 @@ export function pinsCommand() {
         // work without conditional skips. -q still narrows the set before
         // we emit. Zero matches yields a clean empty stream — same
         // contract as `forget --paths-only`.
-        if (opts.paths) {
+        //
+        // --paths-only is the family-wide canonical alias for --paths.
+        // Checked at the same branch so the two flags are byte-
+        // indistinguishable from the action body's POV — passing either
+        // or both produces the same stream. Mirrors `stale --paths-only`
+        // / `tags paths --paths-only` byte-for-byte.
+        if (opts.paths || opts.pathsOnly) {
           for (const it of out.items) process.stdout.write(`${it.path}\n`);
           return;
         }

@@ -84,8 +84,9 @@ export function aliasesCommand() {
     .option('--since <iso-date>', 'keep only aliases whose createdAt is at-or-after this ISO date. The natural cron use is a daily snapshot of "what was added in the last 24h" without scrolling through every alias: `clawmind aliases list --since "$(date -u -d \'1 day ago\' +%FT%TZ)" --paths`. Mirrors `pins list --since` / `mutes list --since` byte-for-byte (cutoff is INCLUSIVE: `>=`, so an alias created exactly at the cutoff is kept). Composes with -q as an intersection (filter must both match the substring AND be recent enough). Filter applies BEFORE --paths / --json / text rendering so every output mode sees the same subset. Parse failures abort cleanly with exit 1.')
     .option('--sort <key>', 'sort surviving aliases by one of: name (asc alphabetical, the default human-readable ordering; matches the API\'s native sort so this key is mostly useful for symmetry with other commands), createdAt (desc — newest-first, the natural "what was added recently" ordering that pairs with --since for daily snapshots). Applied AFTER -q / --since so the sort orders the SURVIVORS of any narrowing filter. Mirrors `feedback list --sort` / `digest list --sort` precedent: ties carry a secondary sort by original index for cross-snapshot determinism, unknown keys abort cleanly with exit 1. The default (no --sort) preserves the API-returned alphabetical name ordering so existing scripts diffing `aliases list --json` stay byte-stable.')
     .option('--paths', 'emit only the alias target paths, one per line, with no styling (pipe-friendly)')
+    .option('--paths-only', 'family-wide canonical alias for --paths. Mirrors `stale --paths-only` / `tags paths --paths-only` (which also expose both spellings) so the muscle-memory contract is uniform across every list-style command. Both flags emit the byte-identical stream; passing either or both produces the same output. The `--paths` spelling stays for backwards compatibility with existing scripts.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; sort?: string; paths?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; sort?: string; paths?: boolean; pathsOnly?: boolean; json?: boolean }) => {
       await runOrReport('aliases list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/aliases${qs}`)) as {
@@ -166,7 +167,16 @@ export function aliasesCommand() {
         //   clawmind aliases list --paths | xargs -n1 clawmind ingest
         // work without conditional skips. -q still narrows the set;
         // zero matches yields a clean empty stream.
-        if (opts.paths) {
+        //
+        // --paths-only is the family-wide canonical alias for --paths.
+        // The two flags are checked together so passing either or
+        // both produces the byte-identical stream. The dual spelling
+        // exists because earlier commands (stale, tags) ship both
+        // names as TRUE aliases — keeping the muscle-memory contract
+        // consistent across every list-style command means an
+        // operator who learned `clawmind stale --paths-only` does
+        // not have to learn a different spelling here.
+        if (opts.paths || opts.pathsOnly) {
           for (const it of out.items) process.stdout.write(`${it.path}\n`);
           return;
         }

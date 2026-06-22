@@ -220,4 +220,61 @@ describe('mutes cli', () => {
     await mutesCommand().parseAsync(['node', 'cli', 'list', '--by', 'sanjay', '--paths']);
     expect(stdout.join('')).toBe('/a.md\n/c.md\n');
   });
+
+  // -----------------------------------------------------------------
+  // --paths-only: family-wide canonical alias for --paths. Both flags
+  // emit the byte-identical stream. Mirrors `pins list --paths-only`
+  // / `stale --paths-only` / `tags paths --paths-only`.
+  // -----------------------------------------------------------------
+
+  it('--paths-only emits the byte-identical stream as --paths', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', reason: 'noise', mutedAt: 1700000000000, mutedBy: 'me' },
+        { path: '/b.md', mutedAt: 1700000001000, mutedBy: 'me' },
+        { path: '/c.md', reason: 'stale', mutedAt: 1700000002000, mutedBy: 'me' },
+      ],
+      count: 3,
+    });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--paths-only']);
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n/c.md\n');
+    expect(stdout.join('')).not.toMatch(/\x1b\[/);
+    expect(stdout.join('')).not.toContain('by me');
+    expect(stdout.join('')).not.toContain('noise');
+    expect(stdout.join('')).not.toContain('stale');
+  });
+
+  it('--paths and --paths-only together produce the same stream (true alias)', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', mutedAt: 1, mutedBy: 'me' },
+        { path: '/b.md', mutedAt: 2, mutedBy: 'me' },
+      ],
+      count: 2,
+    });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--paths', '--paths-only']);
+    // Same branch — passing both is harmless.
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n');
+  });
+
+  it('--paths-only composes with --by (filter applies BEFORE the --paths-only short-circuit)', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', mutedAt: 3000, mutedBy: 'sanjay' },
+        { path: '/b.md', mutedAt: 2000, mutedBy: 'cake' },
+        { path: '/c.md', mutedAt: 1000, mutedBy: 'sanjay' },
+      ],
+      count: 3,
+    });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--by', 'sanjay', '--paths-only']);
+    // Same byte stream as --paths under the same filter.
+    expect(stdout.join('')).toBe('/a.md\n/c.md\n');
+  });
+
+  it('--paths-only with zero matches yields a clean empty stream (no "no muted" hint)', async () => {
+    stubFetch({ items: [], count: 0 });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--paths-only']);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
 });
