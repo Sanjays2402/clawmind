@@ -718,6 +718,99 @@ describe('digest cli', () => {
     expect(out).toContain('-1');
   });
 
+  // -----------------------------------------------------------------
+  // digest list --since <iso-date>: keep only saved searches whose
+  // lastRunTs is strictly less than the cutoff (i.e. those that have
+  // NOT been re-run since the cutoff — overdue digests). Mirrors
+  // `digest run --since` semantics so a dashboard probe and the
+  // run command consume the same cutoff and stay in sync.
+  // -----------------------------------------------------------------
+
+  it('digest list --since keeps only saved searches whose lastRunTs predates the cutoff', async () => {
+    // Three saved searches with widely-spread lastRunTs:
+    //   s-old:   ran 2026-01-01 (very stale)
+    //   s-mid:   ran 2026-06-01 (mid)
+    //   s-fresh: ran 2026-06-21 (fresh)
+    // Cutoff 2026-06-15 should keep s-old + s-mid, drop s-fresh.
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [
+      { savedSearchId: 's-old', title: 'Old', query: 'old', lastRunTs: Date.parse('2026-01-01'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      { savedSearchId: 's-mid', title: 'Mid', query: 'mid', lastRunTs: Date.parse('2026-06-01'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      { savedSearchId: 's-fresh', title: 'Fresh', query: 'fresh', lastRunTs: Date.parse('2026-06-21'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+    ] }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '--since', '2026-06-15']);
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string }[] };
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['s-old', 's-mid']);
+  });
+
+  it('digest list --since ALWAYS includes saved searches with lastRunTs === null (never-run is the most extreme case of overdue)', async () => {
+    // A never-run digest is the most extreme "needs running" case
+    // — a filter that hid them would lie to a dashboard the
+    // moment the operator added a new saved search. Mirrors the
+    // `digest run --since` precedent.
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [
+      { savedSearchId: 's-never', title: 'Never', query: 'never', lastRunTs: null, lastNewCount: 0, lastRemovedCount: 0, runs: 0 },
+      { savedSearchId: 's-fresh', title: 'Fresh', query: 'fresh', lastRunTs: Date.parse('2026-06-21'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+    ] }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '--since', '2026-06-15']);
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string }[] };
+    // s-never kept, s-fresh dropped.
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['s-never']);
+  });
+
+  it('digest list --since uses STRICT less-than (a digest at exactly the cutoff is EXCLUDED)', async () => {
+    // Mirrors `digest run --since` byte-for-byte: a digest that
+    // ran AT the cutoff satisfies the operator's "leave alone if
+    // it ran within the last hour" intent and must not be flagged
+    // as overdue.
+    const exact = Date.parse('2026-06-15T00:00:00Z');
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [
+      { savedSearchId: 's-exact', title: 'Exact', query: 'exact', lastRunTs: exact, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      { savedSearchId: 's-before', title: 'Before', query: 'before', lastRunTs: exact - 1, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+    ] }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '--since', '2026-06-15T00:00:00Z']);
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string }[] };
+    // s-before kept (lastRunTs < cutoff), s-exact dropped (lastRunTs === cutoff).
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['s-before']);
+  });
+
+  it('digest list --since with an invalid ISO date aborts cleanly with exit 1 and a typed error', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'list', '--since', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('digest list failed: --since value "banana" is not a valid ISO date');
+    process.exitCode = 0;
+  });
+
+  it('digest list --since composes with -q (substring forwards to API; --since narrows survivors client-side)', async () => {
+    // -q is sent to the API (forwarded as q=...). --since is
+    // applied client-side AFTER the API response. The combo is
+    // "saved searches matching 'snip' that have NOT run since
+    // 2026-06-15" — pin both sides of the intersection.
+    let listedUrl = '';
+    globalThis.fetch = (async (url: string | URL) => {
+      listedUrl = String(url);
+      return new Response(JSON.stringify({ items: [
+        // The API only returned `snip`-matching rows (q-forwarded);
+        // we narrow further by --since on top.
+        { savedSearchId: 's-snip-old', title: 'Snip old', query: 'snip', lastRunTs: Date.parse('2026-01-01'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        { savedSearchId: 's-snip-fresh', title: 'Snip fresh', query: 'snip', lastRunTs: Date.parse('2026-06-21'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      ] }), { status: 200 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '-q', 'snip', '--since', '2026-06-15']);
+    // Verify -q forwarded server-side.
+    expect(listedUrl).toContain('q=snip');
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string }[] };
+    // --since dropped the fresh one.
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['s-snip-old']);
+  });
+
   it('run with id prints diffs', async () => {
     await digestCommand().parseAsync(['node', 'cli', 'run', 's1']);
     const out = captured.join('');

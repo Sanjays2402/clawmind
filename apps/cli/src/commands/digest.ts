@@ -62,16 +62,58 @@ export function digestCommand() {
   cmd.command('list')
     .description('List saved searches with last digest run summary')
     .option('-q, --q <text>', 'case-insensitive substring filter across id, title, and query')
+    .option('--since <iso-date>', 'keep only saved searches whose lastRunTs is strictly less than this ISO date (i.e. those that have NOT been re-run since the cutoff). The natural cron use is finding overdue digests: `clawmind digest list --since "$(date -u -d \'1 hour ago\' +%FT%TZ)"` answers "which saved searches need re-running" without having to mentally subtract dates from the timestamps. Mirrors `digest run --since` semantics byte-for-byte: a digest with lastRunTs === null (never run) is ALWAYS INCLUDED (a never-run digest is the most extreme case of "overdue"), and the cutoff comparison uses strict less-than. Composes with -q as an intersection (substring filter on id/title/query AND lastRunTs predates cutoff). Parse failures abort cleanly with exit 1. Filter applies BEFORE --json / text rendering so both modes see the same survivors.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; json?: boolean }) => {
      await runAction('digest list', async () => {
       const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
-      const out = (await apiFetch('GET', `/v1/digests${qs}`)) as {
+      let out = (await apiFetch('GET', `/v1/digests${qs}`)) as {
         items: {
           savedSearchId: string; title: string; query: string;
           lastRunTs: number | null; lastNewCount: number; lastRemovedCount: number; runs: number;
         }[];
       };
+      // --since narrows the listed set to saved searches whose
+      // lastRunTs predates the cutoff. This is the "show me which
+      // digests are overdue for a re-run" question — the inverse
+      // of `digest run --since` which actually runs the matching
+      // batch. A common cron pattern is:
+      //   clawmind digest list --since "..." --json  -> count
+      //                                                     overdue
+      //                                                     digests
+      //   clawmind digest run --since "..."                -> run them
+      // Both consume the same cutoff so a dashboard probe and the
+      // run command stay in sync.
+      //
+      // Critical contract (mirrors `digest run --since`):
+      //   - lastRunTs === null (never-run digest) is ALWAYS
+      //     INCLUDED — that is the most extreme case of "overdue"
+      //     and a filter that hid never-runs would lie to the
+      //     dashboard the moment the operator added a new saved
+      //     search.
+      //   - strict less-than (<) so a digest at exactly the cutoff
+      //     is EXCLUDED — it ran AT the cutoff, which means
+      //     re-listing it as overdue would contradict the
+      //     operator's "leave alone if it ran within the last
+      //     hour" intent.
+      //
+      // Parse failures abort cleanly via the existing ApiError
+      // path so a typo like `--since 2026-13-01` does not silently
+      // degrade to "no filter" (which would surprise the operator
+      // who expected the cutoff to narrow things down).
+      if (opts.since) {
+        const cutoff = Date.parse(opts.since);
+        if (!Number.isFinite(cutoff)) {
+          throw new ApiError(`--since value "${opts.since}" is not a valid ISO date`);
+        }
+        out = {
+          ...out,
+          items: out.items.filter((it) => {
+            if (it.lastRunTs === null) return true; // never run -> always include
+            return it.lastRunTs < cutoff;            // ran before cutoff -> include
+          }),
+        };
+      }
       if (opts.json) {
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
         return;
