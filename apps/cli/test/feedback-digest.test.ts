@@ -737,6 +737,121 @@ describe('feedback prune cli', () => {
     expect(parsed.paths).not.toContain('/neutral.md');
   });
 
+  // -----------------------------------------------------------------
+  // --above + --below --apply byte-layout pin under --json. Pure
+  // regression-guard test. The existing test above asserts the count
+  // and the path-set membership; this one pins the FULL JSON report
+  // payload byte-for-byte under the both-flags-apply path so:
+  //   - the `errors` array contract (empty under all-success) is
+  //     locked in (a future refactor that accidentally populated
+  //     errors on success would slip past the count-only checks)
+  //   - the dryRun=false / cleared=matched invariant under --apply
+  //     is locked in (a future bug where --apply silently fell
+  //     back to dry-run would slip past the count check because
+  //     matched and paths would still be correct)
+  //   - the threshold / thresholdAbove field shape under the
+  //     two-flag composition is locked in (regression to a single
+  //     `threshold` field that drops one of the two would lie about
+  //     which predicate ran)
+  //   - the paths array WALK ORDER under the OR-predicate is
+  //     pinned (the existing test sorts before comparing — this
+  //     one asserts the actual emission order so a future change
+  //     to the filter pipeline that re-ordered the matched set
+  //     would surface)
+  // -----------------------------------------------------------------
+
+  it('--above + --below --apply --json pins the FULL report shape byte-for-byte (errors=[], paths emission order, threshold pair)', async () => {
+    // Same fixture as the existing trim-both-tails test, but pinned
+    // at the byte level. The FIXTURE_ITEMS order is:
+    //   /strong-up.md (1.25), /mild-up.md (1.05), /neutral.md (1.0),
+    //   /mild-down.md (0.9), /strong-down.md (0.65)
+    // With --above 1.04 --below 0.95 the OR predicate matches:
+    //   /strong-up.md (1.25 > 1.04 -> above),
+    //   /mild-up.md (1.05 > 1.04 -> above),
+    //   /mild-down.md (0.9 < 0.95 -> below),
+    //   /strong-down.md (0.65 < 0.95 -> below)
+    // The walk order is API order (no re-sort in the filter), so
+    // the paths array emits in fixture order with /neutral.md skipped.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '1.04', '--below', '0.95', '--apply', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      threshold: number | undefined;
+      thresholdAbove: number | undefined;
+      dryRun: boolean;
+      matched: number;
+      cleared: number;
+      errors: unknown[];
+      paths: string[];
+    };
+    // Both threshold fields present (one per flag) — a regression
+    // to a single combined field would drop one of the two and lie
+    // about which predicate ran.
+    expect(parsed.threshold).toBe(0.95);
+    expect(parsed.thresholdAbove).toBe(1.04);
+    // --apply path: dryRun=false, every match cleared, no errors.
+    expect(parsed.dryRun).toBe(false);
+    expect(parsed.matched).toBe(4);
+    expect(parsed.cleared).toBe(4);
+    expect(parsed.errors).toEqual([]);
+    // The path emission order is API order (NOT sorted, NOT scored
+    // by closeness to threshold). The filter pipeline walks
+    // FIXTURE_ITEMS in order and keeps matches in their original
+    // positions; /neutral.md is skipped.
+    expect(parsed.paths).toEqual([
+      '/strong-up.md',
+      '/mild-up.md',
+      '/mild-down.md',
+      '/strong-down.md',
+    ]);
+  });
+
+  it('--above + --below --apply issues exactly one DELETE per matched path in walk order', async () => {
+    // The DELETE side-effect contract: every matched path gets one
+    // DELETE request, in the same walk order the paths[] array
+    // emits. This pins the serial-execution contract (no parallel
+    // DELETE bursts) AND ensures no path is silently double-deleted
+    // or skipped.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '1.04', '--below', '0.95', '--apply', '--json']);
+    const deletes = fetchCalls.filter((c) => c.method === 'DELETE');
+    expect(deletes).toHaveLength(4);
+    // The DELETE order tracks the paths[] walk order.
+    const deletePaths = deletes.map((d) => (d.body as { path: string }).path);
+    expect(deletePaths).toEqual([
+      '/strong-up.md',
+      '/mild-up.md',
+      '/mild-down.md',
+      '/strong-down.md',
+    ]);
+  });
+
+  it('--above + --below --apply with one DELETE failing: errors[] carries the failure path; exit 1; other deletes still fire', async () => {
+    // The SKIP-on-failure path for the 3-flag composition was not
+    // previously pinned. A regression where a single DELETE failure
+    // accidentally aborted the rest of the batch (e.g. throwing out
+    // of the for-loop) would leave the cron tick in a half-cleared
+    // state and the dashboard would not detect it.
+    deleteFailPaths = new Set(['/mild-up.md']); // one of the four matches fails
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '1.04', '--below', '0.95', '--apply', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      matched: number; cleared: number;
+      errors: { path: string; message: string }[];
+      paths: string[];
+    };
+    // matched=4 (all four still match the filter); cleared=3 (one
+    // DELETE failed); errors carries exactly one entry naming the
+    // failed path.
+    expect(parsed.matched).toBe(4);
+    expect(parsed.cleared).toBe(3);
+    expect(parsed.errors).toHaveLength(1);
+    expect(parsed.errors[0]?.path).toBe('/mild-up.md');
+    expect(parsed.errors[0]?.message).toContain('simulated failure');
+    // Exit 1 so a wrapper script can detect "not every clear succeeded".
+    expect(process.exitCode).toBe(1);
+    // The other three deletes still fired (the batch did NOT abort
+    // on the single failure — critical for cron use).
+    const deletes = fetchCalls.filter((c) => c.method === 'DELETE');
+    expect(deletes).toHaveLength(4);
+  });
+
   it('--above dry-run text mode prints "would clear ... above boost X" header AND a rerun nudge', async () => {
     // The text-mode header narrates the predicate that ran so the
     // cron log makes the operation auditable at a glance.
