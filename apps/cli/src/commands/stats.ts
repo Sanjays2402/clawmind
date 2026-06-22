@@ -86,7 +86,7 @@ export function statsCommand() {
     .option('--paths', 'pipeline-friendly: emit ONLY the per-namespace `extensions[*].ext` flat list, one extension per line, in API order. Answers "which file types live in this namespace" without --json + jq. Composes with -q (filter by namespace name first) and --top (cap each namespace contribution before emit) for "the top 3 extensions in namespaces matching `mem`". Zero matches yields a clean empty stream so xargs/wc keep working. Wins over --json / --tsv / text when set (short-circuits the contract is unambiguous).')
     .option('--json', 'emit machine-readable JSON instead of a text table')
     .option('--compact', 'with --json: emit a single-line JSON document (no indentation) for easier diffing across cron snapshots. Ignored without --json.')
-    .option('--slim', 'with --json: emit a slimmed `{stale: [<namespace>], total: N}` shape carrying only the names of namespaces in the report instead of the full per-namespace metric blocks. The classic cron use is `clawmind stats --json --slim --since <iso>` to answer "which namespaces have gone stale at the namespace level" without piping the full report through `jq` for the namespace names. The `stale` key is the name (the operator already asked the question — they want a clean array of strings, not nested objects). `total` is the length of `stale` so a downstream `jq .total` can branch on emptiness without inspecting the array. Without --since the payload is "all namespaces matching the other filters", which is still a useful cron-snapshot shape (it tracks namespace presence over time). Ignored without --json. Wins over --compact when both are set because --slim already implies single-line output.')
+    .option('--slim', 'with --json: emit a slimmed `{stale: [<namespace>], total: N}` shape carrying only the names of namespaces in the report instead of the full per-namespace metric blocks. The classic cron use is `clawmind stats --json --slim --since <iso>` to answer "which namespaces have gone stale at the namespace level" without piping the full report through `jq` for the namespace names. The `stale` key is the name (the operator already asked the question — they want a clean array of strings, not nested objects). `total` is the length of `stale` so a downstream `jq .total` can branch on emptiness without inspecting the array. Without --since the payload is "all namespaces matching the other filters", which is still a useful cron-snapshot shape (it tracks namespace presence over time). Ignored without --json. Wins over --compact when both are set because --slim already implies single-line output. Composes with --tsv: `--json --slim --tsv` emits one `<namespace>\\t<files>` row per surviving namespace (no header, no trailing summary, no ANSI) for awk pipelines that want both the staleness filter AND the per-namespace file count in a single 2-column stream.')
     .action(async (opts: { json?: boolean; tsv?: boolean; paths?: boolean; query?: string; top: string; sort: string; since?: string; compact?: boolean; slim?: boolean }) => {
       await runOrReport('stats', async () => {
         let report = (await apiFetch('GET', '/v1/stats')) as StatsReport;
@@ -224,6 +224,39 @@ export function statsCommand() {
           // toggling matters. We keep total === stale.length so a
           // downstream consumer never has to reconcile the two.
           if (opts.slim) {
+            // --tsv composes with --slim for the awk-pipeline shape:
+            // one `<namespace>\t<files>` row per surviving namespace,
+            // no header, no trailing summary, no ANSI. The natural
+            // cron use is:
+            //   clawmind stats --json --slim --tsv --since <iso> | awk -F'\t' '$2 > 100'
+            // which lists every namespace older than the cutoff
+            // whose file count crosses a threshold — two filters in
+            // one pipeline without `jq` needing to flatten the slim
+            // shape.
+            //
+            // Why files (NOT bytes/chunks): files is the cheapest
+            // "size" signal — a namespace with one 100KB file and
+            // a namespace with 100 1KB files look the same to an
+            // operator asking "which stale namespace should I clear
+            // first?". Files is also what stale/--paths counts,
+            // so the two contracts compose: a `wc -l` on
+            // `clawmind stale --since X --paths` should agree
+            // numerically with `awk '{s+=$2} END {print s}'` on
+            // `clawmind stats --json --slim --tsv --since X`
+            // restricted to the same namespaces.
+            //
+            // Wins over the regular slim JSON shape when both
+            // --tsv and --slim are set with --json. The flag
+            // resolution order is: --slim > --compact (already
+            // documented), then within --slim: --tsv > default
+            // JSON. The text-mode `--tsv` path on the full stats
+            // is unaffected because that's gated on `!opts.json`.
+            if (opts.tsv) {
+              for (const ns of report.byNamespace) {
+                process.stdout.write(`${ns.namespace}\t${ns.files}\n`);
+              }
+              return;
+            }
             const stale = report.byNamespace.map((n) => n.namespace);
             process.stdout.write(JSON.stringify({ stale, total: stale.length }) + '\n');
             return;

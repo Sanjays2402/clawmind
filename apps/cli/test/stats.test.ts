@@ -633,4 +633,111 @@ describe('stats cli --slim', () => {
     expect(text).toContain('files,');
     expect(text).toContain('namespaces');
   });
+
+  // ---------------------------------------------------------------
+  // --json --slim --tsv tests — awk-pipeline shape on the slim path.
+  //
+  // Mirrors the --tsv contract on the full stats but emits the
+  // narrower 2-column `<namespace>\t<files>` shape: one row per
+  // surviving namespace, no header, no totals row, no ANSI. The
+  // natural cron use is `clawmind stats --json --slim --tsv
+  // --since X | awk -F'\t' '$2 > 100'` — two filters in one
+  // pipeline (staleness via --since, size via awk) without `jq`
+  // needing to flatten the slim shape.
+  // ---------------------------------------------------------------
+
+  it('--json --slim --tsv emits one `<namespace>\\t<files>` row per surviving namespace', async () => {
+    // sampleReport has three namespaces with files=10/5/15. The
+    // slim-tsv shape must emit exactly those three rows, no header,
+    // no totals line, no ANSI styling.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--tsv']);
+    const out = captured.join('');
+    expect(out).toBe('memory\t10\nsessions\t5\nprojects\t15\n');
+    // No ANSI styling — slim-tsv must be cut/awk safe.
+    expect(out).not.toMatch(/\x1b\[/);
+    // No JSON braces leak through (this is NOT a JSON payload).
+    expect(out).not.toContain('{');
+    expect(out).not.toContain('"');
+  });
+
+  it('--json --slim --tsv composes with -q (substring filter narrows first, then tsv emits the survivors)', async () => {
+    // The 2-filter pipeline pattern: -q narrows by namespace name
+    // first (mirrors the full stats -q semantics), then the slim-tsv
+    // shape emits the remaining rows. Pin the row order against the
+    // input order (the API ordering carries through unchanged).
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--tsv', '-q', 'ess']);
+    // Only 'sessions' contains the substring 'ess'.
+    expect(captured.join('')).toBe('sessions\t5\n');
+  });
+
+  it('--json --slim --tsv with no survivors yields a clean empty stream (xargs/wc -l keep working)', async () => {
+    // Zero matches must yield an empty stdout — NO trailing newline,
+    // NO empty array marker, NO "no namespaces" hint. A downstream
+    // `wc -l` must report 0 (not 1). Mirrors the pipeline-friendly
+    // contract on every other --paths-only / --tsv variant.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--tsv', '-q', 'nope']);
+    expect(captured.join('')).toBe('');
+  });
+
+  it('--json --slim --tsv composes with --since (cron canonical: namespace-level staleness + size filter in one pipeline)', async () => {
+    // The most useful combo: --since narrows to stale namespaces
+    // at the namespace level; the slim-tsv shape gives a downstream
+    // awk a 2-column stream so the operator can ALSO filter by
+    // file count without re-running stats. Reuses the composes-
+    // with-since fixture above so the assertion mirrors the
+    // existing slim+since test.
+    const payload = {
+      totals: { files: 30, chunks: 300, bytes: 30_000, namespaces: 3 },
+      byNamespace: [
+        { namespace: 'memory', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'sessions', files: 5, chunks: 50, bytes: 5_000, oldestIngestedAt: null, newestIngestedAt: Date.parse('2025-12-31T00:00:00Z'), extensions: [] },
+        { namespace: 'projects', files: 15, chunks: 150, bytes: 15_000, oldestIngestedAt: null, newestIngestedAt: Date.parse('2026-02-01T00:00:00Z'), extensions: [] },
+      ],
+      generatedAt: 0,
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--tsv', '--since', '2026-01-01']);
+    // memory (null kept), sessions (Dec 2025 kept), projects (Feb 2026 dropped).
+    expect(captured.join('')).toBe('memory\t10\nsessions\t5\n');
+  });
+
+  it('--json --tsv without --slim still emits the JSON payload (regression: slim-tsv is gated on --slim being set)', async () => {
+    // Existing behaviour: when --json is set without --slim, the
+    // --tsv flag is currently SHADOWED by --json (the existing
+    // --tsv text-mode emission is gated on `!opts.json`). The
+    // slim-tsv variant is GATED on --slim, so this combination
+    // (json+tsv with no slim) preserves the existing JSON-wins
+    // contract for every existing caller. Without this regression
+    // test, the slim-tsv path could accidentally swallow the
+    // unrestricted json+tsv case too.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--tsv']);
+    const out = captured.join('');
+    // Output is valid JSON, NOT tab-separated rows.
+    const parsed = JSON.parse(out) as { byNamespace: unknown[] };
+    expect(Array.isArray(parsed.byNamespace)).toBe(true);
+    expect(parsed.byNamespace).toHaveLength(3);
+  });
+
+  it('--tsv without --json emits the full 5-col per-namespace TSV (regression: text-mode --tsv unchanged)', async () => {
+    // The existing 5-col TSV path: namespace, files, chunks, bytes,
+    // newestIngestedAt. The slim-tsv contract MUST NOT regress this
+    // — any existing pipeline `clawmind stats --tsv | cut -f2`
+    // expecting `files` in column 2 keeps working.
+    await statsCommand().parseAsync(['node', 'cli', '--tsv']);
+    const out = captured.join('');
+    expect(out.split('\n')[0]?.split('\t').length).toBe(5);
+    // Three data rows (one per namespace).
+    expect(out.trimEnd().split('\n').length).toBe(3);
+  });
+
+  it('--slim --tsv without --json is silently ignored (text-mode table still renders)', async () => {
+    // Mirrors --slim's own contract: a JSON-shape modifier is a no-op
+    // outside --json. A future operator who forgets --json must not
+    // suddenly see a different output shape.
+    await statsCommand().parseAsync(['node', 'cli', '--slim', '--tsv']);
+    const out = captured.join('');
+    // Without --json, the regular --tsv path fires — that emits the
+    // full 5-col rows. The slim-tsv path is gated on --json.
+    expect(out.split('\n')[0]?.split('\t').length).toBe(5);
+  });
 });
