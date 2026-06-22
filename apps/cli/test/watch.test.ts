@@ -711,3 +711,171 @@ describe('watch cli --once --since', () => {
     expect(stderr.join('')).not.toContain('--debounce value must be');
   });
 });
+
+// ---------------------------------------------------------------
+// --once --paths-only: pure preview. Emit the deduplicated list of
+// files that WOULD be ingested (one path per line, no styling, no
+// header) WITHOUT touching the lance/bm25/manifest. Mirrors
+// `ingest --dry-run --paths-only` and `reindex --dry-run --paths-only`
+// byte-for-byte. The natural cron use is
+//   clawmind watch --once --since X --paths-only
+// for a "what would the next scheduled refresh tick touch?" probe
+// without spending any read/embed/upsert work.
+// ---------------------------------------------------------------
+
+describe('watch cli --once --paths-only', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    lastWatcherOpts = null;
+    discoverFilesCalls = [];
+    ingestPathsCalls = [];
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md'];
+    ingestPathsResult = { processed: 2, chunks: 10, skipped: 0 };
+    ingestPathsImpl = null;
+    statMtimeMs = {};
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes --paths-only on the command surface', () => {
+    const flags = watchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--paths-only');
+  });
+
+  it('--once --paths-only emits one path per line and SKIPS ingestPaths entirely', async () => {
+    // The headline contract: --paths-only is a PURE preview. The
+    // lance/bm25/manifest must not be touched. We assert
+    // ingestPathsCalls stays empty (no metric counter increments,
+    // no upserts) AND the path-per-line stream is on stdout.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/c.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--paths-only']);
+    expect(ingestPathsCalls).toHaveLength(0);
+    // discoverFiles STILL fired — the preview is "what would be
+    // ingested" so the discovery walk has to happen.
+    expect(discoverFilesCalls).toEqual(['/tmp/r']);
+    const lines = stdout.join('').split('\n');
+    // Three paths + trailing empty (from the final \n).
+    expect(lines).toEqual(['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/c.md', '']);
+  });
+
+  it('--once --paths-only composes with --since (only post-cutoff survivors are listed)', async () => {
+    // /tmp/r/a.md modified 2026-06-15 (after cutoff -> kept).
+    // /tmp/r/b.md modified 2026-04-01 (before cutoff -> dropped).
+    // /tmp/r/c.md modified 2026-06-20 (after cutoff -> kept).
+    // The preview list mirrors what `--once --since` (without
+    // --paths-only) would have ingested — pin that the preview is
+    // byte-faithful to the real refresh.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/c.md'];
+    statMtimeMs = {
+      '/tmp/r/a.md': Date.parse('2026-06-15T00:00:00Z'),
+      '/tmp/r/b.md': Date.parse('2026-04-01T00:00:00Z'),
+      '/tmp/r/c.md': Date.parse('2026-06-20T00:00:00Z'),
+    };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--since', '2026-06-01', '--paths-only']);
+    expect(ingestPathsCalls).toHaveLength(0);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(lines).toEqual(['/tmp/r/a.md', '/tmp/r/c.md']);
+  });
+
+  it('--once --paths-only with zero discovered files emits a clean empty stream (no header, no hint)', async () => {
+    // Empty discovery is the most stress-tested case for an
+    // xargs-safe contract: a downstream `xargs ls` on the empty
+    // stream must do NOTHING (not produce "no such file or
+    // directory" because we leaked a header / hint). We assert
+    // stdout is exactly empty and stderr stays free of poisonous
+    // "nothing to do" lines too.
+    discoverFilesFiles = [];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--paths-only']);
+    expect(stdout.join('')).toBe('');
+    // Stderr only carries the banner (kind=banner), nothing else.
+    const errLines = stderr.join('').trim().split('\n').filter(Boolean);
+    expect(errLines).toHaveLength(1);
+    expect(JSON.parse(errLines[0]!).kind).toBe('banner');
+    // ingestPaths still skipped.
+    expect(ingestPathsCalls).toHaveLength(0);
+  });
+
+  it('--once --paths-only with cutoff dropping every file yields an empty stream (matches the empty-discovery contract)', async () => {
+    // Every discovered file pre-dates the cutoff -> no survivors ->
+    // empty stream. Same contract as the empty-discovery case so
+    // the operator does not have to special-case the two empty
+    // shapes in an xargs pipeline.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md'];
+    statMtimeMs = {
+      '/tmp/r/a.md': Date.parse('2024-01-01T00:00:00Z'),
+      '/tmp/r/b.md': Date.parse('2024-01-01T00:00:00Z'),
+    };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--since', '2026-06-01', '--paths-only']);
+    expect(stdout.join('')).toBe('');
+    expect(ingestPathsCalls).toHaveLength(0);
+  });
+
+  it('--once --paths-only deduplicates the discovered set in arrival order (Set-backed)', async () => {
+    // Pin the dedupe contract: the production discoverFiles()
+    // returns a flat list, but if a future implementation leaks
+    // duplicates (e.g. through symlinks or alternate path
+    // resolution) the --paths-only output must still be unique
+    // per path so an xargs consumer doesn't double-process. Order
+    // matches first occurrence, NOT alphabetical, so the operator
+    // can correlate the preview with the actual ingest sequence.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/a.md', '/tmp/r/c.md', '/tmp/r/b.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--paths-only']);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(lines).toEqual(['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/c.md']);
+  });
+
+  it('--once --paths-only wins over --json (paths-per-line beats JSON document with paths array)', async () => {
+    // Same precedent as forget/search/related --paths-only short-
+    // circuiting --json: a downstream `xargs` consumer wants
+    // path-per-line, NOT a JSON wrapper. Mixing the flags
+    // explicitly resolves to --paths-only winning.
+    discoverFilesFiles = ['/tmp/r/x.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--paths-only', '--json']);
+    const body = stdout.join('');
+    // Path-per-line, no JSON wrapper.
+    expect(body).toBe('/tmp/r/x.md\n');
+    expect(() => JSON.parse(body)).toThrow();
+    expect(ingestPathsCalls).toHaveLength(0);
+  });
+
+  it('--paths-only without --once is silently ignored (live watcher emits per-event NDJSON, NOT a preview)', async () => {
+    // Without --once, the live watcher path runs unchanged — chokidar
+    // is installed (lastWatcherOpts captured) and the --paths-only
+    // flag has no effect. The cli accepts it silently rather than
+    // rejecting so a cron operator using a unified argv shape
+    // across the two modes doesn't need conditional plumbing.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--paths-only']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    // The live watcher started (sentinel thrown from inside
+    // startWatcher) — proves we did NOT short-circuit the
+    // --paths-only branch in the live path.
+    expect(lastWatcherOpts).not.toBeNull();
+    expect(lastWatcherOpts?.root).toBe('/tmp/r');
+  });
+
+  it('--once --paths-only with an invalid --since aborts cleanly BEFORE the discovery walk', async () => {
+    // The --since validation fires UP FRONT regardless of whether
+    // --paths-only is set — a typo cannot silently degrade to
+    // "preview the whole workspace" (which is the worst possible
+    // failure mode for a flag whose purpose is to do less work).
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--paths-only', '--since', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('--since value "banana" is not a valid ISO date');
+    // Neither discovery nor ingest fired.
+    expect(discoverFilesCalls).toEqual([]);
+    expect(ingestPathsCalls).toHaveLength(0);
+  });
+});

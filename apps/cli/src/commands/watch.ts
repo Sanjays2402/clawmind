@@ -14,7 +14,8 @@ export function watchCommand() {
     .option('-q, --quiet', 'suppress the per-file event lines (the gray `add /foo.md` / `change /bar.ts` chatter in text mode, and the per-event NDJSON documents in --json mode). The startup banner on stderr STILL fires so a log scraper detects restarts, and the operator-facing "Watching <root>" stdout line STILL prints so an interactive operator sees the watcher came up. The combination is the right shape for cron-restarted watchers where the journal only needs the restart marker, not 100/sec event chatter from a tight `npm install` burst — and pairs naturally with --debounce.')
     .option('--once', 'run a single initial scan + ingest pass under the SAME discovery rules the live watcher uses (.clawmindignore + the built-in include/exclude globs), then exit cleanly with the regular ingest report shape. This lets cron use ONE code path for both scheduled refreshes and live watching — `clawmind watch --once` is the watcher\'s "initial scan" without the long-running tail. Composes with --json (NDJSON ingest report instead of text) and emits the same startup banner on stderr so a log scraper sees the restart marker even on a one-shot pass. Does NOT install the chokidar watcher; the process returns to the shell as soon as the initial ingest finishes. Exit code reflects the ingest outcome (0 on success, non-zero on a thrown error in the pipeline).')
     .option('--since <iso-date>', 'with --once: only ingest files whose filesystem mtime is at-or-after this ISO date. Pairs the new --once mode with the `ingest --since` semantics so a cron tick can ride out a quiet workspace without re-walking every file. The canonical cron flow:\n  clawmind watch --once --since "$(date -u -d \'1 hour ago\' +%FT%TZ)"\nThe filter applies AFTER discoverFiles() (same .clawmindignore + include/exclude globs still walked) but BEFORE the per-file ingest decision, so the operator pays exactly one stat() per discovered file. Cutoff is INCLUSIVE (>=) — a file modified exactly at the cutoff was "modified at the cutoff", which is the boundary an operator passing the previous tick\'s wall-clock cares about. Parse failures abort cleanly with exit 1 — a typo cannot silently degrade to "no filter" (which would re-ingest the entire workspace, the worst possible failure mode for a flag whose purpose is to do LESS work). Ignored WITHOUT --once (the live watcher has no use for an mtime cutoff — chokidar already only fires on actual file events, so --since on the live path would be a confusing no-op). stat() failures on individual files are non-fatal (matches `ingest --since`).')
-    .action(async (root: string | undefined, opts: { json?: boolean; debounce?: number; quiet?: boolean; once?: boolean; since?: string }) => {
+    .option('--paths-only', 'with --once: pure preview — emit the deduplicated list of files that WOULD be ingested (one path per line, no styling, no header) WITHOUT touching the lance/bm25/manifest. Mirrors `ingest --dry-run --paths-only` and `reindex --dry-run --paths-only` byte-for-byte (same xargs-safe contract) but lives on the `watch` command surface so the cron muscle memory carries: `watch --once --since X --paths-only` is the natural \"what would this scheduled refresh tick touch?\" probe. Composes naturally with --since: the preview list is exactly the post-cutoff survivors. Skips ingestPaths() entirely (the file scan happens, the mtime filter applies, but nothing is read/hashed/embedded/upserted). Empty discovery (or every file pre-dating the cutoff) yields a clean empty stream — `wc -l` sees exactly 0, no header, no \"nothing to do\" hint that would poison `xargs ls`. Wins over --json (a downstream `xargs` consumer wants path-per-line, NOT a JSON document with a paths array) — matches the precedent set by forget/search/related --paths-only short-circuiting over --json. Ignored without --once (no live-watch preview semantics; the live watcher emits per-event NDJSON which is the preview shape for that surface).')
+    .action(async (root: string | undefined, opts: { json?: boolean; debounce?: number; quiet?: boolean; once?: boolean; since?: string; pathsOnly?: boolean }) => {
       // --debounce forwards directly to the watcher's `debounceMs`
       // wiring (which already exists in WatcherOptions; this just
       // exposes it on the cli). Reject zero / negative / NaN values
@@ -120,6 +121,42 @@ export function watchCommand() {
             }
           }));
           files = kept;
+        }
+        // --paths-only: pure preview. Emit the deduplicated path
+        // list (one path per line, no header, no styling) and
+        // SHORT-CIRCUIT before ingestPaths() so nothing is read,
+        // hashed, embedded, or upserted. Mirrors `ingest --dry-run
+        // --paths-only` and `reindex --dry-run --paths-only`
+        // byte-for-byte. Critical design properties:
+        //   - dedupe via Set: discoverFiles() in production returns
+        //     a flat path list, but pinning the dedupe contract via
+        //     a Set means a future change cannot silently leak
+        //     duplicates into an xargs consumer
+        //   - file order preserved (Set iteration is insertion-order
+        //     in V8) so the operator can correlate the preview with
+        //     the actual ingest by re-running without --paths-only
+        //   - empty discovery / every-file-pre-dating-cutoff yields
+        //     a clean empty stream (no header, no "nothing to do"
+        //     hint that would poison `wc -l` / `xargs ls`)
+        //   - wins over --json (a downstream `xargs` consumer wants
+        //     path-per-line, NOT a JSON document with a paths array)
+        //     — matches the precedent set by forget/search/related
+        //     --paths-only short-circuiting over --json
+        //   - returns BEFORE ingestPaths() so the lance/bm25/manifest
+        //     are not touched; the metric counters do not increment
+        //     because no work was done (the cron operator running a
+        //     preview wants the "I did nothing" signal to be honest)
+        if (opts.pathsOnly) {
+          const seen = new Set<string>();
+          const deduped: string[] = [];
+          for (const p of files) {
+            if (!seen.has(p)) {
+              seen.add(p);
+              deduped.push(p);
+            }
+          }
+          for (const p of deduped) process.stdout.write(p + '\n');
+          return;
         }
         const report = await ingestPaths(files, {
           store: rt.lance, bm25: rt.bm25, bm25File: rt.bm25File,
