@@ -93,8 +93,9 @@ export function digestCommand() {
     .description('Run one saved search by id, or all if no id given')
     .option('--since <iso-date>', 'with no id: skip saved searches whose lastRunTs is at-or-after this ISO date. The natural cron use is "re-run only the digests that have not run in the last hour": `clawmind digest run --since "$(date -u -d \'1 hour ago\' +%FT%TZ)"` lets a frequent cron tick (every 5min) catch newly-added digests AND digests that have drifted past their refresh budget, while skipping anything a slower tick (every hour) already covered. Critical contract: a digest with lastRunTs === null (never run) is ALWAYS INCLUDED (a never-run digest is the most extreme case of "needs running" — a filter that hid never-runs would be unsafe for a saved search the operator just added). The cutoff comparison uses strict less-than: a digest whose lastRunTs is exactly the cutoff IS SKIPPED — it ran AT the cutoff so re-running it now would breach the operator\'s "leave alone if it ran within the last hour" intent. Parse failures abort cleanly. Ignored when an id is passed (a single-id `digest run X --since Y` would either skip the only thing it was asked to do or always run it; both are confusing).')
     .option('--max <n>', 'with no id: cap how many saved searches are run in this batch. Surviving candidates after --since narrowing are kept in API order (newest-first) and the head N are run; the remainder roll over to the next tick. Pairs naturally with --since for a tight cron budget: `digest run --since "..." --max 10` caps both wall-clock AND LLM/embed cost when a tick catches a big stale wave. The skipped count in the report covers BOTH the --since-skipped and the --max-deferred digests, but the text-mode summary narrates them separately so the cron log is auditable ("ran 10, deferred 3, not stale enough 2"). A non-positive or NaN value is rejected cleanly — a typo cannot silently become an empty batch. Ignored when an id is passed (single-id runs always run that one digest regardless of cap).', (v) => Number.parseInt(v, 10))
+    .option('--slim', 'with --json: emit a slimmed `{ran, deferred, sinceSkipped}` shape (3 fields only) instead of the full per-digest results array. Mirrors `doctor --json --quiet` byte-for-byte: a tight cron dashboard panel that only needs "did the cron tick get through the batch" can poll this without piping the full per-id results through `jq` for the totals. Pairs naturally with --max: `digest run --max 10 --since "..." --json --slim` is the canonical cron-budget probe — three integers tell the dashboard whether the cap fired, whether the cutoff filtered candidates, and how many actually ran. Single-line JSON output so an NDJSON snapshot stream diffs cleanly between ticks. Ignored without --json (text-mode summary is already a one-liner). Ignored when an id is passed (single-id runs never produce ran/deferred/sinceSkipped counts to slim).')
     .option('--json', 'emit the run report as JSON for scripting')
-    .action(async (id: string | undefined, opts: { json?: boolean; since?: string; max?: number }) => {
+    .action(async (id: string | undefined, opts: { json?: boolean; since?: string; max?: number; slim?: boolean }) => {
      await runAction('digest run', async () => {
       if (id) {
         const out = (await apiFetch('POST', `/v1/digests/${id}/run`)) as {
@@ -220,6 +221,44 @@ export function digestCommand() {
           results,
         };
         if (opts.json) {
+          // --slim emits a 3-field shape carrying ONLY the counts a
+          // cron-dashboard panel cares about. Mirrors `doctor --json
+          // --quiet` byte-for-byte: single-line JSON, no nested per-
+          // digest details, only the integers a status panel needs.
+          // The canonical cron poll is:
+          //   clawmind digest run --since "..." --max 10 --json --slim
+          // which answers three questions in one shot: did the cap
+          // fire (deferred > 0), did the cutoff filter candidates
+          // (sinceSkipped > 0), how many actually ran (ran). A
+          // downstream `jq` over an NDJSON snapshot stream can
+          // graph all three over time without parsing the full
+          // per-id results blob (which on a workspace with 200
+          // saved searches is megabytes per snapshot vs three
+          // bytes for the slim shape).
+          //
+          // `ran` is the count of successful runs (matches
+          // report.ran which is results.length). `deferred` and
+          // `sinceSkipped` are surfaced separately so the
+          // dashboard can distinguish "the operator's cutoff
+          // caught everything" from "we hit the cap". The total
+          // `skipped` is recomputable as deferred+sinceSkipped
+          // if a consumer wants the legacy combined number.
+          //
+          // We deliberately use single-line JSON.stringify (no
+          // indent) so a snapshot stream like
+          //   while true; do clawmind digest run ... --json --slim; sleep 60; done
+          // produces clean NDJSON that diffs cleanly between
+          // ticks (multi-line indent would force every snapshot
+          // diff to walk indentation noise).
+          if (opts.slim) {
+            const slim = {
+              ran: report.ran,
+              deferred: report.deferred,
+              sinceSkipped: report.sinceSkipped,
+            };
+            process.stdout.write(JSON.stringify(slim) + '\n');
+            return;
+          }
           process.stdout.write(JSON.stringify(report, null, 2) + '\n');
           return;
         }

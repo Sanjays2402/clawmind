@@ -1235,4 +1235,134 @@ describe('digest cli', () => {
     const parsed = JSON.parse(captured.join('')) as { entry: { newSources: { path: string }[] } };
     expect(parsed.entry.newSources[0]?.path).toBe('/x.md');
   });
+
+  // --------------------------------------------------------------
+  // run --json --slim tests — 3-field slim shape for cron panels.
+  //
+  // Mirrors `doctor --json --quiet` byte-for-byte. The slim shape
+  // emits ONLY {ran, deferred, sinceSkipped}: the three integers
+  // a dashboard panel needs to answer "did the cron tick get
+  // through the batch?" without parsing the per-id results blob.
+  // Single-line JSON for clean NDJSON snapshot diffs.
+  // --------------------------------------------------------------
+
+  it('run --json --slim emits exactly {ran, deferred, sinceSkipped} on a single line', async () => {
+    // Five digests, all stale enough. --max 2 runs the first two
+    // and defers three. --slim drops the per-id results blob and
+    // emits only the three counts.
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's3', title: 'C', query: 'c', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's4', title: 'D', query: 'd', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's5', title: 'E', query: 'e', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          entry: { newSources: [{ path: `/${m[1]}.md` }], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--json', '--slim', '--max', '2']);
+    const raw = captured.join('');
+    // Single-line JSON: exactly one newline (the trailing one).
+    expect(raw.match(/\n/g)?.length).toBe(1);
+    // No multi-line indentation leaks through.
+    expect(raw).not.toContain('\n  ');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    // Exact 3-field shape — no per-id results blob, no since/max
+    // metadata, no `skipped` total (recomputable as
+    // deferred+sinceSkipped if a consumer wants it).
+    expect(Object.keys(parsed).sort()).toEqual(['deferred', 'ran', 'sinceSkipped']);
+    expect(parsed.ran).toBe(2);
+    expect(parsed.deferred).toBe(3);
+    expect(parsed.sinceSkipped).toBe(0);
+  });
+
+  it('run --json --slim composes with --since (sinceSkipped surfaces honestly)', async () => {
+    // Mix of stale/fresh digests + --max + --since: the slim shape
+    // must split the skip reasons cleanly so a dashboard can show
+    // "deferred 1 (capped)" separately from "skipped 2 (too fresh)".
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's3', title: 'C', query: 'c', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's4', title: 'D', query: 'd', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's5', title: 'E', query: 'e', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          entry: { newSources: [], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync([
+      'node', 'cli', 'run', '--json', '--slim',
+      '--since', new Date(1000).toISOString(),
+      '--max', '2',
+    ]);
+    const parsed = JSON.parse(captured.join('')) as {
+      ran: number; deferred: number; sinceSkipped: number;
+    };
+    expect(parsed.ran).toBe(2);          // s1 + s2
+    expect(parsed.deferred).toBe(1);     // s3 capped by --max 2
+    expect(parsed.sinceSkipped).toBe(2); // s4 + s5 too fresh
+  });
+
+  it('run --json --slim with no candidates yields {ran: 0, deferred: 0, sinceSkipped: 0}', async () => {
+    // The empty-state shape must still emit valid JSON so a
+    // dashboard cron loop never sees a parse error. Specifically
+    // the canonical cron use is `--since X --max N --json --slim`
+    // which an operator pipes to `jq -e '.ran > 0'` — that
+    // expression must evaluate against a real {ran:0} object,
+    // not against an empty stdout that would break the pipeline.
+    globalThis.fetch = (async (url: string | URL) => {
+      if (String(url).endsWith('/v1/digests')) {
+        return new Response(JSON.stringify({ items: [] }), { status: 200 });
+      }
+      return new Response('unexpected', { status: 500 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--json', '--slim', '--max', '5']);
+    const parsed = JSON.parse(captured.join('')) as Record<string, unknown>;
+    expect(parsed).toEqual({ ran: 0, deferred: 0, sinceSkipped: 0 });
+  });
+
+  it('run --slim without --json is silently ignored (text mode unchanged)', async () => {
+    // Mirrors the doctor --quiet contract: --slim is a JSON shape
+    // modifier and has no business changing text mode (which is
+    // already a one-liner gray summary). A future operator who
+    // forgets --json should not see a different output.
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          entry: { newSources: [{ path: '/x.md' }], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'run', '--slim', '--max', '99']);
+    const out = captured.join('');
+    // Text-mode summary still fires; no JSON anywhere.
+    expect(out).toContain('ran 1');
+    expect(() => JSON.parse(out)).toThrow();
+  });
 });
