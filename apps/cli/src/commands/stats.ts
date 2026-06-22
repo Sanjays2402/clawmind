@@ -80,7 +80,7 @@ export function statsCommand() {
     .description('Per-namespace breakdown of indexed files, chunks, and bytes')
     .option('-q, --query <substr>', 'only include namespaces whose name contains this substring (case-insensitive)')
     .option('--top <n>', 'cap the per-namespace extension breakdown at this many entries (default 4)', '4')
-    .option('--sort <key>', 'sort namespaces descending by one of: files, chunks, bytes, namespace (default: namespace)', 'namespace')
+    .option('--sort <key>', 'sort namespaces descending by one of: files, chunks, bytes, namespace (alias: name). Default: namespace. Mirrors the family-wide --sort contract used by feedback / digest / aliases / related / search / stale --sort: ties at the same metric carry a secondary sort by original index for cross-snapshot determinism (so two consecutive `stats --json --sort files` runs over identical input produce byte-identical output regardless of the engine\'s Array#sort stability), and unknown keys abort cleanly with exit 1 enumerating the valid set. The `name` alias is the family-wide canonical spelling; the original `namespace` spelling is preserved for back-compat. Both behave identically.', 'namespace')
     .option('--since <iso-date>', 'keep only namespaces whose newestIngestedAt is older than this ISO date (i.e. have not been re-ingested since the cutoff). Useful for finding namespaces that have gone stale at the namespace level — complements `stale` which works at the per-file level. Namespaces with newestIngestedAt=null (never indexed) are KEPT because they are trivially older than any cutoff. The recomputed totals reflect the filtered subset so a downstream "stale namespaces dominate X bytes" report still adds up.')
     .option('--tsv', 'emit tab-separated rows (namespace<TAB>files<TAB>chunks<TAB>bytes<TAB>newestIngestedAt) for awk/cut pipelines')
     .option('--paths', 'pipeline-friendly: emit ONLY the per-namespace `extensions[*].ext` flat list, one extension per line, in API order. Answers "which file types live in this namespace" without --json + jq. Composes with -q (filter by namespace name first) and --top (cap each namespace contribution before emit) for "the top 3 extensions in namespaces matching `mem`". Zero matches yields a clean empty stream so xargs/wc keep working. Wins over --json / --tsv / text when set (short-circuits the contract is unambiguous).')
@@ -163,13 +163,34 @@ export function statsCommand() {
         // that is the question they answer ("which namespace dominates the
         // index?"). The default "namespace" key keeps the alphabetical
         // order the API returns so existing scripts that diff stats output
-        // do not have to change.
+        // do not have to change. `name` is a family-wide alias for
+        // `namespace` (mirrors the canonical spelling exposed by aliases
+        // list --sort name / digest list --sort title etc.); both behave
+        // identically so existing scripts using `--sort namespace` keep
+        // working unchanged.
+        //
+        // Ties on the numeric keys carry a secondary sort by original
+        // index so two consecutive `stats --json --sort files` runs over
+        // identical input produce byte-identical output. Without the
+        // secondary sort, V8's Array#sort is stable in practice (since
+        // 7.0) but the contract would be unenforced — a future engine
+        // change or polyfill could in principle de-tie equal-files
+        // namespaces in either order, and the cron snapshot would drift
+        // between runs. Mirrors the family-wide secondary-index sort
+        // (feedback / digest / aliases / related / search / stale --sort).
         const sortKey = opts.sort.toLowerCase();
         if (sortKey === 'files' || sortKey === 'chunks' || sortKey === 'bytes') {
-          const sorted = [...report.byNamespace].sort((a, b) => b[sortKey] - a[sortKey]);
+          const sorted = [...report.byNamespace]
+            .map((n, idx) => ({ n, idx }))
+            .sort((a, b) => {
+              const cmp = b.n[sortKey] - a.n[sortKey];
+              if (cmp !== 0) return cmp;
+              return a.idx - b.idx;
+            })
+            .map((r) => r.n);
           report = { ...report, byNamespace: sorted };
-        } else if (sortKey !== 'namespace') {
-          throw new StatsCliError(`unknown --sort key "${opts.sort}" (expected: files, chunks, bytes, namespace)`);
+        } else if (sortKey !== 'namespace' && sortKey !== 'name') {
+          throw new StatsCliError(`unknown --sort key "${opts.sort}" (expected: files, chunks, bytes, namespace, name)`);
         }
         // --paths is the pipeline-friendly flat-extension stream. It
         // emits ONLY the per-namespace `extensions[*].ext` field, one

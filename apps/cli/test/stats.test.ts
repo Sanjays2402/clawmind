@@ -740,4 +740,111 @@ describe('stats cli --slim', () => {
     // full 5-col rows. The slim-tsv path is gated on --json.
     expect(out.split('\n')[0]?.split('\t').length).toBe(5);
   });
+
+  // -----------------------------------------------------------------
+  // --sort family-contract alignment: the family-wide canonical name
+  // for the alphabetical sort is `name` (mirrors aliases list --sort
+  // name / digest list --sort title etc.). Stats predates the family
+  // contract and exposed `namespace`; this adds `name` as a TRUE
+  // alias so the muscle memory carries. Both flags behave identically.
+  //
+  // Plus: the secondary-by-original-index sort on the numeric keys
+  // (files / chunks / bytes) so cross-snapshot ties are deterministic
+  // even on a hypothetical non-stable Array#sort implementation.
+  // -----------------------------------------------------------------
+
+  it('--sort name is a true alias for --sort namespace (both produce byte-identical output)', async () => {
+    // `name` and `namespace` are the same operation: preserve API
+    // order. Two consecutive runs over identical input must produce
+    // byte-identical output regardless of which spelling the
+    // operator chose.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'namespace']);
+    const namespaceOut = captured.join('');
+    captured.length = 0;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'name']);
+    expect(captured.join('')).toBe(namespaceOut);
+  });
+
+  it('--sort name is case-insensitive (NAME / Name / name all accepted)', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'NAME']);
+    const out = JSON.parse(captured.join(''));
+    // Preserves the sampleReport's API order — same as --sort namespace.
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual([
+      'memory', 'sessions', 'projects',
+    ]);
+  });
+
+  it('--sort error message enumerates `name` as a valid key (alongside the existing four)', async () => {
+    // The error path must now list `name` in the accepted set so an
+    // operator who typo'd `--sort title` sees the full vocabulary
+    // and can pick the canonical spelling.
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'banana']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    const err = stderrBuf.join('');
+    expect(err).toContain('expected: files, chunks, bytes, namespace, name');
+    process.exitCode = 0;
+  });
+
+  it('--sort files ties preserve API order via secondary-by-original-index sort (cross-snapshot determinism)', async () => {
+    // Two namespaces with identical files counts; the primary
+    // --sort files comparator returns 0 on the tie, so the
+    // secondary-by-original-index sort takes over and preserves
+    // the API order. Without the secondary sort, V8's Array#sort
+    // is stable in practice but the contract would be unenforced
+    // — a future engine change or polyfill could in principle
+    // de-tie equal-files namespaces in either order, and the
+    // cron snapshot would drift between runs over identical input.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 30, chunks: 300, bytes: 30_000, namespaces: 3 },
+      byNamespace: [
+        { namespace: 'first-tied', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'big', files: 15, chunks: 150, bytes: 15_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'second-tied', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'files']);
+    const out = JSON.parse(captured.join(''));
+    // big (15) leads; the two files===10 rows tie; secondary index
+    // sort keeps API order: first-tied before second-tied.
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual([
+      'big', 'first-tied', 'second-tied',
+    ]);
+  });
+
+  it('--sort bytes determinism: two consecutive runs over identical-ties input produce byte-identical output', async () => {
+    // Direct snapshot-diff property: a cron NDJSON snapshot stream
+    // diffs cleanly only if identical input produces byte-identical
+    // output. Pin this end-to-end so a regression in the sort
+    // determinism surfaces as a hard test failure.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 20, chunks: 200, bytes: 30_000, namespaces: 3 },
+      byNamespace: [
+        { namespace: 'alpha', files: 5, chunks: 50, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'bravo', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'charlie', files: 5, chunks: 50, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'bytes']);
+    const tick1 = captured.join('');
+    captured.length = 0;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'bytes']);
+    const tick2 = captured.join('');
+    // Byte-identical output across runs — the snapshot-diff contract.
+    expect(tick1).toBe(tick2);
+    // And the tied trio's order matches API order (alpha, bravo,
+    // charlie) — all three have bytes===10_000.
+    const out = JSON.parse(tick1);
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual([
+      'alpha', 'bravo', 'charlie',
+    ]);
+  });
 });
