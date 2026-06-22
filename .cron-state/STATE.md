@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-21 23:08 PDT (current)
+### Tick 2026-06-22 02:28 PDT (current)
+
+- [x] feat(status): --watch --json embeds a monotonic cycle:N per snapshot (c9490bc)
+- [x] feat(ask): --out - treats single hyphen as the stdout sentinel (c9d27f5)
+- [x] feat(watch): --once --preview-json wraps the preview list in a structured envelope (9748183)
+- [x] test(ask): pin --stream-json --no-citations --out 3-flag composition byte layout (dc329f5)
+- [x] test(related): pin --below / --above + --below + --paths-only byte layout (fea8312)
+
+### Tick 2026-06-21 23:08 PDT
 
 - [x] feat(status): emit --watch startup banner to stderr at loop start (696cce6)
 - [x] feat(status): add --watch --check-after <n> to debounce 1-cycle blips (c712abb)
@@ -151,14 +159,15 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(export): add --since composition test that round-trips through the live API end-to-end (the CLI test mocks fetch; the API test injects routes; a third test could spin up the real Fastify app + bind a tcp port and call through `clawmind export` to catch wire-format regressions)
 - [ ] feat(search): add --rerank-only --json --no-snippet shortcut — slim payload (no snippet/highlights) on the no-MMR debug path so a rerank-only A/B run can compare the bare rank/path/score shape across the 3-way (default / --rerank-off / --rerank-only) without snippet noise inflating each payload 10x. Three flags compose naturally; the test is the smoke (current --no-snippet contract + current --rerank-only contract should already produce this for free, but pinning the byte shape would guard against a future regression).
 - [ ] feat(stats): add --json --slim --since composition test that pins the byte layout when both flags fire (the new --slim --tsv contract is similar but covers --tsv only; --since composition is exercised elsewhere but not the EXACT byte layout that the slim shape produces under the cutoff)
-- [ ] feat(related): add --above --paths-only composition test — pin the band filter's interaction with the pipeline-friendly emit (existing test pins --above alone but the combination with --paths-only deserves an explicit byte-layout pin).
 - [ ] feat(watch): add --once --since composition test that pairs the new --since with --debounce (both should be silently accepted in --once mode; --since drives the filter, --debounce is a no-op).
 - [ ] feat(status): add --watch --check-after --json composition test pinning the exit code stays 0 even when JSON snapshots all show ok=false (the --check-after debounce applies to exit code only, NOT to the per-cycle JSON shape; pin that contract so a dashboard reading the snapshots is never confused by the exit code's silence).
-- [ ] feat(status): add --watch --json with embedded `cycle: N` index per snapshot so a downstream NDJSON consumer can detect dropped snapshots or sort across restart boundaries (currently each snapshot is self-contained but has no monotonic counter — a missing snapshot in the stream is silent).
-- [ ] feat(watch): add --once --paths-only --json shortcut — instead of short-circuiting --json with --paths-only (current contract), emit `{root, count, files:[...]}` (mirrors `reindex --dry-run --json`). Currently --paths-only WINS over --json (matches forget/search/related precedent), but a `--paths-only --json` reader who explicitly wanted the JSON wrapper has no way to get it. Worth considering: maybe expose `--preview-json` as a separate flag for that consumer.
-- [ ] feat(ask): add --stream-json --out --no-citations composition test — pin that --no-citations drops items[] from the file's sources doc but keeps the marker, just like the stdout shape (currently --no-citations is honoured in emitStreamDoc by the shared `if (opts.citations !== false)` branch; a regression where --no-citations only affected stdout and leaked items[] to the file would be invisible without a test pin).
 - [ ] feat(ask): add --stream-json --out with empty answer (no token events between sources and done) — pin that the file body is exactly 2 lines (sources + done, no tokens) and the green stderr confirmation still fires with `(0 chars)`. The "empty answer" case is rare but real (a model that thinks it shouldn't reply) and the cron operator's `wc -l stream.ndjson` should still produce a sensible number.
-- [ ] feat(ask): add --stream-json with `--out -` writing to stdout (the standard cli convention for "treat stdout as the output file"). Currently `--out -` would try to open a literal `-` file; a small special-case would let `clawmind ask --stream-json --out -` behave identically to `clawmind ask --stream-json`. Useful when a script passes `--out $VAR` and `$VAR` happens to be `-`.
+- [ ] feat(status): add --watch --check-after debounce-resets-mid-loop pin: a 1-cycle blip in the MIDDLE of a long --watch loop (not at the end) does NOT trip the exit code at loop end if the streak recovered. The existing test pins "recovery cycle resets streak" but only at the end-2-of-3 boundary; pinning the mid-loop recovery would catch a regression where the streak somehow leaked across the recovery boundary.
+- [ ] feat(ask): add --stream-json --out append-vs-truncate composition test — verify that two CONSECUTIVE invocations to the same --out file result in the SECOND stream being the only content (open('w') truncates each time). Existing test covers the trunc-after-garbage case; this would catch a regression where someone "optimized" to open('a') for performance.
+- [ ] feat(watch): add --once --preview-json composition test under live (non-cron) shell — confirm that pretty-printers like `jq .files` chew through the envelope cleanly (the envelope is single-line JSON so this should be free, but a regression where someone added indent=2 would silently produce multi-line JSON that `wc -l` would mis-count).
+- [ ] feat(status): add --watch --json `cycle` + --max-polls boundary test — when --max-polls exactly matches the cycle count, the last cycle's `cycle == --max-polls` (off-by-one regression guard: an early-break path could silently emit cycle == max-1 if the counter increments AFTER the JSON write instead of before).
+- [ ] feat(ask): add --out - composition with --threshold below-bar — the skip path still respects the stdout-sentinel: the skipped doc / message lands on stdout, NOT a literal "-" file, AND exits 1. Composition of two cron-friendly flags that together describe "treat this stream conventionally AND fail honestly".
+- [ ] feat(related): add --json + --above + --below band-filter composition byte-layout pin — pin the EXACT JSON shape (items[] kept, count recomputed, sourceChunkCount preserved verbatim) when both band edges fire together. The new --paths-only composition pin covers the path-stream shape; the JSON shape under the same composition is still un-pinned.
 
 ## Conventions
 
@@ -1355,3 +1364,217 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   `@clawmind/api` at 1229/1230 (timing flake on api-key-bruteforce
   expires-the-lock-naturally — identical to every prior tick).
   No new reds introduced this tick.
+
+- 2026-06-22 02:28 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: c9490bc, c9d27f5, 9748183, dc329f5, fea8312. Test gate:
+  `@clawmind/cli` 473/473 vitest pass (up from 450). 23 net new tests
+  spread across 4 files: status.test.ts (+4 -> 29 — cycle:N counter
+  pins), ask.test.ts (+6 -> 30 — three --out - stdout-sentinel tests
+  + three --stream-json --no-citations --out composition pins),
+  watch.test.ts (+9 -> 56 — full --preview-json contract pin),
+  related.test.ts (+4 -> 28 — --below/--above + --below + --paths-only
+  band-filter byte layout). `@clawmind/cli` typecheck: clean. Same
+  two pre-existing reds outside cli (telemetry OpenTelemetry 1.x/2.x
+  peer mismatch + rag/hybrid alpha-blend drift); both verified
+  pre-existing in this tick by running `pnpm --filter @clawmind/rag
+  test` (47/48, identical to every prior tick). Neither introduced
+  this tick.
+
+  Theme: the queued sweep, again — but this tick's mix leaned
+  heavier on cross-mode contract pins. Three features add new
+  flags / capabilities; two are pure regression-guard byte-layout
+  pins for compositions that the existing tests touched in
+  isolation but had not anchored together.
+
+    1. status --watch --json `cycle:N` monotonic counter. Each
+       polling cycle's NDJSON snapshot now carries a 1-indexed
+       `cycle` field. The contract enables three distinct
+       downstream-NDJSON-consumer questions: (a) detect DROPPED
+       snapshots (gaps in the integer sequence — a consumer that
+       polls every 30s from a watcher cycling every 1s sees
+       `cycle:1, 31, 61, ...` and knows 29 snapshots fell on the
+       floor between each window); (b) SORT across restart
+       boundaries (the watcher restart resets cycle back to 1,
+       but combined with the stderr banner's `ts` field the
+       consumer can stitch back-to-back snapshot streams into a
+       single timeline); (c) branch on the FIRST snapshot in a
+       stream (`cycle == 1` is a clean restart marker without
+       parsing the stderr banner separately).
+
+       Critical design property: the counter is independent of
+       probe state — it increments on every polling pass
+       regardless of the snapshot's `ok` flag, so a consumer
+       graphing `ok` over `cycle` sees a continuous x-axis even
+       during incidents. A future regression that mixed the two
+       contracts ("only increment cycle on healthy snapshots") is
+       caught by an explicit test asserting cycle increments
+       across mixed healthy/unhealthy probes.
+
+       The field is ONLY emitted under --watch — the one-shot
+       --json path has no cycle to count, and a stray `cycle:1`
+       on a single snapshot would confuse a consumer that uses
+       field presence as the "this came from a polling loop"
+       signal. Pinned with an explicit `'cycle' in doc === false`
+       assertion on the one-shot path. Existing dashboards
+       reading workspace/embed/llm/ok keep working unchanged —
+       `cycle` is one additional integer key, non-breaking by
+       construction (every existing test uses field-level
+       assertions, not whole-object `.toEqual`).
+
+    2. ask --out - stdout sentinel. The standard *nix convention
+       for "treat stdout as the output file" is a single hyphen.
+       A script passing `--out $VAR` with `$VAR === "-"` (because
+       the operator wanted to skip the file-capture step on a
+       one-off run) would, without this normalization, try to
+       create a literal file named `-` in the cwd — which both
+       pollutes the working directory AND silences stdout
+       (because the file-capture branches all short-circuit the
+       stdout writes).
+
+       The fix is a single normalization line at the top of the
+       action: when opts.out === '-', set it to undefined. Every
+       downstream --out check falls through to the regular stdout
+       path. The contract holds across all three output modes:
+       text (token-by-token answer streams to stdout, citations
+       footer prints), --json (assembled JSON payload lands on
+       stdout, byte-identical to plain `ask --json`),
+       --stream-json (each NDJSON event arrives on stdout as it
+       fires, byte-identical to plain `ask --stream-json`).
+       Critical: no FileHandle opened, no truncation, no stderr
+       "wrote answer" confirmation — the stderr-clean assertion
+       in every test catches the regression where the file-
+       capture confirmation leaked through despite stdout
+       receiving the body.
+
+       Same precedent as `clawmind search -` reading the query
+       from stdin: a single hyphen is the universal sentinel for
+       "use the standard stream instead of a file path". The
+       normalization happens BEFORE the streamJsonToFile
+       resolution so the file-handle bookkeeping branch is never
+       entered when `-` was passed — no close() to chase on early
+       exit paths.
+
+    3. watch --once --preview-json. The dashboard-friendly twin
+       of --paths-only. Where --paths-only short-circuits --json
+       for xargs callers (path-per-line, no styling, no header),
+       --preview-json is the explicit "give me the JSON shape"
+       path for dashboard / web-UI callers who want the
+       structured `{root, count, files}` envelope alongside the
+       file list. Same byte layout as `ingest --dry-run --json`
+       and `reindex --dry-run --json` so a multi-command
+       dashboard uses ONE parser across all three preview
+       surfaces — the muscle memory is the value.
+
+       Critical design properties: (a) dedupe via Set
+       (insertion-order preserved) so files[] is byte-faithful to
+       what the corresponding --paths-only stream would emit —
+       same survivor set, same order, just wrapped in a JSON
+       envelope; (b) empty discovery yields `{root, count: 0,
+       files: []}` (NOT an empty stream — the JSON shape is
+       PRESERVED on the empty case so `jq .count` always gets an
+       integer; a downstream "is the workspace warm?" probe
+       never has to special-case the empty result); (c) skips
+       ingestPaths() entirely (same as --paths-only); (d)
+       --paths-only WINS when both flags are passed — the
+       precedence is intentional: --paths-only is the older,
+       simpler contract; a script that grew --paths-only first
+       should keep getting the path-per-line stream it was built
+       around. Pinned by an explicit `--paths-only --preview-json`
+       case in tests.
+
+       The 9 net new tests anchor the full contract: surface
+       exposure, headline {root, count, files} shape, --since
+       composition, empty-survivors parseable JSON envelope,
+       arrival-order dedupe, --paths-only-wins precedence,
+       silent-ignore without --once, --since validation up
+       front, NDJSON-friendly single-line shape.
+
+    4. ask --stream-json --no-citations --out 3-flag composition
+       byte-layout pin. Pure regression-guard commit (no source
+       change). The shared `if (opts.citations !== false)`
+       branch in emitStreamDoc governs whether the sources doc
+       carries the items[] array. When --out is set, the events
+       land in the file instead of stdout — but the SHAPE of
+       each event must be byte-identical to the stdout case.
+
+       This composition was not previously pinned: the existing
+       --no-citations test asserts the stdout shape (no items[]
+       on the sources doc), and the existing --stream-json --out
+       test asserts the citations-on shape (items[] present). A
+       regression where --no-citations only affected the stdout
+       sink — for example a stray `if (!streamFileHandle) drop
+       items` guard around the citations check in emitStreamDoc
+       — would leak items[] to the file without any test
+       catching it. The 3-flag intersection is the gap this pin
+       closes.
+
+       Three new tests: (a) file sources doc has count but NO
+       items[] (matches the established no-citations contract
+       on stdout exactly); (b) file body == stdout body byte-
+       for-byte (the strongest possible regression guard:
+       capture stdout from one invocation, capture the file body
+       from a second invocation with --out added, assert they
+       are IDENTICAL strings); (c) --threshold below-bar 3-flag
+       intersection: sources(count-only) + skipped land in the
+       file, no items[] in either doc, exit 1. The third test
+       is the most defensive: it pins the contract on the SKIP
+       path through emitStreamDoc, which is structurally
+       different from the happy path (no token / done events
+       fire).
+
+    5. related --below / --above + --below + --paths-only byte-
+       layout pin. Pure regression-guard commit. The --above +
+       --paths-only composition was pinned in a previous tick.
+       The symmetric --below + --paths-only AND the asymmetric
+       band filter (--above + --below + --paths-only) were NOT
+       pinned — any divergence in the filter ordering or the
+       --paths-only dedupe across those combinations would slip
+       through silently because existing tests covered only the
+       single-flag and JSON-only cases.
+
+       Four new tests pin the EXACT byte sequence on stdout
+       (`expect(stdout).toBe(...)`) so a future refactor that
+       subtly re-ordered the filter pipeline — for example
+       running --paths-only dedupe BEFORE the band filter, which
+       would silently drop survivors when duplicate paths had
+       differing scores — is caught immediately. Most defensive
+       test: --threshold + --above + --below + --paths-only (the
+       4-flag intersection) pins that all three filter
+       dimensions are applied as an INTERSECTION before the
+       --paths-only emit. A future change that silently dropped
+       one filter (e.g. --threshold applied AFTER --paths-only)
+       is caught.
+
+  Push: f929901..fea8312 main -> main. All five commits authored
+  as `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+  Verify-gate note: ran `pnpm --filter @clawmind/cli test`
+  (473/473 pass), `pnpm --filter @clawmind/cli typecheck`
+  (clean), `pnpm --filter @clawmind/rag test` (47/48 pass —
+  queued hybrid alpha-blend red, neither introduced nor touched
+  this tick). Note on commit hygiene: feature 3's first commit
+  attempt had a typo in the cron email (extra `+`); caught
+  immediately by `git log --format='%ae'` and amended with
+  `--reset-author` before the push, so origin/main only sees the
+  clean 9748183 SHA. Worth remembering: the heredoc shell single
+  quote let the typo through silently — a future ci step that
+  checks every push's `git log` for the expected email pattern
+  would catch this class of typo before it leaves the working
+  tree.
+
+  Theme connector: this is the sixth consecutive queued-sweep
+  tick. The cli's cron surface has now grown three new
+  cross-mode primitives this tick alone:
+    - monotonic stream ordering (--watch --json cycle:N) for
+      dropped-snapshot detection AND restart-boundary stitching
+    - the stdout-sentinel convention (--out -) for safe
+      conditional --out file capture in shell scripts
+    - dashboard-shape preview (--preview-json) that mirrors
+      ingest/reindex --dry-run --json across the watch surface
+  Plus two cross-composition regression-guard pins (--stream-json
+  --no-citations --out byte-identical-to-stdout, related band-
+  filter + --paths-only byte-stream pins) that close gaps the
+  earlier ticks shipped functionality for but never anchored at
+  the SHAPE level. The pattern is clear: each new flag this tick
+  composed cleanly with 1-2 existing flags, and each pure-pin
+  commit closed a gap that an earlier feature ship had left open.
+
