@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
+import { readFile, writeFile, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -460,24 +460,111 @@ describe('ask --stream-json', () => {
     expect(joined).not.toContain('"answer"');
   });
 
-  it('--stream-json ignored with --out (file capture wins; no NDJSON to stdout)', async () => {
-    // --stream-json is the live-emit shape; --out is the file-capture
-    // shape. They are incompatible — an operator wanting both should
-    // shell-redirect (`clawmind ask ... --stream-json > stream.ndjson`).
-    // When --out is set, --stream-json is silently ignored and the
-    // command falls through to the regular --out path (text-mode
-    // file write). This matches the precedent of silently ignored
-    // flag combos elsewhere in the cli.
+  it('--stream-json --out writes the NDJSON event stream to the file (one append per event, stdout silent)', async () => {
+    // Pairs the live-NDJSON shape with the file-capture shape.
+    // The file is opened once (truncated), then each event lands
+    // as it arrives — a `tail -f stream.ndjson` consumer sees the
+    // stream in real time AND the file persists the full record
+    // for a later replay. stdout stays SILENT (the operator chose
+    // file capture); stderr gets the green "wrote answer"
+    // confirmation when the stream completes.
     const dir = await mkdtemp(path.join(tmpdir(), 'ask-stream-out-'));
     try {
-      const outFile = path.join(dir, 'a.txt');
+      const outFile = path.join(dir, 'stream.ndjson');
       await askCommand().parseAsync(['node', 'cli', '--stream-json', '-o', outFile, 'q']);
-      // No NDJSON to stdout — the regular --out path takes over.
+      // No NDJSON to stdout — the file is the canonical sink.
       expect(stdout.join('')).toBe('');
-      // File got the regular text-mode body.
+      // Stderr carries the green confirmation line so a watching shell
+      // sees the command finished — matches the existing --out shape
+      // on the text and --json paths.
+      expect(stderr.join('')).toContain('wrote answer');
+      expect(stderr.join('')).toContain(outFile);
       const body = await readFile(outFile, 'utf8');
-      expect(body).toContain('hello world');
-      expect(body).toContain('42ms');
+      const lines = body.split('\n').filter(Boolean);
+      // Same 4 NDJSON docs as the plain --stream-json case: sources,
+      // token, token, done.
+      expect(lines).toHaveLength(4);
+      const docs = lines.map((l) => JSON.parse(l));
+      expect(docs.map((d) => d.kind)).toEqual(['sources', 'token', 'token', 'done']);
+      expect(docs[1].value).toBe('hello ');
+      expect(docs[2].value).toBe('world');
+      expect(docs[3].latencyMs).toBe(42);
+      expect(docs[3].model).toBe('fake-model');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('--stream-json --out truncates the file on each run (a stale stream from a previous run does not poison the new one)', async () => {
+    // open('w') semantics: the file is truncated when opened. We
+    // pre-seed the file with garbage and then run the command; the
+    // garbage must be gone. Pins a subtle but real bug class — if
+    // we used open('a') instead, a `--stream-json --out` ran twice
+    // in a row would have BOTH streams concatenated in the same
+    // file, which a consumer would then need to know how to split.
+    const dir = await mkdtemp(path.join(tmpdir(), 'ask-stream-trunc-'));
+    try {
+      const outFile = path.join(dir, 'stream.ndjson');
+      await writeFile(outFile, 'garbage from previous run\n');
+      await askCommand().parseAsync(['node', 'cli', '--stream-json', '-o', outFile, 'q']);
+      const body = await readFile(outFile, 'utf8');
+      expect(body).not.toContain('garbage');
+      // First line is the sources doc — the truncate-and-reopen
+      // worked.
+      const firstLine = body.split('\n')[0]!;
+      expect(JSON.parse(firstLine).kind).toBe('sources');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('--stream-json --out --threshold below the bar lands the skip event in the file (no tokens, no done)', async () => {
+    // The threshold skip path emits {kind:"sources"} then
+    // {kind:"skipped"} — both must appear in the file. The token /
+    // done events never fire because the LLM was never called.
+    // Critical regression: the skip path used to set exitCode and
+    // return early WITHOUT closing the file handle; we must
+    // verify the close happened so the partial NDJSON is flushed.
+    const dir = await mkdtemp(path.join(tmpdir(), 'ask-stream-skip-'));
+    try {
+      const outFile = path.join(dir, 'stream.ndjson');
+      await askCommand().parseAsync(['node', 'cli', '--stream-json', '--threshold', '0.99', '-o', outFile, 'q']);
+      expect(process.exitCode).toBe(1);
+      const body = await readFile(outFile, 'utf8');
+      const lines = body.split('\n').filter(Boolean);
+      // Exactly 2 lines — sources + skipped. No tokens, no done.
+      expect(lines).toHaveLength(2);
+      const docs = lines.map((l) => JSON.parse(l));
+      expect(docs[0].kind).toBe('sources');
+      expect(docs[1].kind).toBe('skipped');
+      expect(docs[1].threshold).toBe(0.99);
+      expect(docs[1].bestScore).toBe(0.91);
+      // stdout stays empty — the file is the only sink.
+      expect(stdout.join('')).toBe('');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('--stream-json --out short-circuits the text-mode --out fallback (no human-readable body lands in the file)', async () => {
+    // Regression: the post-loop text-mode --out branch (which would
+    // write "sources: N\nhello world\n(42ms via model)\n...") must
+    // NOT fire when streamJsonToFile is active. The file should
+    // contain ONLY the NDJSON events, never the text-mode body.
+    const dir = await mkdtemp(path.join(tmpdir(), 'ask-stream-short-'));
+    try {
+      const outFile = path.join(dir, 'stream.ndjson');
+      await askCommand().parseAsync(['node', 'cli', '--stream-json', '-o', outFile, 'q']);
+      const body = await readFile(outFile, 'utf8');
+      // Text-mode artifacts are absent — no "sources: N" header,
+      // no plain "(42ms via fake-model)" latency line. The latency
+      // is in the done event payload INSTEAD.
+      expect(body).not.toMatch(/^sources: \d+/m);
+      expect(body).not.toContain('(42ms via fake-model)');
+      // The done event payload still carries the latency in JSON form.
+      const lines = body.split('\n').filter(Boolean);
+      const doneDoc = JSON.parse(lines[lines.length - 1]!);
+      expect(doneDoc).toEqual({ kind: 'done', latencyMs: 42, model: 'fake-model' });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
