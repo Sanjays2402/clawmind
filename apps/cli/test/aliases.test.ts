@@ -213,4 +213,99 @@ describe('aliases cli', () => {
     const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[] };
     expect(parsed.items.map((it) => it.name)).toEqual(['work-fresh']);
   });
+
+  // -----------------------------------------------------------------
+  // --sort <key>: order survivors of -q / --since by an operator-
+  // chosen axis. `name` is alphabetical (matches API default,
+  // useful for symmetry); `createdAt` is newest-first (the natural
+  // "what got added recently" ordering that pairs with --since).
+  // Mirrors `feedback list --sort` / `digest list --sort` precedent.
+  // -----------------------------------------------------------------
+
+  it('--sort createdAt orders survivors newest-first', async () => {
+    // Three aliases with widely-spread createdAt values. The API
+    // returns them in name-alphabetical order (its native sort);
+    // --sort createdAt overrides to newest-first.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'aaa', path: '/a', createdAt: Date.parse('2026-01-01'), createdBy: 'me' },
+          { name: 'mmm', path: '/m', createdAt: Date.parse('2026-06-21'), createdBy: 'me' },
+          { name: 'zzz', path: '/z', createdAt: Date.parse('2026-03-15'), createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'createdAt']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[] };
+    // Newest first (mmm 2026-06-21), then 2026-03-15 (zzz),
+    // then oldest (aaa 2026-01-01).
+    expect(parsed.items.map((it) => it.name)).toEqual(['mmm', 'zzz', 'aaa']);
+  });
+
+  it('--sort createdAt composes with --since (sort orders survivors of --since)', async () => {
+    // The canonical cron use: "what got added since yesterday,
+    // newest first". --since drops the old entries, --sort
+    // createdAt orders the survivors newest-first.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'old',    path: '/o', createdAt: Date.parse('2026-01-01'), createdBy: 'me' },
+          { name: 'fresh1', path: '/f1', createdAt: Date.parse('2026-06-20'), createdBy: 'me' },
+          { name: 'fresh2', path: '/f2', createdAt: Date.parse('2026-06-21'), createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--since', '2026-06-15', '--sort', 'createdAt']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[] };
+    // old dropped by --since; fresh2 then fresh1 (newest first).
+    expect(parsed.items.map((it) => it.name)).toEqual(['fresh2', 'fresh1']);
+  });
+
+  it('--sort name orders survivors alphabetically ascending', async () => {
+    // Even when the API returns rows in non-alphabetical order
+    // (e.g. a future API change to insertion-order), --sort name
+    // produces a deterministic alphabetical stream.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'zzz', path: '/z', createdAt: 0, createdBy: 'me' },
+          { name: 'aaa', path: '/a', createdAt: 0, createdBy: 'me' },
+          { name: 'mmm', path: '/m', createdAt: 0, createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'name']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[] };
+    expect(parsed.items.map((it) => it.name)).toEqual(['aaa', 'mmm', 'zzz']);
+  });
+
+  it('--sort with an unknown key aborts cleanly with exit 1', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ items: [], count: 0 }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--sort', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('aliases list failed: --sort value must be one of: name, createdAt');
+    expect(stderr.join('')).toContain('"banana"');
+  });
+
+  it('--sort createdAt with ties preserves API order as secondary sort', async () => {
+    // Two aliases at the same createdAt — the secondary sort by
+    // original index pins the relative order to whatever the API
+    // returned, so cross-snapshot diffs stay byte-stable.
+    const tiedTs = Date.parse('2026-06-21T12:00:00Z');
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'tied-first',  path: '/tf', createdAt: tiedTs, createdBy: 'me' },
+          { name: 'newer',       path: '/n',  createdAt: tiedTs + 1000, createdBy: 'me' },
+          { name: 'tied-second', path: '/ts', createdAt: tiedTs, createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'createdAt']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[] };
+    // newer first (latest createdAt), then the two tied entries
+    // in API order (tied-first at index 0, tied-second at index 2).
+    expect(parsed.items.map((it) => it.name)).toEqual(['newer', 'tied-first', 'tied-second']);
+  });
 });

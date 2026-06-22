@@ -82,9 +82,10 @@ export function aliasesCommand() {
     .description('List aliases sorted by name')
     .option('-q, --q <text>', 'case-insensitive substring filter across name and path')
     .option('--since <iso-date>', 'keep only aliases whose createdAt is at-or-after this ISO date. The natural cron use is a daily snapshot of "what was added in the last 24h" without scrolling through every alias: `clawmind aliases list --since "$(date -u -d \'1 day ago\' +%FT%TZ)" --paths`. Mirrors `pins list --since` / `mutes list --since` byte-for-byte (cutoff is INCLUSIVE: `>=`, so an alias created exactly at the cutoff is kept). Composes with -q as an intersection (filter must both match the substring AND be recent enough). Filter applies BEFORE --paths / --json / text rendering so every output mode sees the same subset. Parse failures abort cleanly with exit 1.')
+    .option('--sort <key>', 'sort surviving aliases by one of: name (asc alphabetical, the default human-readable ordering; matches the API\'s native sort so this key is mostly useful for symmetry with other commands), createdAt (desc — newest-first, the natural "what was added recently" ordering that pairs with --since for daily snapshots). Applied AFTER -q / --since so the sort orders the SURVIVORS of any narrowing filter. Mirrors `feedback list --sort` / `digest list --sort` precedent: ties carry a secondary sort by original index for cross-snapshot determinism, unknown keys abort cleanly with exit 1. The default (no --sort) preserves the API-returned alphabetical name ordering so existing scripts diffing `aliases list --json` stay byte-stable.')
     .option('--paths', 'emit only the alias target paths, one per line, with no styling (pipe-friendly)')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; paths?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; sort?: string; paths?: boolean; json?: boolean }) => {
       await runOrReport('aliases list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/aliases${qs}`)) as {
@@ -116,6 +117,42 @@ export function aliasesCommand() {
           }
           const items = out.items.filter((it) => it.createdAt >= cutoff);
           out = { items, count: items.length };
+        }
+        // --sort orders the SURVIVORS of any narrowing filter.
+        // The API natively returns aliases sorted by name asc, so
+        // `--sort name` is mostly useful for symmetry with other
+        // commands; `--sort createdAt` is the meaningful primitive
+        // — it pairs with --since to answer "what got added
+        // recently, newest first" in a single call.
+        //
+        // Sort keys:
+        //   name (asc)        -> alphabetical by alias name
+        //   createdAt (desc)  -> newest-first
+        //
+        // Mirrors `feedback list --sort` / `digest list --sort`
+        // contract: applied AFTER -q / --since so the sort orders
+        // the survivors of any narrowing filter; ties carry a
+        // secondary sort by original index for cross-snapshot
+        // determinism; unknown keys abort cleanly with exit 1
+        // (a typo cannot silently fall back to API order).
+        if (opts.sort !== undefined) {
+          const sortKey = opts.sort.toLowerCase();
+          const validKeys = ['name', 'createdat'];
+          if (!validKeys.includes(sortKey)) {
+            throw new AliasesCliError(`--sort value must be one of: name, createdAt (got "${opts.sort}")`);
+          }
+          const ranked = out.items
+            .map((it, idx) => ({ it, idx }))
+            .sort((a, b) => {
+              let cmp = 0;
+              if (sortKey === 'name') cmp = a.it.name.localeCompare(b.it.name);
+              else if (sortKey === 'createdat') cmp = b.it.createdAt - a.it.createdAt;
+              if (cmp !== 0) return cmp;
+              // Secondary sort by original index for deterministic ties.
+              return a.idx - b.idx;
+            })
+            .map((r) => r.it);
+          out = { ...out, items: ranked };
         }
         if (opts.json) {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
