@@ -275,4 +275,99 @@ describe('status cli', () => {
     // No trailing newlines suggesting multiple lines.
     expect(text.split('\n')).toHaveLength(1);
   });
+
+  // ---------------------------------------------------------------
+  // --watch startup banner. One NDJSON document to stderr at the
+  // start of the watch loop so a log scraper consuming stdout can
+  // still detect process restarts by tailing stderr alone. Mirrors
+  // the `watch` command's banner so a single grep covers both
+  // surfaces in a unified log scrape.
+  // ---------------------------------------------------------------
+
+  it('--watch emits an NDJSON {kind:"banner"} document to stderr at loop start', async () => {
+    // The banner is the parallel log-scrape signal: stdout carries
+    // the snapshot stream (potentially noisy on tight intervals),
+    // stderr carries one banner per restart. A scraper grepping for
+    // '"kind":"banner"' across both `clawmind watch` and
+    // `clawmind status --watch` should match identically.
+    embedHealthy = true;
+    llmHealthy = true;
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '1']);
+    const errLines = stderr.join('').trim().split('\n');
+    // Exactly one stderr line — the banner. No other stderr noise
+    // (no --check fires here, healthy probes only).
+    expect(errLines).toHaveLength(1);
+    const banner = JSON.parse(errLines[0]!);
+    expect(banner.kind).toBe('banner');
+    expect(banner.apiBase).toBe('http://127.0.0.1:7410');
+    expect(banner.interval).toBe(100);
+    expect(typeof banner.ts).toBe('string');
+    // Sanity: the ts parses as an ISO date.
+    expect(Number.isFinite(Date.parse(banner.ts))).toBe(true);
+  });
+
+  it('--watch banner fires in --json mode too (so log scrapers see restarts regardless of stdout format)', async () => {
+    // --json mode dumps the snapshot stream to stdout as NDJSON.
+    // The banner must STILL fire on stderr so a stderr-tailing
+    // scraper detects restarts without having to parse the
+    // (potentially noisy) stdout NDJSON snapshot stream.
+    embedHealthy = true;
+    llmHealthy = true;
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '1', '--json']);
+    const errLines = stderr.join('').trim().split('\n');
+    expect(errLines).toHaveLength(1);
+    const banner = JSON.parse(errLines[0]!);
+    expect(banner.kind).toBe('banner');
+    // Stdout still carries the snapshot stream (separate shape — a
+    // StatusSnapshot per cycle, NOT kind=banner).
+    const stdoutLine = stdout.join('').trim();
+    const stdoutDoc = JSON.parse(stdoutLine);
+    expect(stdoutDoc.workspace).toBe('/tmp/workspace');
+    // No banner kind on stdout — keeping them on separate streams
+    // means existing snapshot consumers do not need to special-case
+    // kind=banner.
+    expect(stdoutDoc.kind).toBeUndefined();
+  });
+
+  it('--watch banner is a single complete line (trailing newline, no internal newlines, parseable JSON)', async () => {
+    // The line-oriented contract: exactly one '\n' at the end,
+    // nothing else. A scraper splitting on '\n' must get one row
+    // per banner — never a partial line. Mirrors the `watch`
+    // command banner's same contract.
+    embedHealthy = true;
+    llmHealthy = true;
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '1']);
+    // Strip out the snapshot stream from stdout; we only care
+    // about the stderr banner here.
+    const errBody = stderr.join('');
+    // Exactly one newline at the end (the banner ends with \n).
+    expect(errBody.endsWith('\n')).toBe(true);
+    // Strip the trailing newline; nothing internal.
+    expect(errBody.slice(0, -1)).not.toContain('\n');
+    // The body parses cleanly.
+    expect(() => JSON.parse(errBody.trim())).not.toThrow();
+  });
+
+  it('--watch banner does NOT fire on the one-shot path (no loop to mark)', async () => {
+    // A plain `clawmind status` (no --watch) must not emit a
+    // banner — there is no loop to correlate the restart marker
+    // against, and an extra stderr write would confuse a scraper
+    // expecting the marker only on long-running invocations.
+    embedHealthy = true;
+    llmHealthy = true;
+    await statusCommand().parseAsync(['node', 'cli', '--json']);
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--watch banner does NOT fire on the --watch validation error path (no half-started process to mark)', async () => {
+    // A misconfigured --watch invocation aborts before the loop is
+    // entered — the banner must NOT fire because there is no actual
+    // polling process to correlate against. The only stderr write
+    // is the validation error line. Same precedent as the `watch`
+    // command banner's --debounce validation guard.
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '0']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).not.toContain('"kind":"banner"');
+    expect(stderr.join('')).toContain('status failed: --watch interval must be >= 100ms');
+  });
 });

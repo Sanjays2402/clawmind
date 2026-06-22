@@ -189,6 +189,39 @@ export function statusCommand() {
       const intervalMs = opts.watch;
       const maxPolls = opts.maxPolls; // may be undefined (loop forever)
       const useTtyClear = process.stdout.isTTY && !opts.json;
+      // A one-line startup banner to stderr — separate from the per-
+      // cycle snapshots on stdout — so a log scraper consuming stdout
+      // (and discarding it because the snapshot stream is noisy) can
+      // still detect a process restart by tailing stderr alone.
+      // Mirrors the `watch` command's startup banner byte-for-byte
+      // in shape (kind=banner + ts) so a scraper watching for
+      // restarts across both commands can use a single grep.
+      // Crucial properties:
+      //   - fires ONCE, BEFORE the first cycle, so a scraper sees
+      //     the marker before any snapshot lands on stdout
+      //   - NDJSON shape so a stderr-tailing parser sees the same
+      //     event-stream shape it sees on stdout (in --json mode)
+      //   - carries the resolved apiBase + the polling interval so
+      //     a log correlator knows which status dashboard restarted
+      //     and at what cadence
+      //   - goes to stderr explicitly so it does not pollute the
+      //     stdout NDJSON stream that --json mode emits (mixing the
+      //     banner into stdout would force every --json consumer to
+      //     special-case kind=banner; keeping it on stderr means
+      //     existing consumers do not have to change)
+      //   - does NOT fire on the one-shot path (no loop to mark)
+      //     and does NOT fire on the --watch validation error path
+      //     (no half-started process to mark) — both paths exit
+      //     before reaching this point
+      const apiBase = `http://${rt.env.CLAWMIND_API_HOST}:${rt.env.CLAWMIND_API_PORT}`;
+      process.stderr.write(
+        JSON.stringify({
+          kind: 'banner',
+          apiBase,
+          interval: intervalMs,
+          ts: new Date().toISOString(),
+        }) + '\n',
+      );
       let interrupted = false;
       const onSig = () => { interrupted = true; };
       process.once('SIGINT', onSig);
