@@ -38,6 +38,7 @@ export function searchCommand() {
     .option('--exclude-tags <list>', 'comma-separated tags; drop sources carrying any')
     .option('-t, --threshold <n>', 'drop hits with score strictly below this value (0..1 typical)')
     .option('--sort <key>', 'sort survivors of -t/--threshold by one of: score (desc — highest-score-first, matches the default retrieve() ordering; useful as a no-op for symmetry with other commands and as a defence against a future retrieval-pipeline change that returns hits in a different order), path (asc alphabetical, for stable cross-snapshot diffs of `search --json`), namespace (asc alphabetical, groups hits by namespace so diffs against a known set are visually clean — pairs naturally with `search foo --json --sort namespace` for a dashboard panel showing where in the index a query\'s signal clusters). Applied AFTER -t/--threshold so the sort orders the SURVIVORS of any band-filter. Mirrors `related --sort` byte-for-byte: ties carry a secondary sort by original index for cross-snapshot determinism, unknown keys abort cleanly with exit 1, default preserves the retrieve()-returned order so existing scripts diffing `search --json` snapshots stay byte-stable. --paths-only emit (which dedupes by path in rank order) walks the post-sort order, so `--sort namespace --paths-only` emits paths grouped by namespace and `--sort path --paths-only` emits paths in plain alphabetical order — both useful one-liners for `xargs ls` / `xargs git diff` against a known shape.')
+    .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` byte-for-byte). With --sort path the default is asc alphabetical; --reverse gives desc — the cron use is "what\'s at the END of the alphabetical run", useful for diff snapshots that want the FIRST change at the bottom of the visible window for a `tail -f`-style log scrape. With --sort namespace the default is asc grouping; --reverse gives desc — the most-recent (alphabetically-last) namespace at the top, useful for cron snapshots that put the freshest namespace first. With --sort score the default is desc; --reverse gives asc (weakest-first) — useful for the "what\'s about to fall off the relevance edge" question, complementary to the "strongest first" default. Ignored without --sort (the default retrieve() ordering is a fixed contract). The secondary tie-break by original index is ALSO reversed so cross-snapshot determinism holds in either direction. Composes with --paths-only — the dedupe walks the post-reverse order.')
     .option('--rerank-off', 'DEBUG escape hatch: skip the lexical-rerank step in the retrieval pipeline. Surfaces the raw hybrid-merged + boost-adjusted ordering BEFORE the lexical reorder, so an operator can diagnose whether the rerank is HELPING or HURTING on a particular query. Useful when tuning hybridAlpha or chasing a regression where a known-relevant chunk drops out of the top-k. Other stages (embed call, hybrid merge, MMR diversity) stay enabled — only the heuristic lexical-rerank is bypassed. Composes with --json / --threshold / --paths-only / -k for "what does the pipeline rank as #1 without the lexical layer", "what does the top-50 look like without the rerank pull", etc.')
     .option('--rerank-only', 'DEBUG escape hatch (inverse of --rerank-off): emit ONLY the rerank stage\'s ordering, skipping the MMR diversity pass that the production flow applies on top. Pairs with --rerank-off for a 3-way A/B against the same query: default (rerank+MMR), --rerank-off (raw hybrid+boost, no rerank, with MMR), --rerank-only (rerank applied, no MMR). The use is "is the diversity pass demoting a chunk I think should be #1, or is it the rerank step itself?" — separating the two stages lets the operator point a finger at the right layer. Implementation forwards { skipMmr: true } through retrieve(); the lexical-rerank stage still runs and the top-k is the head N of its score order. Setting both --rerank-off AND --rerank-only is allowed (raw hybrid+boost ordering with NEITHER post-stage applied) for the most extreme "what does the index look like before any heuristic touches it" probe.')
     .option('--no-snippet', 'in --json mode, emit only rank/path/score/startLine (no snippet/highlights). Smaller payload for ranking pipelines')
@@ -56,6 +57,7 @@ export function searchCommand() {
           excludeTags?: string;
           threshold?: string;
           sort?: string;
+          reverse?: boolean;
           rerankOff?: boolean;
           rerankOnly?: boolean;
           snippet: boolean;
@@ -169,6 +171,16 @@ export function searchCommand() {
             process.exitCode = 1;
             return;
           }
+          // --reverse flips the per-key direction. Mirrors `stale
+          // --reverse` byte-for-byte: a single sign-flipping multiplier
+          // (dir = -1 under --reverse, else 1) applied to BOTH the
+          // primary comparator AND the secondary tie-break by original
+          // index. The dual-flip preserves cross-snapshot determinism
+          // under --reverse — without it, ties would silently shift
+          // on every other run because the primary returned 0 but the
+          // secondary kept ascending while the visible ordering of
+          // every other row was descending.
+          const dir = opts.reverse ? -1 : 1;
           hits = filteredHits
             .map((h, idx) => ({ h, idx }))
             .sort((a, b) => {
@@ -176,8 +188,8 @@ export function searchCommand() {
               if (sortKey === 'score') cmp = b.h.score - a.h.score;
               else if (sortKey === 'path') cmp = a.h.path.localeCompare(b.h.path);
               else if (sortKey === 'namespace') cmp = a.h.namespace.localeCompare(b.h.namespace);
-              if (cmp !== 0) return cmp;
-              return a.idx - b.idx;
+              if (cmp !== 0) return cmp * dir;
+              return (a.idx - b.idx) * dir;
             })
             .map((r) => r.h);
         }

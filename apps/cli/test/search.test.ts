@@ -800,4 +800,123 @@ describe('search --sort orders hits by an operator-chosen key', () => {
     // retrieve() order on the path tie.
     expect(parsed.map((r) => r.score)).toEqual([0.91, 0.50]);
   });
+
+  // -----------------------------------------------------------------
+  // --reverse: mirrors `stale --reverse` byte-for-byte. Three keys
+  // (score / path / namespace) so three direction-flip cases:
+  //   --sort score   default desc -> --reverse asc (weakest first)
+  //   --sort path    default asc  -> --reverse desc
+  //   --sort namespace default asc -> --reverse desc (most-recent
+  //                                                   alphabetically
+  //                                                   first)
+  // -----------------------------------------------------------------
+
+  it('exposes --reverse on the command surface', () => {
+    const flags = searchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--reverse');
+  });
+
+  it('--sort path --reverse orders hits desc alphabetical (flips the default asc)', async () => {
+    retrieveMock.mockResolvedValue([
+      { path: '/c.md', namespace: 'memory', score: 0.91, chunk: { text: '' } },
+      { path: '/a.md', namespace: 'projects', score: 0.74, chunk: { text: '' } },
+      { path: '/b.md', namespace: 'memory', score: 0.60, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--sort', 'path', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { path: string }[];
+    expect(parsed.map((r) => r.path)).toEqual(['/c.md', '/b.md', '/a.md']);
+  });
+
+  it('--sort score --reverse orders hits asc by score (weakest first — "about to fall off the relevance edge")', async () => {
+    // The default --sort score is desc (highest-first); --reverse
+    // gives asc (weakest first). The cron use is the inverse-band
+    // probe: "the hits that BARELY passed the threshold, ordered
+    // worst-first" — useful for tuning the threshold dial.
+    retrieveMock.mockResolvedValue([
+      { path: '/strong.md', namespace: 'memory', score: 0.91, chunk: { text: '' } },
+      { path: '/mid.md', namespace: 'memory', score: 0.60, chunk: { text: '' } },
+      { path: '/weak.md', namespace: 'memory', score: 0.31, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--sort', 'score', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { score: number }[];
+    expect(parsed.map((r) => r.score)).toEqual([0.31, 0.60, 0.91]);
+  });
+
+  it('--sort namespace --reverse groups by namespace desc (most-recent alphabetically first)', async () => {
+    // Default --sort namespace is asc; --reverse gives desc. Within
+    // each namespace the secondary index sort is also reversed so
+    // the order within the same namespace is the API order reversed.
+    retrieveMock.mockResolvedValue([
+      { path: '/mem-a.md', namespace: 'memory', score: 0.80, chunk: { text: '' } },
+      { path: '/proj-a.md', namespace: 'projects', score: 0.70, chunk: { text: '' } },
+      { path: '/mem-b.md', namespace: 'memory', score: 0.60, chunk: { text: '' } },
+      { path: '/proj-b.md', namespace: 'projects', score: 0.50, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--sort', 'namespace', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { path: string }[];
+    // projects (desc-first), within projects the secondary index is
+    // ALSO reversed so proj-b before proj-a. Same for memory: mem-b
+    // before mem-a.
+    expect(parsed.map((r) => r.path)).toEqual(['/proj-b.md', '/proj-a.md', '/mem-b.md', '/mem-a.md']);
+  });
+
+  it('--reverse without --sort is silently ignored (default retrieve() ordering preserved)', async () => {
+    // The retrieve() order is a fixed contract. --reverse alone has
+    // nothing to flip so it does nothing — matches `stale --reverse`
+    // silent-ignore precedent.
+    const hits = [
+      { path: '/a.md', namespace: 'memory', score: 0.91, chunk: { text: '' } },
+      { path: '/b.md', namespace: 'memory', score: 0.74, chunk: { text: '' } },
+      { path: '/c.md', namespace: 'projects', score: 0.42, chunk: { text: '' } },
+    ];
+    retrieveMock.mockResolvedValue(hits);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json']);
+    const baseline = stdout.join('');
+    stdout.length = 0;
+    retrieveMock.mockResolvedValue(hits);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--reverse']);
+    expect(stdout.join('')).toBe(baseline);
+  });
+
+  it('--sort path --reverse composes with --paths-only: dedupe walks the post-reverse desc order', async () => {
+    // The dedupe walks AFTER the sort+reverse, so the survivor set
+    // is in desc alphabetical order. Duplicates collapse to first
+    // occurrence in the post-reverse walk order.
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', namespace: 'memory', score: 0.91, chunk: { text: 'chunk-1' } },
+      { path: '/c.md', namespace: 'memory', score: 0.80, chunk: { text: '' } },
+      { path: '/a.md', namespace: 'memory', score: 0.60, chunk: { text: 'chunk-2' } }, // dup
+      { path: '/b.md', namespace: 'memory', score: 0.50, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--paths-only', '--sort', 'path', '--reverse']);
+    // After --sort path --reverse: /c.md, /b.md, /a.md (chunk-1), /a.md (chunk-2)
+    // After dedupe: /c.md, /b.md, /a.md.
+    expect(stdout.join('')).toBe('/c.md\n/b.md\n/a.md\n');
+  });
+
+  it('--reverse preserves cross-snapshot determinism on ties (secondary index also reversed)', async () => {
+    // Two snapshots over identical input MUST produce byte-identical
+    // output under --reverse. The dual-flip of the secondary index
+    // sort is the critical property — without it, ties would silently
+    // shift across runs.
+    const hits = [
+      { path: '/dup.md', namespace: 'memory', score: 0.91, chunk: { text: 'chunk-1' } },
+      { path: '/dup.md', namespace: 'memory', score: 0.50, chunk: { text: 'chunk-2' } },
+      { path: '/zzz.md', namespace: 'memory', score: 0.42, chunk: { text: '' } },
+    ];
+    retrieveMock.mockResolvedValue(hits);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--sort', 'path', '--reverse']);
+    const firstRun = stdout.join('');
+    stdout.length = 0;
+    retrieveMock.mockResolvedValue(hits);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--sort', 'path', '--reverse']);
+    expect(stdout.join('')).toBe(firstRun);
+    const parsed = JSON.parse(firstRun) as { path: string; score: number }[];
+    // --sort path --reverse: /zzz.md first (desc alphabetical), then
+    // the two /dup.md hits — secondary index is REVERSED so the
+    // index=1 chunk (score 0.50) comes BEFORE the index=0 chunk
+    // (score 0.91). Without the secondary-reverse, the 0.91 would
+    // come first and the snapshot would silently flip.
+    expect(parsed.map((r) => `${r.path}:${r.score}`)).toEqual(['/zzz.md:0.42', '/dup.md:0.5', '/dup.md:0.91']);
+  });
 });
