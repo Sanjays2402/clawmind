@@ -1365,4 +1365,164 @@ describe('digest cli', () => {
     expect(out).toContain('ran 1');
     expect(() => JSON.parse(out)).toThrow();
   });
+
+  // --------------------------------------------------------------
+  // run --json --slim --since byte-layout pin.
+  //
+  // The slim shape + --since composition is exercised by earlier
+  // tests at the COUNT level (we assert {ran, deferred, sinceSkipped}
+  // are the right integers). What was missing was an exact-byte-layout
+  // pin: the canonical cron probe shape
+  //   clawmind digest run --since X --max N --json --slim
+  // is supposed to produce a single-line JSON document with EXACTLY
+  // the 3 keys {ran, deferred, sinceSkipped} (in stringify order)
+  // followed by a trailing \n. A future regression where, say, the
+  // slim shape silently grew an extra key (`skipped` re-added "for
+  // backwards compat") would break NDJSON snapshot diffs across
+  // ticks without surfacing a test failure under count-only
+  // assertions.
+  //
+  // These three tests pin the byte layout under the three meaningful
+  // shapes the canonical cron probe produces: a partial-survivor mix
+  // (the most common case), all-deferred (cap exhausts before
+  // cutoff filters anything), and all-sinceSkipped (cutoff hides
+  // everything). All three must produce single-line JSON with the
+  // same 3 keys in the same order, no extra fields.
+  // --------------------------------------------------------------
+
+  it('run --json --slim --since produces the EXACT three-key byte layout (mixed survivors)', async () => {
+    // Five digests: s1+s2 are stale enough AND survive --max 2 (ran);
+    // s3 is stale enough but capped (deferred); s4+s5 are too fresh
+    // (sinceSkipped). The canonical mixed case.
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's3', title: 'C', query: 'c', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's4', title: 'D', query: 'd', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's5', title: 'E', query: 'e', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          entry: { newSources: [], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync([
+      'node', 'cli', 'run', '--json', '--slim',
+      '--since', new Date(1000).toISOString(),
+      '--max', '2',
+    ]);
+    const raw = captured.join('');
+    // Exact byte layout. JSON.stringify preserves insertion order
+    // on a plain object, and the slim shape is built as
+    //   { ran, deferred, sinceSkipped }
+    // so the canonical line is
+    //   {"ran":2,"deferred":1,"sinceSkipped":2}\n
+    // No other key, no trailing whitespace, exactly one \n at end.
+    expect(raw).toBe('{"ran":2,"deferred":1,"sinceSkipped":2}\n');
+  });
+
+  it('run --json --slim --since byte layout: all-deferred case (cap exhausts before cutoff matters)', async () => {
+    // Five stale-enough digests, --max 1: ran=1, deferred=4,
+    // sinceSkipped=0. The cap dominates; the cutoff has nothing to
+    // filter. A cron dashboard graphing "deferred" over time wants
+    // a stable layout that highlights this shape cleanly.
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's3', title: 'C', query: 'c', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's4', title: 'D', query: 'd', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's5', title: 'E', query: 'e', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          entry: { newSources: [], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync([
+      'node', 'cli', 'run', '--json', '--slim',
+      '--since', new Date(1000).toISOString(),
+      '--max', '1',
+    ]);
+    expect(captured.join('')).toBe('{"ran":1,"deferred":4,"sinceSkipped":0}\n');
+  });
+
+  it('run --json --slim --since byte layout: all-sinceSkipped case (cutoff hides everything)', async () => {
+    // Three digests, all too-fresh under the cutoff: ran=0,
+    // deferred=0, sinceSkipped=3. A cron dashboard panel must still
+    // see a valid 3-field JSON document so `jq -e '.ran > 0'`
+    // returns false WITHOUT parse-erroring. This is the empty-tick
+    // shape for the canonical cron probe.
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's3', title: 'C', query: 'c', lastRunTs: 9999, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    await digestCommand().parseAsync([
+      'node', 'cli', 'run', '--json', '--slim',
+      '--since', new Date(1000).toISOString(),
+      '--max', '10',
+    ]);
+    expect(captured.join('')).toBe('{"ran":0,"deferred":0,"sinceSkipped":3}\n');
+  });
+
+  it('run --json --slim --since produces an NDJSON-friendly diff across consecutive ticks (no key reordering, no extra fields)', async () => {
+    // The cron use is `while true; do clawmind digest run ... --json
+    // --slim; sleep 60; done` piped into an NDJSON store. We
+    // simulate two consecutive ticks against the same data and
+    // assert the byte layout is IDENTICAL. A future change that
+    // (say) accidentally added a `ts` field to the slim shape
+    // would break this assertion immediately — protecting the
+    // snapshot-diff contract that the cron dashboard relies on.
+    let listCallCount = 0;
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const u = String(url);
+      if (u.endsWith('/v1/digests') && (!init || !init.method || init.method === 'GET')) {
+        listCallCount += 1;
+        return new Response(JSON.stringify({ items: [
+          { savedSearchId: 's1', title: 'A', query: 'a', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 's2', title: 'B', query: 'b', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ] }), { status: 200 });
+      }
+      const m = /\/v1\/digests\/(\w+)\/run$/.exec(u);
+      if (m && init?.method === 'POST') {
+        return new Response(JSON.stringify({
+          entry: { newSources: [], removedSources: [] },
+        }), { status: 200 });
+      }
+      return new Response('not found', { status: 404 });
+    }) as never;
+    const args = ['node', 'cli', 'run', '--json', '--slim',
+      '--since', new Date(1000).toISOString(),
+      '--max', '5'];
+    await digestCommand().parseAsync(args);
+    const tick1 = captured.join('');
+    captured.length = 0;
+    await digestCommand().parseAsync(args);
+    const tick2 = captured.join('');
+    // Identical byte layout — pin the snapshot-diff contract.
+    expect(tick1).toBe(tick2);
+    expect(tick1).toBe('{"ran":2,"deferred":0,"sinceSkipped":0}\n');
+    // Sanity: each tick really did call the list endpoint.
+    expect(listCallCount).toBe(2);
+  });
 });
