@@ -169,6 +169,142 @@ describe('feedback cli', () => {
     process.exitCode = 0;
   });
 
+  // -----------------------------------------------------------------
+  // --top <n>: cap the listed entries to the N loudest votes by
+  // absolute distance from neutral (|boost - 1.0|), descending.
+  // Answers "which votes are LOUDEST regardless of direction" in a
+  // single call — the existing --above / --below each only see one
+  // direction. Composes with --above/--below (cap the strongest
+  // up/downvotes) and -q (loudest votes within a path subtree).
+  // -----------------------------------------------------------------
+
+  it('feedback list --top caps to the N loudest entries by |boost - 1.0| descending', async () => {
+    // Five rows with widely spread boost values so the loudness
+    // ordering is unambiguous. Distances from neutral:
+    //   /strong-up.md (1.40) -> 0.40
+    //   /strong-down.md (0.60) -> 0.40
+    //   /mild-up.md (1.10) -> 0.10
+    //   /mild-down.md (0.90) -> 0.10
+    //   /neutral.md (1.00) -> 0.00
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/mild-up.md', ups: 1, downs: 0, boost: 1.10 },
+        { path: '/strong-up.md', ups: 5, downs: 0, boost: 1.40 },
+        { path: '/neutral.md', ups: 1, downs: 1, boost: 1.00 },
+        { path: '/strong-down.md', ups: 0, downs: 5, boost: 0.60 },
+        { path: '/mild-down.md', ups: 0, downs: 1, boost: 0.90 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--top', '2']);
+    const parsed = JSON.parse(captured.join('')) as {
+      items: { path: string; boost: number }[];
+    };
+    // The 2 loudest, in descending distance order. /strong-up.md and
+    // /strong-down.md both have distance 0.40 — tie order falls
+    // back to API order, which puts /strong-up.md before
+    // /strong-down.md in the fixture.
+    expect(parsed.items.map((it) => it.path)).toEqual([
+      '/strong-up.md',
+      '/strong-down.md',
+    ]);
+  });
+
+  it('feedback list --top sorts BOTH directions together (an upvote and a downvote with the same distance both qualify)', async () => {
+    // The contract is "loudest regardless of direction". A naive
+    // implementation that only sorted by `boost` (not |boost - 1.0|)
+    // would put all upvotes before all downvotes (or vice versa)
+    // and the operator would never see the strongest downvote
+    // when asking for `--top 3` on a workspace with 4 strong
+    // upvotes and 1 strong downvote.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/up1.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/up2.md', ups: 1, downs: 0, boost: 1.10 },
+        { path: '/strongest-down.md', ups: 0, downs: 9, boost: 0.20 },
+        { path: '/up3.md', ups: 1, downs: 0, boost: 1.15 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--top', '1']);
+    const parsed = JSON.parse(captured.join('')) as {
+      items: { path: string; boost: number }[];
+    };
+    // /strongest-down.md has distance 0.80 — the loudest entry in
+    // the workspace, even though its boost (0.20) is the LOWEST.
+    expect(parsed.items).toHaveLength(1);
+    expect(parsed.items[0]?.path).toBe('/strongest-down.md');
+  });
+
+  it('feedback list --top is applied AFTER --above (cap the N strongest upvotes within the band filter)', async () => {
+    // The natural "audit the top 3 upvotes" call is
+    // `--above 1.0 --top 3`. The --above filter narrows the
+    // candidate set FIRST so downvotes are excluded entirely;
+    // --top then picks the loudest survivors within that
+    // upvotes-only set.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/up-mild.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/up-strong.md', ups: 5, downs: 0, boost: 1.30 },
+        { path: '/up-mid.md', ups: 2, downs: 0, boost: 1.15 },
+        // Downvotes are louder than every upvote but they MUST
+        // NOT appear in --above 1.0's --top because they were
+        // filtered out before --top ran.
+        { path: '/down-strongest.md', ups: 0, downs: 9, boost: 0.10 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--above', '1.0', '--top', '2']);
+    const parsed = JSON.parse(captured.join('')) as {
+      items: { path: string; boost: number }[];
+    };
+    // Two strongest upvotes by loudness:
+    // /up-strong.md (distance 0.30), /up-mid.md (distance 0.15).
+    // /down-strongest.md is excluded because --above 1.0 dropped
+    // it BEFORE --top sorted.
+    expect(parsed.items.map((it) => it.path)).toEqual([
+      '/up-strong.md',
+      '/up-mid.md',
+    ]);
+  });
+
+  it('feedback list --top with a non-positive value falls back to "no cap" (matches tags/stats --top precedent)', async () => {
+    // --top 0 is the classic typo — a downstream `n=0` env var
+    // expanding into the flag should NOT silently produce an empty
+    // list. The fallback returns every entry, same as if the flag
+    // were absent.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/a.md', ups: 3, downs: 0, boost: 1.15 },
+        { path: '/b.md', ups: 0, downs: 2, boost: 0.9 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--top', '0']);
+    const parsed = JSON.parse(captured.join('')) as {
+      items: { path: string }[];
+    };
+    // Both entries kept — same shape as if --top were omitted.
+    expect(parsed.items.map((it) => it.path).sort()).toEqual(['/a.md', '/b.md']);
+  });
+
+  it('feedback list --top text-mode renders the loudest entries in the same order as --json', async () => {
+    // The default text mode emits `+ 1.40x  /strong-up.md` etc.
+    // Pin that the order in text matches the JSON order so a
+    // human reading the output and a script piping --json see
+    // the same ranking.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/quiet.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/loudest.md', ups: 5, downs: 0, boost: 1.50 },
+        { path: '/middle.md', ups: 2, downs: 0, boost: 1.20 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--top', '2']);
+    const out = captured.join('');
+    // /loudest.md (distance 0.50) appears BEFORE /middle.md
+    // (distance 0.20) in the text body. /quiet.md (distance 0.05)
+    // is cut off entirely.
+    expect(out.indexOf('/loudest.md')).toBeLessThan(out.indexOf('/middle.md'));
+    expect(out).not.toContain('/quiet.md');
+  });
+
   it('reports a clean message when the api is unreachable', async () => {
     const stderrBuf: string[] = [];
     const origErr = process.stderr.write.bind(process.stderr);

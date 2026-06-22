@@ -86,8 +86,9 @@ export function feedbackCommand() {
     .option('-q, --q <text>', 'case-insensitive substring filter on source path')
     .option('--above <n>', 'keep only entries whose boost multiplier is strictly greater than this value (typical: --above 1.0 to show only upvote-dominant paths)', (v) => Number.parseFloat(v))
     .option('--below <n>', 'keep only entries whose boost multiplier is strictly less than this value (typical: --below 1.0 to show only downvote-dominant paths)', (v) => Number.parseFloat(v))
+    .option('--top <n>', 'cap the listed entries to the N loudest votes by absolute distance from neutral (|boost - 1.0|), descending. Answers "which votes are the LOUDEST regardless of direction" in a single call — the natural cron-audit invocation is `clawmind feedback list --top 10 --json` to surface the entries that drag retrieval ranking the hardest in either direction. Applied AFTER -q / --above / --below so the cap is "the N loudest entries that pass the other filters". Ties at the same |boost - 1.0| distance preserve the API-provided order (deterministic across snapshots). A non-positive or NaN value falls back to "no cap" so a typo like `--top 0` still yields a useful response rather than an empty list (matches `tags list --top` / `stats --top` precedent). Composes naturally with --above/--below: `--above 1.0 --top 5` is "the 5 strongest upvotes", `--below 1.0 --top 5` is "the 5 strongest downvotes", `--top 10` alone (no band filter) is "the 10 loudest entries either direction".', (v) => Number.parseInt(v, 10))
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; above?: number; below?: number; json?: boolean }) => {
+    .action(async (opts: { q?: string; above?: number; below?: number; top?: number; json?: boolean }) => {
       await runOrReport('feedback list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/feedback${qs}`)) as {
@@ -125,6 +126,56 @@ export function feedbackCommand() {
               return true;
             }),
           };
+        }
+        // --top caps the kept entries to the N loudest by absolute
+        // distance from neutral (|boost - 1.0|), descending. The
+        // contract is "show me the loudest votes regardless of
+        // direction" — answers a question the existing --above /
+        // --below cannot answer in a single call (each of those
+        // filters only sees one direction). Applied AFTER --above /
+        // --below so the cap is "the N loudest entries that pass
+        // the OTHER filters" — e.g. `--above 1.0 --top 5` is "the 5
+        // strongest UPVOTES", and `--top 10` alone is "the 10
+        // loudest in either direction".
+        //
+        // Ties at the same distance (e.g. boost 0.85 and 1.15 both
+        // distance 0.15) preserve the API-provided order so the
+        // snapshot is deterministic across runs. Distances are
+        // snapped to 6-decimal precision before comparison to
+        // dodge the floating-point trap where 1.40 - 1.0 evaluates
+        // to 0.3999999999999999 while 0.60 - 1.0 evaluates to
+        // 0.40000000000000004 — at boost precision (4 sig figs)
+        // those ARE tied and the operator expects them to honour
+        // API order; without the snap the FP noise would make them
+        // sort opposite to the colloquial reading. The original
+        // index is also carried as a secondary key so a stable-sort
+        // implementation difference (Array#sort is stable on V8
+        // 7.0+ but the spec only required stability after ES2019)
+        // can never flip tied entries.
+        //
+        // Non-positive / NaN values fall back to "no cap" rather
+        // than producing the surprising empty list — matches the
+        // precedent set by `tags list --top` and `stats --top`.
+        // The text-mode header line / count is recomputed below
+        // from the post-top length so the operator sees the
+        // right number.
+        if (opts.top !== undefined && Number.isFinite(opts.top) && opts.top > 0) {
+          const ranked = out.items
+            .map((it, idx) => ({
+              it,
+              idx,
+              // Snap to 6 decimals so floating-point error in the
+              // raw subtraction does not de-tie genuinely-equal
+              // distances at boost precision.
+              dist: Math.round(Math.abs(it.boost - 1.0) * 1e6) / 1e6,
+            }))
+            .sort((a, b) => {
+              if (b.dist !== a.dist) return b.dist - a.dist;
+              // Ties: preserve API order (lower idx first).
+              return a.idx - b.idx;
+            })
+            .map((r) => r.it);
+          out = { ...out, items: ranked.slice(0, opts.top) };
         }
         if (opts.json) {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
