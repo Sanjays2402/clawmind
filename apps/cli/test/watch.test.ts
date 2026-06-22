@@ -20,6 +20,26 @@ let ingestPathsResult: { processed: number; chunks: number; skipped: number } = 
   processed: 2, chunks: 10, skipped: 0,
 };
 let ingestPathsImpl: ((files: string[], opts: Record<string, unknown>) => Promise<{ processed: number; chunks: number; skipped: number }>) | null = null;
+// stat() shim for the --since path. Returns the configured mtime for
+// any path that has an entry in `statMtimeMs`; throws ENOENT (which
+// the production --since path swallows silently) for any path that
+// does not.
+let statMtimeMs: Record<string, number> = {};
+
+vi.mock('node:fs/promises', async (importActual) => {
+  const actual = await importActual<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    stat: async (p: string) => {
+      if (Object.prototype.hasOwnProperty.call(statMtimeMs, p)) {
+        return { mtimeMs: statMtimeMs[p] } as never;
+      }
+      const err = new Error(`ENOENT: ${p}`) as NodeJS.ErrnoException;
+      err.code = 'ENOENT';
+      throw err;
+    },
+  };
+});
 
 vi.mock('../src/runtime.js', () => ({
   buildRuntime: async () => ({
@@ -544,5 +564,150 @@ describe('watch cli --once', () => {
     // Neither discovery nor ingest fired.
     expect(discoverFilesCalls).toEqual([]);
     expect(ingestPathsCalls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------
+// --once --since: one-shot incremental refresh.
+//
+// The canonical cron flow:
+//   clawmind watch --once --since "$(date -u -d '1 hour ago' +%FT%TZ)"
+//
+// Pairs the --once one-shot pass with the `ingest --since` mtime
+// filter so a cron tick can ride out a quiet workspace without
+// re-walking every file. The filter is applied AFTER discoverFiles()
+// (same .clawmindignore + globs walked) but BEFORE the per-file
+// ingest decision — exactly one stat() per discovered file, then
+// the kept survivors are forwarded to ingestPaths().
+// ---------------------------------------------------------------
+
+describe('watch cli --once --since', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    lastWatcherOpts = null;
+    discoverFilesCalls = [];
+    ingestPathsCalls = [];
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md'];
+    ingestPathsResult = { processed: 2, chunks: 10, skipped: 0 };
+    ingestPathsImpl = null;
+    statMtimeMs = {};
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes --since on the command surface', () => {
+    const flags = watchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--since');
+  });
+
+  it('--once --since keeps only files whose mtime is at-or-after the cutoff (the rest are silently dropped before ingestPaths)', async () => {
+    // /tmp/r/a.md modified 2026-06-15 (after cutoff -> kept).
+    // /tmp/r/b.md modified 2026-04-01 (before cutoff -> dropped).
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md'];
+    statMtimeMs = {
+      '/tmp/r/a.md': Date.parse('2026-06-15T00:00:00Z'),
+      '/tmp/r/b.md': Date.parse('2026-04-01T00:00:00Z'),
+    };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--since', '2026-06-01']);
+    // discoverFiles still walked the full set (the cutoff is
+    // applied client-side after the discovery walk, NOT inside
+    // discoverFiles), so the operator's .clawmindignore + globs
+    // logic is unchanged.
+    expect(discoverFilesCalls).toEqual(['/tmp/r']);
+    // ingestPaths received ONLY the kept survivor.
+    expect(ingestPathsCalls).toHaveLength(1);
+    expect(ingestPathsCalls[0]?.files).toEqual(['/tmp/r/a.md']);
+  });
+
+  it('--once --since cutoff is INCLUSIVE (mtime === cutoff is KEPT)', async () => {
+    // A file modified exactly at the cutoff was "modified at the
+    // cutoff" — the boundary an operator passing the previous
+    // tick's wall-clock cares about. Exclusive bounds would
+    // silently drop changes that happened in the same second as
+    // the previous tick — anti-goal of the flag.
+    const cutoff = Date.parse('2026-06-15T00:00:00Z');
+    discoverFilesFiles = ['/tmp/r/exact.md', '/tmp/r/just-before.md'];
+    statMtimeMs = {
+      '/tmp/r/exact.md': cutoff,           // ON the bar
+      '/tmp/r/just-before.md': cutoff - 1, // 1ms before -> dropped
+    };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--since', '2026-06-15']);
+    // /tmp/r/exact.md is kept; the >= comparison includes it.
+    expect(ingestPathsCalls[0]?.files).toEqual(['/tmp/r/exact.md']);
+  });
+
+  it('--once --since with an invalid ISO date aborts cleanly BEFORE buildRuntime / discoverFiles fire', async () => {
+    // The validation runs up front so a typo (`--since 2026-13-01`)
+    // never wastes a runtime warmup, never walks the workspace,
+    // never reaches ingest. Same precedent as `ingest --since` and
+    // `reindex --since`.
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--since', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('watch failed: --since value "banana" is not a valid ISO date');
+    expect(discoverFilesCalls).toEqual([]);
+    expect(ingestPathsCalls).toHaveLength(0);
+  });
+
+  it('--once --since with stat() failures silently drops the failing files (cron log stays clean)', async () => {
+    // stat() failures on individual files are non-fatal — the file
+    // is dropped (it cannot be re-ingested anyway) and the rest
+    // of the batch proceeds. Matches `ingest --since` byte-for-byte.
+    discoverFilesFiles = ['/tmp/r/keep.md', '/tmp/r/missing.md'];
+    statMtimeMs = {
+      '/tmp/r/keep.md': Date.parse('2026-06-15T00:00:00Z'),
+      // /tmp/r/missing.md has NO entry -> stat() throws ENOENT,
+      // which the production --since path silently swallows.
+    };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--since', '2026-06-01', '--json']);
+    // Only the surviving keep.md is forwarded.
+    expect(ingestPathsCalls[0]?.files).toEqual(['/tmp/r/keep.md']);
+    // Clean exit — the stat() failure did NOT bubble up.
+    expect(process.exitCode).toBeFalsy();
+    // No stderr noise about the missing file (the cron log stays clean).
+    expect(stderr.join('')).not.toContain('missing.md');
+  });
+
+  it('--once --since with the cutoff dropping every file still calls ingestPaths with an empty list (clean "I checked, nothing changed" tick)', async () => {
+    // Empty workspace tick — a cron operator polling --since wants
+    // the same "nothing to do" signal whether discoverFiles found
+    // nothing OR every discovered file pre-dated the cutoff. The
+    // pipeline still runs (ingestPaths([])) so the metric counters
+    // increment normally.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md'];
+    statMtimeMs = {
+      '/tmp/r/a.md': Date.parse('2024-01-01T00:00:00Z'),
+      '/tmp/r/b.md': Date.parse('2024-01-01T00:00:00Z'),
+    };
+    ingestPathsResult = { processed: 0, chunks: 0, skipped: 0 };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--since', '2026-06-01', '--json']);
+    expect(ingestPathsCalls).toHaveLength(1);
+    expect(ingestPathsCalls[0]?.files).toEqual([]);
+    const parsed = JSON.parse(stdout.join('').trim()) as { processed: number };
+    expect(parsed.processed).toBe(0);
+  });
+
+  it('--once --since validates BEFORE --debounce (both validations fire up front; --since wins when both are typo\'d)', async () => {
+    // Both validations are up-front guards. We assert --since fires
+    // first by mixing a valid --debounce with an invalid --since —
+    // the error message should be the --since one. This pins the
+    // validation order so a future re-ordering doesn't silently
+    // change which error the operator sees.
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--debounce', '500', '--since', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('--since value "banana" is not a valid ISO date');
+    // Debounce was valid so its message must NOT appear.
+    expect(stderr.join('')).not.toContain('--debounce value must be');
   });
 });

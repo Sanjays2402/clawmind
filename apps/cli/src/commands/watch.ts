@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { stat } from 'node:fs/promises';
 import kleur from 'kleur';
 import { startWatcher, discoverFiles, ingestPaths } from '@clawmind/ingest';
 import { expand } from '@clawmind/config';
@@ -12,7 +13,8 @@ export function watchCommand() {
     .option('--debounce <ms>', 'coalesce rapid file events at the same path within this many milliseconds before re-ingesting (default 800). The watcher emits the `add`/`change`/`unlink` notification immediately so a downstream NDJSON consumer sees every event in real time, but only one re-ingest fires per path after the quiet window. Use a higher value (e.g. 3000) when running `npm install` or `git checkout` to ride out the burst of file events without N pointless re-ingests; a lower value (e.g. 100) for tightly-typed live editing when latency matters more than CPU. Non-positive or non-numeric values are rejected so a typo cannot silently disable the debounce.', (v) => Number.parseInt(v, 10))
     .option('-q, --quiet', 'suppress the per-file event lines (the gray `add /foo.md` / `change /bar.ts` chatter in text mode, and the per-event NDJSON documents in --json mode). The startup banner on stderr STILL fires so a log scraper detects restarts, and the operator-facing "Watching <root>" stdout line STILL prints so an interactive operator sees the watcher came up. The combination is the right shape for cron-restarted watchers where the journal only needs the restart marker, not 100/sec event chatter from a tight `npm install` burst — and pairs naturally with --debounce.')
     .option('--once', 'run a single initial scan + ingest pass under the SAME discovery rules the live watcher uses (.clawmindignore + the built-in include/exclude globs), then exit cleanly with the regular ingest report shape. This lets cron use ONE code path for both scheduled refreshes and live watching — `clawmind watch --once` is the watcher\'s "initial scan" without the long-running tail. Composes with --json (NDJSON ingest report instead of text) and emits the same startup banner on stderr so a log scraper sees the restart marker even on a one-shot pass. Does NOT install the chokidar watcher; the process returns to the shell as soon as the initial ingest finishes. Exit code reflects the ingest outcome (0 on success, non-zero on a thrown error in the pipeline).')
-    .action(async (root: string | undefined, opts: { json?: boolean; debounce?: number; quiet?: boolean; once?: boolean }) => {
+    .option('--since <iso-date>', 'with --once: only ingest files whose filesystem mtime is at-or-after this ISO date. Pairs the new --once mode with the `ingest --since` semantics so a cron tick can ride out a quiet workspace without re-walking every file. The canonical cron flow:\n  clawmind watch --once --since "$(date -u -d \'1 hour ago\' +%FT%TZ)"\nThe filter applies AFTER discoverFiles() (same .clawmindignore + include/exclude globs still walked) but BEFORE the per-file ingest decision, so the operator pays exactly one stat() per discovered file. Cutoff is INCLUSIVE (>=) — a file modified exactly at the cutoff was "modified at the cutoff", which is the boundary an operator passing the previous tick\'s wall-clock cares about. Parse failures abort cleanly with exit 1 — a typo cannot silently degrade to "no filter" (which would re-ingest the entire workspace, the worst possible failure mode for a flag whose purpose is to do LESS work). Ignored WITHOUT --once (the live watcher has no use for an mtime cutoff — chokidar already only fires on actual file events, so --since on the live path would be a confusing no-op). stat() failures on individual files are non-fatal (matches `ingest --since`).')
+    .action(async (root: string | undefined, opts: { json?: boolean; debounce?: number; quiet?: boolean; once?: boolean; since?: string }) => {
       // --debounce forwards directly to the watcher's `debounceMs`
       // wiring (which already exists in WatcherOptions; this just
       // exposes it on the cli). Reject zero / negative / NaN values
@@ -25,6 +27,23 @@ export function watchCommand() {
         process.stderr.write(kleur.red(`watch failed: --debounce value must be a positive integer (got "${opts.debounce}")\n`));
         process.exitCode = 1;
         return;
+      }
+      // --since is meaningful ONLY on the --once path (the live
+      // watcher relies on chokidar to fire on actual file events,
+      // so an mtime cutoff would be a confusing no-op there). We
+      // validate the cutoff up front and BEFORE the runtime build
+      // — same precedent as `reindex --since` and `ingest --since`
+      // — so a typo (`--since 2026-13-01`) aborts cleanly without
+      // wasting the runtime warmup. The cutoff is only consumed
+      // inside the --once branch below.
+      let sinceCutoff: number | null = null;
+      if (opts.since) {
+        sinceCutoff = Date.parse(opts.since);
+        if (!Number.isFinite(sinceCutoff)) {
+          process.stderr.write(kleur.red(`watch failed: --since value "${opts.since}" is not a valid ISO date\n`));
+          process.exitCode = 1;
+          return;
+        }
       }
       const rt = await buildRuntime();
       const target = root ? expand(root) : rt.workspace;
@@ -79,7 +98,29 @@ export function watchCommand() {
       // ("watch --once --quiet --debounce 500") for both modes
       // without conditional plumbing.
       if (opts.once) {
-        const files = await discoverFiles(target);
+        const discovered = await discoverFiles(target);
+        // --since (when set) is the same mtime filter `ingest --since`
+        // applies: keep only files whose mtime is at-or-after the
+        // cutoff. We've already validated the parse above, so the
+        // cutoff is either null (no filter) or a finite epoch ms
+        // value. Per-file stat() failures are non-fatal — the file
+        // is silently dropped (it cannot be re-ingested anyway, and
+        // surfacing the error would spam the cron log on a file the
+        // pipeline would have skipped at load() time). This matches
+        // `ingest --since` byte-for-byte.
+        let files = discovered;
+        if (sinceCutoff !== null) {
+          const kept: string[] = [];
+          await Promise.all(discovered.map(async (p) => {
+            try {
+              const s = await stat(p);
+              if (s.mtimeMs >= sinceCutoff!) kept.push(p);
+            } catch {
+              // stat() failed — silently drop. Same precedent as ingest.
+            }
+          }));
+          files = kept;
+        }
         const report = await ingestPaths(files, {
           store: rt.lance, bm25: rt.bm25, bm25File: rt.bm25File,
           manifest: rt.manifest, embed: rt.embed, embedModel: rt.env.CLAWMIND_EMBED_MODEL,
