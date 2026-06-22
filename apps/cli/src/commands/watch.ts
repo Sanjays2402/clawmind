@@ -15,7 +15,8 @@ export function watchCommand() {
     .option('--once', 'run a single initial scan + ingest pass under the SAME discovery rules the live watcher uses (.clawmindignore + the built-in include/exclude globs), then exit cleanly with the regular ingest report shape. This lets cron use ONE code path for both scheduled refreshes and live watching — `clawmind watch --once` is the watcher\'s "initial scan" without the long-running tail. Composes with --json (NDJSON ingest report instead of text) and emits the same startup banner on stderr so a log scraper sees the restart marker even on a one-shot pass. Does NOT install the chokidar watcher; the process returns to the shell as soon as the initial ingest finishes. Exit code reflects the ingest outcome (0 on success, non-zero on a thrown error in the pipeline).')
     .option('--since <iso-date>', 'with --once: only ingest files whose filesystem mtime is at-or-after this ISO date. Pairs the new --once mode with the `ingest --since` semantics so a cron tick can ride out a quiet workspace without re-walking every file. The canonical cron flow:\n  clawmind watch --once --since "$(date -u -d \'1 hour ago\' +%FT%TZ)"\nThe filter applies AFTER discoverFiles() (same .clawmindignore + include/exclude globs still walked) but BEFORE the per-file ingest decision, so the operator pays exactly one stat() per discovered file. Cutoff is INCLUSIVE (>=) — a file modified exactly at the cutoff was "modified at the cutoff", which is the boundary an operator passing the previous tick\'s wall-clock cares about. Parse failures abort cleanly with exit 1 — a typo cannot silently degrade to "no filter" (which would re-ingest the entire workspace, the worst possible failure mode for a flag whose purpose is to do LESS work). Ignored WITHOUT --once (the live watcher has no use for an mtime cutoff — chokidar already only fires on actual file events, so --since on the live path would be a confusing no-op). stat() failures on individual files are non-fatal (matches `ingest --since`).')
     .option('--paths-only', 'with --once: pure preview — emit the deduplicated list of files that WOULD be ingested (one path per line, no styling, no header) WITHOUT touching the lance/bm25/manifest. Mirrors `ingest --dry-run --paths-only` and `reindex --dry-run --paths-only` byte-for-byte (same xargs-safe contract) but lives on the `watch` command surface so the cron muscle memory carries: `watch --once --since X --paths-only` is the natural \"what would this scheduled refresh tick touch?\" probe. Composes naturally with --since: the preview list is exactly the post-cutoff survivors. Skips ingestPaths() entirely (the file scan happens, the mtime filter applies, but nothing is read/hashed/embedded/upserted). Empty discovery (or every file pre-dating the cutoff) yields a clean empty stream — `wc -l` sees exactly 0, no header, no \"nothing to do\" hint that would poison `xargs ls`. Wins over --json (a downstream `xargs` consumer wants path-per-line, NOT a JSON document with a paths array) — matches the precedent set by forget/search/related --paths-only short-circuiting over --json. Ignored without --once (no live-watch preview semantics; the live watcher emits per-event NDJSON which is the preview shape for that surface).')
-    .action(async (root: string | undefined, opts: { json?: boolean; debounce?: number; quiet?: boolean; once?: boolean; since?: string; pathsOnly?: boolean }) => {
+    .option('--preview-json', 'with --once: pure preview — emit a structured `{root, count, files:[...]}` JSON wrapper of the files that WOULD be ingested WITHOUT touching the lance/bm25/manifest. The dashboard-friendly twin of --paths-only: where --paths-only short-circuits --json for xargs callers, --preview-json is the explicit "give me the JSON wrapper" path for dashboard / web-UI callers who want the structured count + root context alongside the file list. Same byte layout as `ingest --dry-run --json` and `reindex --dry-run --json` so a multi-command dashboard can use one parser across all three preview surfaces. Composes naturally with --since: the files array is exactly the post-cutoff survivors. Skips ingestPaths() entirely (the file scan happens, the mtime filter applies, but nothing is read/hashed/embedded/upserted). Empty discovery yields `{root, count: 0, files: []}` (NOT an empty stream — the JSON shape is preserved so a `jq .count` consumer always gets an integer). --paths-only wins over --preview-json when both are passed (xargs callers should still get the path-per-line stream; --preview-json is the opt-in for the JSON consumer). Ignored without --once (no live-watch preview semantics).')
+    .action(async (root: string | undefined, opts: { json?: boolean; debounce?: number; quiet?: boolean; once?: boolean; since?: string; pathsOnly?: boolean; previewJson?: boolean }) => {
       // --debounce forwards directly to the watcher's `debounceMs`
       // wiring (which already exists in WatcherOptions; this just
       // exposes it on the cli). Reject zero / negative / NaN values
@@ -156,6 +157,49 @@ export function watchCommand() {
             }
           }
           for (const p of deduped) process.stdout.write(p + '\n');
+          return;
+        }
+        // --preview-json: structured JSON wrapper of the same preview
+        // set. Where --paths-only short-circuits for xargs callers,
+        // --preview-json is the explicit "I want the JSON shape" path
+        // for dashboard / web-UI callers. Critical design properties:
+        //   - same `{root, count, files}` shape as `ingest --dry-run
+        //     --json` and `reindex --dry-run --json` so a multi-command
+        //     dashboard uses ONE parser across all three preview
+        //     surfaces (the muscle memory is the value; if we shipped
+        //     a different shape here we'd force every consumer to
+        //     special-case the watch surface)
+        //   - dedupe via Set (insertion order preserved) so the
+        //     files[] array is byte-faithful to what the corresponding
+        //     --paths-only stream would emit — same survivor set,
+        //     same order, just wrapped in a JSON envelope
+        //   - empty discovery yields {root, count: 0, files: []} (NOT
+        //     an empty stream — the JSON shape must be parseable even
+        //     when nothing survived the filter, so `jq .count` always
+        //     gets an integer; a downstream "is the workspace warm?"
+        //     probe should never have to special-case the empty case)
+        //   - skips ingestPaths() entirely (same as --paths-only): the
+        //     lance/bm25/manifest stay untouched, the metric counters
+        //     do not increment, the cron operator's "I previewed
+        //     nothing" signal is honest
+        //   - --paths-only WINS when both are passed (xargs callers
+        //     should still get the path-per-line stream; --preview-json
+        //     is the opt-in for the JSON consumer) — pinned in tests
+        //     by an explicit `--paths-only --preview-json` case
+        //   - returns BEFORE the regular ingestPaths()/--json branch
+        //     so the preview never accidentally touches the index
+        if (opts.previewJson) {
+          const seen = new Set<string>();
+          const deduped: string[] = [];
+          for (const p of files) {
+            if (!seen.has(p)) {
+              seen.add(p);
+              deduped.push(p);
+            }
+          }
+          process.stdout.write(
+            JSON.stringify({ root: target, count: deduped.length, files: deduped }) + '\n',
+          );
           return;
         }
         const report = await ingestPaths(files, {

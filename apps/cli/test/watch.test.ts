@@ -879,3 +879,165 @@ describe('watch cli --once --paths-only', () => {
     expect(ingestPathsCalls).toHaveLength(0);
   });
 });
+
+// ---------------------------------------------------------------
+// --once --preview-json: structured JSON wrapper of the same
+// preview set. The dashboard-friendly twin of --paths-only: where
+// --paths-only short-circuits for xargs callers, --preview-json is
+// the explicit "I want the JSON shape" path for dashboard / web-UI
+// callers who want the structured `{root, count, files}` envelope.
+// Same byte layout as `ingest --dry-run --json` and `reindex
+// --dry-run --json` so a multi-command dashboard uses ONE parser
+// across all three preview surfaces.
+// ---------------------------------------------------------------
+
+describe('watch cli --once --preview-json', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    lastWatcherOpts = null;
+    discoverFilesCalls = [];
+    ingestPathsCalls = [];
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md'];
+    ingestPathsResult = { processed: 2, chunks: 10, skipped: 0 };
+    ingestPathsImpl = null;
+    statMtimeMs = {};
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes --preview-json on the command surface', () => {
+    const flags = watchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--preview-json');
+  });
+
+  it('--once --preview-json emits the {root, count, files} envelope and SKIPS ingestPaths entirely', async () => {
+    // The headline contract: --preview-json is a PURE preview. The
+    // lance/bm25/manifest must not be touched (ingestPathsCalls
+    // stays empty). The shape mirrors `ingest --dry-run --json`
+    // exactly so a dashboard can use one parser across surfaces.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/c.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--preview-json']);
+    expect(ingestPathsCalls).toHaveLength(0);
+    // discoverFiles STILL fired — the preview is "what would be
+    // ingested" so the discovery walk has to happen.
+    expect(discoverFilesCalls).toEqual(['/tmp/r']);
+    // Exactly one NDJSON line on stdout.
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    const doc = JSON.parse(lines[0]!);
+    expect(doc).toEqual({
+      root: '/tmp/r',
+      count: 3,
+      files: ['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/c.md'],
+    });
+  });
+
+  it('--once --preview-json composes with --since (only post-cutoff survivors land in files[])', async () => {
+    // The files[] array is byte-faithful to what `--once --since`
+    // (without --preview-json) would have ingested — same survivor
+    // set, just wrapped in a JSON envelope.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/c.md'];
+    statMtimeMs = {
+      '/tmp/r/a.md': Date.parse('2026-06-15T00:00:00Z'),
+      '/tmp/r/b.md': Date.parse('2026-04-01T00:00:00Z'),
+      '/tmp/r/c.md': Date.parse('2026-06-20T00:00:00Z'),
+    };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--since', '2026-06-01', '--preview-json']);
+    expect(ingestPathsCalls).toHaveLength(0);
+    const doc = JSON.parse(stdout.join('').trim());
+    expect(doc.root).toBe('/tmp/r');
+    expect(doc.count).toBe(2);
+    expect(doc.files).toEqual(['/tmp/r/a.md', '/tmp/r/c.md']);
+  });
+
+  it('--once --preview-json with zero survivors yields {root, count: 0, files: []} (parseable even when empty)', async () => {
+    // Critical contract: the JSON shape is PRESERVED on the empty
+    // case so `jq .count` always gets an integer. Unlike
+    // --paths-only (which yields an empty stream), the JSON
+    // consumer's parser never has to special-case the empty case.
+    discoverFilesFiles = [];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--preview-json']);
+    const body = stdout.join('').trim();
+    // The line parses cleanly.
+    const doc = JSON.parse(body);
+    expect(doc).toEqual({ root: '/tmp/r', count: 0, files: [] });
+    expect(ingestPathsCalls).toHaveLength(0);
+  });
+
+  it('--once --preview-json deduplicates the discovered set in arrival order', async () => {
+    // Same Set-backed dedupe as --paths-only — files[] must be
+    // unique per path so a dashboard counter does not double-count
+    // a symlink target. Order matches first occurrence (insertion
+    // order, NOT alphabetical) so the dashboard can correlate the
+    // preview with the actual ingest sequence.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/a.md', '/tmp/r/c.md', '/tmp/r/b.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--preview-json']);
+    const doc = JSON.parse(stdout.join('').trim());
+    expect(doc.count).toBe(3);
+    expect(doc.files).toEqual(['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/c.md']);
+  });
+
+  it('--once --paths-only WINS over --once --preview-json when both are passed', async () => {
+    // Precedence is intentional: --paths-only is the older, simpler
+    // contract for xargs callers — a script that grew --paths-only
+    // first and then later added --preview-json (perhaps copy-
+    // pasted from a different command) should keep getting the
+    // path-per-line stream the script was built around. Same
+    // precedent as `forget --paths-only` winning over `forget --json`.
+    discoverFilesFiles = ['/tmp/r/x.md', '/tmp/r/y.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--paths-only', '--preview-json']);
+    const body = stdout.join('');
+    // Path-per-line, NOT JSON.
+    expect(body).toBe('/tmp/r/x.md\n/tmp/r/y.md\n');
+    expect(() => JSON.parse(body)).toThrow();
+    expect(ingestPathsCalls).toHaveLength(0);
+  });
+
+  it('--preview-json without --once is silently ignored (live watcher path is unchanged)', async () => {
+    // The preview shape is meaningful only on the --once path.
+    // Without --once, the live watcher runs unchanged: chokidar
+    // installed (sentinel thrown), --preview-json has no effect.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--preview-json']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    expect(lastWatcherOpts).not.toBeNull();
+    expect(lastWatcherOpts?.root).toBe('/tmp/r');
+  });
+
+  it('--once --preview-json with an invalid --since aborts cleanly BEFORE the discovery walk', async () => {
+    // Same up-front validation as --paths-only: a --since typo
+    // cannot silently degrade to "preview the whole workspace".
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--preview-json', '--since', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('--since value "banana" is not a valid ISO date');
+    expect(discoverFilesCalls).toEqual([]);
+    expect(ingestPathsCalls).toHaveLength(0);
+    // Stdout stays free of a half-emitted JSON document.
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('--once --preview-json emits single-line JSON (NDJSON-friendly: no embedded newlines)', async () => {
+    // The envelope must be a single line so an NDJSON consumer
+    // tailing the dashboard's preview log can split on '\n' and
+    // get one document per line — same precedent as digest run
+    // --slim and status --watch --json snapshots.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/c.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--preview-json']);
+    const body = stdout.join('');
+    // Exactly one trailing newline, none embedded.
+    expect(body.endsWith('\n')).toBe(true);
+    expect(body.slice(0, -1)).not.toContain('\n');
+  });
+});
