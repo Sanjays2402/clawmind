@@ -116,4 +116,101 @@ describe('aliases cli', () => {
     expect(stdout.join('')).toBe('');
     expect(stderr.join('')).toBe('');
   });
+
+  // -----------------------------------------------------------------
+  // --since <iso-date>: keep only aliases whose createdAt is at-or-
+  // after the cutoff. Mirrors `pins list --since` / `mutes list
+  // --since` byte-for-byte (cutoff is INCLUSIVE: >=, composes with
+  // -q as an intersection, parse failures abort with exit 1).
+  // -----------------------------------------------------------------
+
+  it('--since keeps only aliases created at-or-after the ISO cutoff', async () => {
+    // Three aliases spanning a wide date range:
+    //   notes:  created 2026-01-15 (old)
+    //   work:   created 2026-06-15 (mid)
+    //   wiki:   created 2026-06-21 (fresh)
+    // Cutoff 2026-06-01 should drop notes, keep work + wiki.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'notes', path: '/n', createdAt: Date.parse('2026-01-15'), createdBy: 'me' },
+          { name: 'work',  path: '/w', createdAt: Date.parse('2026-06-15'), createdBy: 'me' },
+          { name: 'wiki',  path: '/wk', createdAt: Date.parse('2026-06-21'), createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--since', '2026-06-01']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[]; count: number };
+    expect(parsed.items.map((it) => it.name)).toEqual(['work', 'wiki']);
+    // Recomputed count matches the post-filter body — a downstream
+    // `jq .count` consumer sees 2, not 3.
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--since cutoff is INCLUSIVE (an alias created exactly at the cutoff is kept)', async () => {
+    // Matches `pins list --since` / `mutes list --since` byte-for-
+    // byte: colloquial "since X" means X itself counts.
+    const exact = Date.parse('2026-06-15T00:00:00Z');
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'before', path: '/b', createdAt: exact - 1,    createdBy: 'me' },
+          { name: 'exact',  path: '/e', createdAt: exact,         createdBy: 'me' },
+          { name: 'after',  path: '/a', createdAt: exact + 1000,  createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--since', '2026-06-15T00:00:00Z']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[] };
+    // exact + after kept; before dropped (createdAt < cutoff).
+    expect(parsed.items.map((it) => it.name)).toEqual(['exact', 'after']);
+  });
+
+  it('--since composes with --paths (path-stream survivors carry the same byte layout as --since-less --paths)', async () => {
+    // The natural cron one-liner is
+    //   clawmind aliases list --paths --since "$(...)" | xargs ls -la
+    // Pin that the path stream is byte-faithful to the --paths
+    // contract with only the post-filter survivors.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'old',   path: '/old.md',   createdAt: Date.parse('2026-01-01'), createdBy: 'me' },
+          { name: 'fresh', path: '/fresh.md', createdAt: Date.parse('2026-06-21'), createdBy: 'me' },
+        ],
+        count: 2,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--paths', '--since', '2026-06-15']);
+    // Only /fresh.md survives, and the byte layout matches the
+    // --paths contract (one path per line, no styling, no header).
+    expect(stdout.join('')).toBe('/fresh.md\n');
+    expect(stdout.join('')).not.toMatch(/\x1b\[/);
+  });
+
+  it('--since with an invalid ISO date aborts cleanly with exit 1', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({ items: [], count: 0 }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--since', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('aliases list failed: --since value "banana" is not a valid ISO date');
+  });
+
+  it('--since composes with -q (substring forwards to API; --since narrows survivors client-side)', async () => {
+    let listedUrl = '';
+    globalThis.fetch = (async (url: string | URL) => {
+      listedUrl = String(url);
+      return new Response(JSON.stringify({
+        items: [
+          // The API only returned `work`-matching rows (q-forwarded);
+          // we narrow further by --since on top.
+          { name: 'work-old',   path: '/wo', createdAt: Date.parse('2026-01-01'), createdBy: 'me' },
+          { name: 'work-fresh', path: '/wf', createdAt: Date.parse('2026-06-21'), createdBy: 'me' },
+        ],
+        count: 2,
+      }), { status: 200 });
+    }) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '-q', 'work', '--since', '2026-06-15']);
+    expect(listedUrl).toContain('q=work');
+    const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[] };
+    expect(parsed.items.map((it) => it.name)).toEqual(['work-fresh']);
+  });
 });

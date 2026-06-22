@@ -81,15 +81,42 @@ export function aliasesCommand() {
   cmd.command('list')
     .description('List aliases sorted by name')
     .option('-q, --q <text>', 'case-insensitive substring filter across name and path')
+    .option('--since <iso-date>', 'keep only aliases whose createdAt is at-or-after this ISO date. The natural cron use is a daily snapshot of "what was added in the last 24h" without scrolling through every alias: `clawmind aliases list --since "$(date -u -d \'1 day ago\' +%FT%TZ)" --paths`. Mirrors `pins list --since` / `mutes list --since` byte-for-byte (cutoff is INCLUSIVE: `>=`, so an alias created exactly at the cutoff is kept). Composes with -q as an intersection (filter must both match the substring AND be recent enough). Filter applies BEFORE --paths / --json / text rendering so every output mode sees the same subset. Parse failures abort cleanly with exit 1.')
     .option('--paths', 'emit only the alias target paths, one per line, with no styling (pipe-friendly)')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; paths?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; paths?: boolean; json?: boolean }) => {
       await runOrReport('aliases list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
-        const out = (await apiFetch('GET', `/v1/aliases${qs}`)) as {
+        let out = (await apiFetch('GET', `/v1/aliases${qs}`)) as {
           items: { name: string; path: string; createdAt: number; createdBy: string }[];
           count: number;
         };
+        // --since narrows the listed aliases to those created on or
+        // after the cutoff. Mirrors `pins list --since` / `mutes list
+        // --since` byte-for-byte: the cutoff is INCLUSIVE (>=) so an
+        // alias created exactly at the cutoff is kept (matches
+        // colloquial "since X" reading where X itself counts). The
+        // filter applies AFTER the -q narrowing (-q forwards to the
+        // API as a server-side substring filter; --since runs
+        // client-side on top) so the kept set is the intersection.
+        //
+        // The recomputed count reflects the post-filter length so a
+        // downstream `jq .count` consumer sees the right number and
+        // the text-mode empty-state path is taken when the filter
+        // empties everything. Pre-filter `out.count` would lie about
+        // the displayed body.
+        //
+        // Parse failures abort cleanly via the existing AliasesCliError
+        // path so a typo like `--since 2026-13-01` does not silently
+        // degrade to "no filter".
+        if (opts.since) {
+          const cutoff = Date.parse(opts.since);
+          if (!Number.isFinite(cutoff)) {
+            throw new AliasesCliError(`--since value "${opts.since}" is not a valid ISO date`);
+          }
+          const items = out.items.filter((it) => it.createdAt >= cutoff);
+          out = { items, count: items.length };
+        }
         if (opts.json) {
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
           return;
