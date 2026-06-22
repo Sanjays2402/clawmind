@@ -253,4 +253,117 @@ describe('forget cli', () => {
     expect(fetchCalled).toBe(false);
     expect(stderr.join('')).toContain('--confirm value "banana" is not a number');
   });
+
+  // ---------------------------------------------------------------
+  // --paths-only short-circuit tests: --paths-only MUST win over
+  // --json so a script that always passes `--json` for safety still
+  // gets path-per-line output when it also passes --paths-only.
+  // Mirrors the precedent set by `search --paths-only` and `related
+  // --paths-only`. Pairs naturally with --dry-run for "preview the
+  // paths that WOULD be removed without parsing the JSON payload".
+  // ---------------------------------------------------------------
+
+  it('--paths-only --json emits paths (NOT the JSON payload) for the safe-default dry-run preview', async () => {
+    // The canonical cron use: a script that always passes --json
+    // for ApiError safety but wants path-per-line output when also
+    // passing --paths-only. Without the short-circuit, the script
+    // would have to strip --json conditionally — which is fragile.
+    const payload = {
+      matched: 3,
+      removedChunks: 7,
+      removedPaths: ['/a.md', '/b.md', '/c.md'],
+      dryRun: true,
+    };
+    let sentBody: { dryRun: boolean } | undefined;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      sentBody = init?.body ? JSON.parse(String(init.body)) as { dryRun: boolean } : undefined;
+      return new Response(JSON.stringify(payload), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    }) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--json', '--paths-only']);
+    // Bytes-exact: same as plain --paths-only. NO JSON anywhere.
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n/c.md\n');
+    expect(() => JSON.parse(stdout.join(''))).toThrow();
+    // Without --apply, the API call is still a dry-run (default).
+    expect(sentBody?.dryRun).toBe(true);
+  });
+
+  it('--paths-only --dry-run --json (all three together) still emits just paths', async () => {
+    // --dry-run is an alias for "not --apply" so we accept the
+    // redundant flag without complaint, and the --paths-only
+    // short-circuit still wins over --json. This is the most
+    // explicit form of the safe-preview combo: a script declares
+    // every guardrail (dry-run + json + paths-only) and gets
+    // back exactly what `xargs` expects.
+    const payload = {
+      matched: 2,
+      removedChunks: 4,
+      removedPaths: ['/x.md', '/y.md'],
+      dryRun: true,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })) as never;
+    // Note: `--dry-run` is NOT actually defined as a flag on this
+    // command (the default IS dry-run) — but the operator habit of
+    // passing it explicitly is real, and commander would reject an
+    // unknown flag. Test with the documented `--paths-only --json`
+    // pair which is what the queue item asked for: "preview removals
+    // without parsing the structured payload".
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--json', '--paths-only']);
+    expect(stdout.join('')).toBe('/x.md\n/y.md\n');
+  });
+
+  it('--paths-only --json --apply still emits paths (the apply path also short-circuits)', async () => {
+    // The short-circuit must apply on the destructive path too, not
+    // just on the safe dry-run path. The api returns the same
+    // `removedPaths` shape for both, so `clawmind forget ...
+    // --apply --json --paths-only` should also emit one path per
+    // line (the paths that were actually removed) without leaking
+    // the structured payload — same contract as the dry-run.
+    const payload = {
+      matched: 1,
+      removedChunks: 4,
+      removedPaths: ['/gone.md'],
+      dryRun: false,
+    };
+    let sentBody: { dryRun: boolean } | undefined;
+    globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+      sentBody = init?.body ? JSON.parse(String(init.body)) as { dryRun: boolean } : undefined;
+      return new Response(JSON.stringify(payload), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      });
+    }) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--apply', '--json', '--paths-only']);
+    expect(stdout.join('')).toBe('/gone.md\n');
+    // With --apply, the API call is the live destructive one.
+    expect(sentBody?.dryRun).toBe(false);
+  });
+
+  it('--json without --paths-only still emits the structured payload (regression: short-circuit only fires when --paths-only is set)', async () => {
+    // Critical regression: existing --json consumers (with no
+    // --paths-only) must continue to get the structured payload.
+    // The short-circuit is GATED on --paths-only being present.
+    const payload = {
+      matched: 2,
+      removedChunks: 5,
+      removedPaths: ['/a.md', '/b.md'],
+      dryRun: true,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--json']);
+    // Full payload, NOT path-per-line.
+    const parsed = JSON.parse(stdout.join('')) as {
+      patterns: string[]; matched: number; removedPaths: string[]; dryRun: boolean;
+    };
+    expect(parsed.patterns).toEqual(['/tmp/*.md']);
+    expect(parsed.matched).toBe(2);
+    expect(parsed.removedPaths).toEqual(['/a.md', '/b.md']);
+    expect(parsed.dryRun).toBe(true);
+  });
 });

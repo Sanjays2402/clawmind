@@ -101,21 +101,39 @@ export function forgetCommand() {
           report = await callForget(patterns, dryRun);
         }
 
-        if (opts.json) {
-          process.stdout.write(
-            JSON.stringify({ patterns, ...report }, null, 2) + '\n',
-          );
-          return;
-        }
-
         // --paths-only is the pipe-friendly twin of `stale --paths`. It
         // skips every styled byte (no header, no rerun hint, no colour)
         // so `clawmind forget '/tmp/*.md' --paths-only | xargs git rm`
         // is safe. It deliberately ignores --quiet (which only hides the
         // path list in the human report) because hiding paths in
         // --paths-only would defeat the point of the flag.
+        //
+        // Critical: --paths-only short-circuits BEFORE the --json
+        // branch so the combo `--dry-run --json --paths-only` (or
+        // any reordering thereof) emits one path per line, NOT the
+        // structured JSON payload. The contract follows the
+        // precedent set by `search --paths-only` and `related
+        // --paths-only`: pipeline-friendly trumps machine-readable.
+        //
+        // The natural cron use is a script that always passes
+        // `--json` for safety + ApiError handling but wants
+        // path-per-line output when it also passes --paths-only —
+        // without this short-circuit the script would have to
+        // strip `--json` conditionally, which is fragile.
+        // Pairs naturally with --dry-run for "preview the paths
+        // that WOULD be removed" (still the safe default; the
+        // command is dry-run unless --apply is set, so the combo
+        // `--json --paths-only` on its own is already a safe
+        // preview).
         if (opts.pathsOnly) {
           for (const p of report.removedPaths) process.stdout.write(`${p}\n`);
+          return;
+        }
+
+        if (opts.json) {
+          process.stdout.write(
+            JSON.stringify({ patterns, ...report }, null, 2) + '\n',
+          );
           return;
         }
 
