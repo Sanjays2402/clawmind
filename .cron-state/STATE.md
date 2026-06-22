@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-21 13:26 PDT (current)
+### Tick 2026-06-21 16:57 PDT (current)
+
+- [x] feat(search): add --rerank-only debug flag (skipMmr through RAG retrieve) (2d9f396)
+- [x] test(related): pin -n/--namespaces end-to-end forwarding contract (c1d622f)
+- [x] feat(digest): add run --json --slim for 3-field cron-dashboard tally (b0da13a)
+- [x] feat(forget): make --paths-only short-circuit win over --json (cron-safe combo) (08fcba0)
+- [x] feat(stats): add --json --slim --tsv awk-pipeline shape (2-col namespace+files) (465b833)
+
+### Tick 2026-06-21 13:26 PDT
 
 - [x] feat(export): add --since end-to-end (API + CLI) for incremental conversation dumps (22bb5f4)
 - [x] feat(search): add --rerank-off debug escape hatch through RAG retrieve() (d3419d3)
@@ -123,20 +131,19 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(status): add --watch <ms> to repoll periodically for terminal dashboards
 - [ ] feat(ask): add --stream-json to emit one NDJSON event per token (kind=token/sources/done) for live UI piping
 - [ ] feat(status): add --json-watch that emits one NDJSON snapshot per poll cycle (pairs with --watch)
-- [ ] feat(search): add --rerank-only escape hatch (the inverse of --rerank-off): emit ONLY the rerank-stage output (skip the MMR diversity pass) so the operator can compare the rerank step's contribution in isolation. Pairs with --rerank-off for a 3-way A/B (raw / reranked / mmr+rerank).
-- [ ] feat(forget): add --json --dry-run --paths-only shortcut so a script can preview removals without parsing the structured payload (currently a single-flag combo of existing flags but worth a smoke test)
 - [ ] feat(digest): add `digest show --since-last` shortcut — bound to the saved-search's previous run timestamp ("what has this saved search surfaced since the last time I read it") without an explicit cutoff arg
-- [ ] feat(related): add -n/--namespaces filter forwarded to the API (the option already exists; verify it's honoured end-to-end and add a regression test)
 - [ ] feat(watch): add a `--debounce` companion that decays based on idle time (so a quiet workspace re-ingests fast but a noisy `npm install` burst still rides the debounce up to the cap)
 - [ ] feat(ingest): wire --since into the ingestRoot path too so downstream consumers (reindex, web) can pass the same flag without restructuring the code (currently only the cli command surfaces it; the @clawmind/ingest API stays unchanged)
-- [ ] feat(stats): add --json --slim --tsv shortcut that emits `<namespace>\t<total>` rows for awk pipelines (mirrors the --tsv contract on the full stats but on the slim shape)
 - [ ] feat(tags): add --counts mode listing namespaces with their tag-frequency totals (for "what tags are dominating my index" questions) — the new `tags list --sort count --top N` covers the lookup but a per-namespace breakdown is still missing
 - [ ] feat(doctor): add --since <iso-date> for filtering findings by ts (cron dashboards want only the recent ones); pairs naturally with --json --quiet. NOTE: requires API change too — DoctorReport.findings entries don't carry a `ts` field today; either add one server-side or anchor the filter on report.generatedAt at the report level (less useful) — design decision pending.
 - [ ] feat(reindex): add --since combined with --paths-only that pipes the filtered set into a single reindex call without touching the live path (preview-only, partial-reindex companion to the new --since)
 - [ ] feat(stale): add --tsv --since composition test (pin the byte layout when both flags fire on the same invocation)
 - [ ] feat(export): add --since composition test that round-trips through the live API end-to-end (the CLI test mocks fetch; the API test injects routes; a third test could spin up the real Fastify app + bind a tcp port and call through `clawmind export` to catch wire-format regressions)
 - [ ] feat(watch): add --once --since <iso-date> composition (one-shot incremental refresh; pairs the new --once with the ingest --since semantics so a cron tick can ride out the burst without re-walking the workspace)
-- [ ] feat(digest): add run --max --json --slim shape — emit just `{ran, deferred, sinceSkipped}` (3-field tally for cron dashboards). Mirrors `doctor --json --quiet` byte-for-byte; pairs with --max for an at-a-glance "did the cron tick get through the batch" panel.
+- [ ] feat(search): add --rerank-only --json --no-snippet shortcut — slim payload (no snippet/highlights) on the no-MMR debug path so a rerank-only A/B run can compare the bare rank/path/score shape across the 3-way (default / --rerank-off / --rerank-only) without snippet noise inflating each payload 10x. Three flags compose naturally; the test is the smoke (current --no-snippet contract + current --rerank-only contract should already produce this for free, but pinning the byte shape would guard against a future regression).
+- [ ] feat(related): add --above <n> / --below <n> filter pair mirroring `feedback list` — the cron use is "the strongest signal neighbours" (--above 0.9) for "is this source semantically isolated or part of a tight cluster", and "the weakest survivors" (--below 0.4) for "is the source about to drop out of the related set". Composes with --threshold for an asymmetric band (--above 0.6 --below 0.85 = the "marginal" range).
+- [ ] feat(stats): add --json --slim --since composition test that pins the byte layout when both flags fire (the new --slim --tsv contract is similar but covers --tsv only; --since composition is exercised elsewhere but not the EXACT byte layout that the slim shape produces under the cutoff)
+- [ ] feat(digest): add run --json --slim --since composition test — three-flag pipe `--max N --since X --json --slim` is the canonical cron probe shape; existing tests cover the pairs but the triple-flag exact-byte-layout under empty / partial / full survivors would be a useful regression for the dashboard contract
 
 ## Conventions
 
@@ -875,3 +882,151 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   change (RetrieveOptions through retrieve()) is the first time
   the RAG pipeline has exposed a stage-bypass dial -- set up so
   future debug knobs land cleanly on the same interface.
+
+- 2026-06-21 16:57 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: 2d9f396, c1d622f, b0da13a, 08fcba0, 465b833. Test gate:
+  `@clawmind/cli` 393/393 vitest pass (up from 368). 25 net new tests
+  spread across 4 files: search.test.ts (+6 -> 36), related.test.ts
+  (+4 -> 17), feedback-digest.test.ts (+4 -> 77), forget.test.ts
+  (+4 -> 16), stats.test.ts (+7 -> 52). Plus +4 in `@clawmind/rag`
+  pipeline.test.ts (8/8 total) for the skipMmr stage-bypass path.
+  `@clawmind/cli` typecheck: clean. `@clawmind/api` 1230/1230 on a
+  clean re-run (snapshots prune-arithmetic test flaked once in a
+  parallel run; isolated run passes 11/11, not my changes -- I did
+  not touch apps/api this tick). Same two pre-existing reds outside
+  cli (telemetry OpenTelemetry 1.x/2.x peer mismatch + rag/hybrid
+  alpha-blend drift); neither introduced this tick.
+
+  Theme: knock out the explicitly-queued sweep -- FIVE of five
+  features were named in the queued list by exact shape. The
+  --rerank-only flag pairs the existing --rerank-off into a 3-way
+  A/B against the same query, the related namespaces test pins a
+  contract that existed since day one but had no regression
+  coverage, the digest slim shape mirrors doctor --quiet for the
+  cron-budget dashboard panel, the forget paths-only short-circuit
+  fixes a fragile-script edge case (operators who always pass
+  --json now get path-per-line when also passing --paths-only),
+  and the stats slim-tsv shape is the awk-pipeline contract on
+  the slim path.
+
+    1. search --rerank-only (skipMmr through RetrieveOptions). The
+       second debug escape hatch on the RAG pipeline, mirroring
+       --rerank-off. Bypasses the MMR diversity reorder so the
+       operator sees what the lexical rerank step ALONE thinks is
+       the most relevant set, in rerank-score order. Forwards
+       { skipMmr: true } through retrieve(); pipeline returns the
+       head q.k of the rerank output (sliced, NOT mmrRerank). Both
+       flags can be combined for the most extreme bypass ("show
+       me the raw hybrid+boost ordering with no heuristic stages
+       applied"). Critical design property: when neither flag is
+       set, the options arg stays UNDEFINED (NOT {}) so every
+       existing caller in the codebase is byte-identical to
+       before. Pipeline-side test pins skipMmr genuinely changes
+       the result set (3 same-document chunks survive instead of
+       MMR's diversity-promoted /other.md chunk), honours q.k,
+       regression on the default path, and the combined
+       skipRerank+skipMmr case. CLI-side test pins the flag
+       forwarding shape across the 3-way and the composition
+       with --threshold / --paths-only.
+
+    2. related -n/--namespaces end-to-end regression test. The
+       flag has existed since the command first shipped but
+       never had a test asserting the URL it produces. Four new
+       tests pin the contract: -n forwards verbatim as
+       ?namespaces=<csv>; --namespaces (long form) produces the
+       SAME url as -n (catches binding drift); WITHOUT the flag,
+       the param is OMITTED entirely (not sent as empty string,
+       which a stricter future server schema could read as
+       "match nothing"); composes with -k and --threshold (the
+       URL carries -n and -k, --threshold stays client-side).
+       Defensive coverage on a flag whose silent failure would
+       leak every existing pipeline depending on namespace
+       narrowing.
+
+    3. digest run --json --slim. Mirrors `doctor --json --quiet`
+       byte-for-byte: emit ONLY {ran, deferred, sinceSkipped} —
+       the three integers a cron dashboard panel needs to answer
+       "did the cron tick get through the batch?" without
+       parsing the per-id results blob. Single-line JSON for
+       clean NDJSON snapshot diffs. The canonical cron poll is
+       `clawmind digest run --since X --max 10 --json --slim` —
+       three integers tell the dashboard whether the cap fired,
+       whether the cutoff filtered candidates, and how many
+       actually ran. The combined `skipped` total is dropped
+       from the slim shape (recomputable as deferred+sinceSkipped
+       if a consumer wants the legacy field). Empty workspace
+       yields `{ran:0, deferred:0, sinceSkipped:0}` (valid JSON
+       so `jq -e '.ran > 0'` does not parse-error on a quiet
+       tick). --slim without --json is silently ignored
+       (text-mode unchanged); ignored when an id is passed (no
+       batch to slim).
+
+    4. forget --paths-only short-circuit (paths-only WINS over
+       --json). Before this tick, --json won over --paths-only
+       on the forget command and a script that always passed
+       --json for ApiError safety AND --paths-only when it
+       wanted xargs-ready output had to conditionally strip
+       --json — fragile and not what the operator's intent was.
+       Now --paths-only short-circuits BEFORE the --json branch
+       so the combo `--json --paths-only` (and the
+       explicit-everything `--apply --json --paths-only`) emits
+       one path per line. Matches the precedent set by `search
+       --paths-only`, `related --paths-only`, and the
+       pins/mutes/aliases/tags --paths family: pipeline-friendly
+       trumps machine-readable. Critical regression: --json
+       WITHOUT --paths-only still emits the structured payload
+       so every existing JSON consumer is byte-identical to
+       before; the short-circuit is GATED on --paths-only being
+       set.
+
+    5. stats --json --slim --tsv. The awk-pipeline shape on the
+       slim path: one `<namespace>\\t<files>` row per surviving
+       namespace, no header, no totals row, no ANSI. The canonical
+       cron use is `clawmind stats --json --slim --tsv --since X
+       | awk -F'\\t' '$2 > 100'` — two filters in one pipeline
+       (staleness via --since at namespace level, size via awk
+       on column 2) without `jq` flattening the slim shape.
+       Files (NOT bytes/chunks) for the second column because
+       files is the cheapest "size" signal and matches what
+       `stale --paths` counts (so the two contracts compose:
+       `wc -l` on stale --since X --paths agrees numerically
+       with `awk '{s+=$2} END {print s}'` on the slim-tsv
+       restricted to the same namespaces). Flag resolution
+       order fully documented: --paths > --json > --tsv > text
+       (existing), within --json: --slim > --compact (existing),
+       within --slim: --tsv > slim-default JSON (NEW). Pin
+       the contract with empty-stream + -q composition +
+       --since composition + 3 regression tests (--json --tsv
+       without --slim still emits JSON, --tsv without --json
+       still emits the existing 5-col TSV, --slim --tsv without
+       --json falls through to the existing 5-col TSV).
+
+  Push: 0028623..465b833 main -> main. All five commits authored
+  as `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+  Verify-gate note: ran `pnpm --filter @clawmind/cli test`
+  (393/393 pass), `pnpm --filter @clawmind/rag test` (47/48 pass,
+  the 1 fail is the queued hybrid alpha-blend red; my 4 new
+  skipMmr tests pass), `pnpm --filter @clawmind/api test`
+  (1230/1230 pass on second run, snapshots prune-arithmetic
+  flake on one parallel run isolated to 11/11), `pnpm --filter
+  @clawmind/cli typecheck` (clean), `pnpm typecheck` (only red
+  is the queued telemetry OpenTelemetry peer mismatch). Same
+  two pre-existing reds as every prior tick; neither introduced
+  here.
+
+  Theme connector: this tick is the explicit-queue sweep, again.
+  Five of five features were named in the queued list. The
+  related namespaces test is the rarest shape -- a pure test-
+  only commit pinning a contract that has been live but unguarded
+  for the entire repo's history. The rerank-only flag completes
+  the RAG pipeline's debug-dial set: ANY combination of skipRerank
+  + skipMmr can now be requested through retrieve(), surfaced as
+  the corresponding 3-way A/B on the cli (default / --rerank-off
+  / --rerank-only / both). The slim shape pattern (doctor --quiet,
+  stats --slim, NOW digest run --slim) is now firmly the cli's
+  preferred cron-dashboard contract -- a 3-5 field JSON shape on
+  a single line, easy to NDJSON-diff. The forget short-circuit
+  is a small but real fix: it removes a script-fragility class
+  ("strip --json conditionally before --paths-only or you get
+  the wrong shape") that the queued item carved out as worth a
+  smoke test.
