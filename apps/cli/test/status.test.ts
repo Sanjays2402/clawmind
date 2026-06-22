@@ -370,4 +370,115 @@ describe('status cli', () => {
     expect(stderr.join('')).not.toContain('"kind":"banner"');
     expect(stderr.join('')).toContain('status failed: --watch interval must be >= 100ms');
   });
+
+  // ---------------------------------------------------------------
+  // --check-after <n>: debounce the --check exit code so a 1-cycle
+  // probe blip does not flip the exit to 2. The watcher counts the
+  // CONSECUTIVE down-cycles ending at the FINAL snapshot; only if
+  // the streak is >= N does --check trip exit 2.
+  // ---------------------------------------------------------------
+
+  it('--check --check-after 3 with one final blip stays exit 0 (streak < 3)', async () => {
+    // Probes are healthy for the first 2 cycles and down on the 3rd
+    // (the FINAL one). The streak ending at the final snapshot is
+    // only 1 down-cycle, so --check-after 3 says "do not alert".
+    // We flip the mock switches mid-test by scheduling a timeout
+    // 220ms in (after the 100ms interval has fired twice).
+    embedHealthy = true;
+    llmHealthy = true;
+    const downFlip = setTimeout(() => {
+      embedHealthy = false;
+      llmHealthy = false;
+    }, 220);
+    downFlip.unref?.();
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '3', '--check', '--check-after', '3', '--json']);
+    clearTimeout(downFlip);
+    // Final snapshot is unhealthy but the down-streak is only 1
+    // (< 3), so the exit code stays 0.
+    expect(process.exitCode).toBeFalsy();
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(3);
+    // Last snapshot really IS unhealthy — we are testing the
+    // debounce, not a false "everything was fine" cover-up.
+    expect(JSON.parse(lines[2]!).ok).toBe(false);
+  });
+
+  it('--check --check-after 2 with two consecutive final down-cycles trips exit 2', async () => {
+    // Probes are healthy for the first cycle and down for the
+    // remaining 2 cycles. The streak ending at the final snapshot
+    // is 2 down-cycles, which meets --check-after 2 exactly.
+    embedHealthy = true;
+    llmHealthy = true;
+    const downFlip = setTimeout(() => {
+      embedHealthy = false;
+      llmHealthy = false;
+    }, 80);
+    downFlip.unref?.();
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '3', '--check', '--check-after', '2', '--json']);
+    clearTimeout(downFlip);
+    expect(process.exitCode).toBe(2);
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(3);
+    expect(JSON.parse(lines[0]!).ok).toBe(true);
+    expect(JSON.parse(lines[2]!).ok).toBe(false);
+  });
+
+  it('--check --check-after with a recovery cycle resets the streak (exit 0 even if earlier cycles were down)', async () => {
+    // Down for the first 2 cycles, healthy for the final cycle.
+    // The streak ending at the final snapshot is 0 (the final
+    // snapshot itself is healthy), so --check is satisfied
+    // regardless of --check-after. Pin the contract: a recovery
+    // cycle wipes the streak even if it had built up earlier.
+    embedHealthy = false;
+    llmHealthy = false;
+    const upFlip = setTimeout(() => {
+      embedHealthy = true;
+      llmHealthy = true;
+    }, 220);
+    upFlip.unref?.();
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '3', '--check', '--check-after', '1', '--json']);
+    clearTimeout(upFlip);
+    expect(process.exitCode).toBeFalsy();
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(JSON.parse(lines[lines.length - 1]!).ok).toBe(true);
+  });
+
+  it('--check without --check-after preserves legacy contract (any final non-ok trips exit 2)', async () => {
+    // Regression: --check-after is opt-in. The existing contract
+    // (any final non-ok snapshot trips exit 2 regardless of streak
+    // length) must hold when --check-after is absent. Pin the
+    // single-cycle final-down case which a debounce of 1 would
+    // also catch — but without the flag, the legacy any-down rule
+    // applies and the test passes whether or not consecutive-down
+    // logic is wired up.
+    embedHealthy = false;
+    llmHealthy = false;
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '1', '--check', '--json']);
+    expect(process.exitCode).toBe(2);
+  });
+
+  it('--check-after rejects non-positive values up front (exit 1, no polling)', async () => {
+    // A typo'd --check-after 0 silently degrading to "alert on any
+    // blip" (i.e. behaving like --check alone) would defeat the
+    // entire purpose of the flag — reject it cleanly.
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--check-after', '0']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('status failed: --check-after value must be a positive integer');
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('--check-after without --check is silently ignored (the flag only modifies --check\'s exit-code rule)', async () => {
+    // --check-after debounces the --check exit code; without --check
+    // there is no exit code to debounce. We silently ignore — same
+    // precedent as --max-polls without --watch (a flag whose
+    // companion is absent is a no-op, not an error). The loop
+    // still runs, the snapshots still emit, the exit code stays 0
+    // because --check itself was never set.
+    embedHealthy = false;
+    llmHealthy = false;
+    await statusCommand().parseAsync(['node', 'cli', '--watch', '100', '--max-polls', '2', '--check-after', '5', '--json']);
+    expect(process.exitCode).toBeFalsy();
+    const lines = stdout.join('').split('\n').filter(Boolean);
+    expect(lines).toHaveLength(2);
+  });
 });

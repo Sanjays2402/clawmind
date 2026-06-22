@@ -105,7 +105,8 @@ export function statusCommand() {
     .option('--check', 'exit non-zero (code 2) when any probe is down. Designed for CI smoke checks — pipes back the same JSON / text body but flips the exit code so a flat `clawmind status --check` is a usable health-check command in a wider script.')
     .option('--watch <ms>', 'repoll the status snapshot every <ms> milliseconds for a live terminal dashboard. Without --json, each cycle clears the previous render and re-emits the table in place so the operator watches a single refreshing panel (uses ANSI cursor-up + clear-line, falls back to a fresh print on dumb terminals). With --json, each cycle emits one self-contained JSON document on its own line — NDJSON shape by construction so `clawmind status --watch 5000 --json | jq -c .` streams the snapshot for graphing. Polling continues until SIGINT (Ctrl-C) or --max-polls is reached. The minimum interval is 100ms (anything lower would just thrash the providers). Mirrors the polling-loop UX of `top`/`htop` without forcing the operator to wrap the cli in `watch -n 5 clawmind status`. Each cycle reuses the SAME runtime (lance/bm25/manifest stay warm) so per-tick latency is dominated by the two health probes, not the cli warmup.', (v) => Number.parseInt(v, 10))
     .option('--max-polls <n>', 'with --watch: stop after N polling cycles instead of looping until SIGINT. Useful for cron-style probes that want a bounded number of snapshots (`--watch 5000 --max-polls 3` emits 3 snapshots 5s apart then exits cleanly), and required for the test suite to exercise the loop without leaking timers. Ignored without --watch (a one-shot status is already bounded). Non-positive or non-numeric values are rejected up front rather than silently degrading to "no cap" (which on a flag whose entire purpose is to bound the loop is the worst possible failure mode).', (v) => Number.parseInt(v, 10))
-    .action(async (opts: { json?: boolean; check?: boolean; watch?: number; maxPolls?: number }) => {
+    .option('--check-after <n>', 'with --watch --check: only flip the exit code to 2 if the LAST N consecutive cycles were unhealthy. A 1-cycle blip on a flaky provider is the failure mode operators hate — a single probe timeout in a 5-minute --watch loop should NOT alert if --check-after 3 says "I only care if it has been down for 3 cycles". Without --check-after, the existing contract holds (any non-ok FINAL snapshot trips exit 2). With --check-after N, the loop counts consecutive down-cycles ending at the final snapshot; if that streak is < N the exit code stays 0 even though the final snapshot is unhealthy. A recovery cycle resets the streak to 0 (a probe coming back up immediately re-arms the debounce). Ignored without --check (the flag only modifies --check\'s exit-code rule, not the body of the report) and ignored without --watch (the one-shot path has nothing to debounce). Non-positive / non-numeric values are rejected up front. The canonical use is a 24/7 monitoring loop: `clawmind status --watch 5000 --check --check-after 3` rides out one or two transient probe timeouts but alerts cleanly when a real outage holds for 3 consecutive cycles.', (v) => Number.parseInt(v, 10))
+    .action(async (opts: { json?: boolean; check?: boolean; watch?: number; maxPolls?: number; checkAfter?: number }) => {
       // --watch validation up front. We REJECT non-positive / NaN /
       // sub-100ms intervals before doing any work because a typo'd
       // --watch 0 would melt CPU spinning the probe loop, and a
@@ -129,6 +130,22 @@ export function statusCommand() {
       // bounded run.
       if (opts.maxPolls !== undefined && (!Number.isFinite(opts.maxPolls) || opts.maxPolls <= 0)) {
         process.stderr.write(kleur.red(`status failed: --max-polls value must be a positive integer (got "${opts.maxPolls}")\n`));
+        process.exitCode = 1;
+        return;
+      }
+      // --check-after validation. Same shape as --max-polls: only
+      // meaningful when --watch + --check are both set, but we
+      // validate the value when present regardless so a typo
+      // (`--check-after 0`) cannot poison the bounded run. Silently
+      // ignored without --check/--watch (matches precedent set by
+      // --slim without --json on digest run — a flag whose companion
+      // is absent is a no-op, not an error). Non-positive / NaN
+      // aborts up front rather than silently degrading to "no
+      // debounce" (which would defeat the entire purpose of the
+      // flag — a typo'd --check-after 0 silently behaving like
+      // --check alone is the worst possible failure mode).
+      if (opts.checkAfter !== undefined && (!Number.isFinite(opts.checkAfter) || opts.checkAfter <= 0)) {
+        process.stderr.write(kleur.red(`status failed: --check-after value must be a positive integer (got "${opts.checkAfter}")\n`));
         process.exitCode = 1;
         return;
       }
@@ -227,6 +244,15 @@ export function statusCommand() {
       process.once('SIGINT', onSig);
       let lastLineCount = 0;
       let lastSnap: StatusSnapshot | null = null;
+      // Running tally of consecutive down-cycles ending at the most
+      // recent snapshot. Used by --check-after to debounce the
+      // --check exit code: a 1-cycle blip should NOT flip the exit
+      // code if the operator asked for "N consecutive down cycles
+      // before alerting". Reset to 0 on every healthy snapshot so
+      // a recovery wipes the streak. Without --check-after the
+      // counter is still maintained but never consulted (the legacy
+      // "any final non-ok snapshot trips exit 2" contract holds).
+      let consecutiveDown = 0;
       try {
         let polls = 0;
         // Tight loop with an awaited sleep between cycles. We exit
@@ -274,6 +300,18 @@ export function statusCommand() {
             // tool, not a tripwire.
             if (!opts.json) emitCheckStderr(snap);
           }
+          // Maintain the consecutive-down streak so --check-after
+          // can decide whether the final state is "really down" or
+          // "just a blip". We update unconditionally — the streak
+          // is meaningful regardless of --check (a future debug
+          // dump might want to read it) — but it is only CONSULTED
+          // when --check-after is set at loop-exit. Healthy
+          // snapshot resets to 0 so a recovery wipes the streak;
+          // unhealthy snapshot increments. The contract pins on
+          // the most recent streak ending at the FINAL snapshot,
+          // not the peak streak across the loop.
+          if (snap.ok) consecutiveDown = 0;
+          else consecutiveDown += 1;
           if (interrupted) break;
           if (maxPolls !== undefined && polls >= maxPolls) break;
           // Sleep for the requested interval, but bail early if
@@ -301,9 +339,15 @@ export function statusCommand() {
       }
       // Final exit code reflects the LAST observed snapshot. --check
       // is opt-in; without it the watcher exits 0 regardless of
-      // probe state.
+      // probe state. --check-after, when set, debounces the exit
+      // code: a final non-ok snapshot only trips exit 2 if the
+      // streak of consecutive down-cycles ending at that snapshot
+      // is >= N. Without --check-after the legacy contract holds
+      // (any final non-ok snapshot trips exit 2).
       if (opts.check && lastSnap && !lastSnap.ok) {
-        process.exitCode = 2;
+        if (opts.checkAfter === undefined || consecutiveDown >= opts.checkAfter) {
+          process.exitCode = 2;
+        }
       }
     });
 }
