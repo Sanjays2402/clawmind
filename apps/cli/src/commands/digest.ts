@@ -64,8 +64,9 @@ export function digestCommand() {
     .option('-q, --q <text>', 'case-insensitive substring filter across id, title, and query')
     .option('--since <iso-date>', 'keep only saved searches whose lastRunTs is strictly less than this ISO date (i.e. those that have NOT been re-run since the cutoff). The natural cron use is finding overdue digests: `clawmind digest list --since "$(date -u -d \'1 hour ago\' +%FT%TZ)"` answers "which saved searches need re-running" without having to mentally subtract dates from the timestamps. Mirrors `digest run --since` semantics byte-for-byte: a digest with lastRunTs === null (never run) is ALWAYS INCLUDED (a never-run digest is the most extreme case of "overdue"), and the cutoff comparison uses strict less-than. Composes with -q as an intersection (substring filter on id/title/query AND lastRunTs predates cutoff). Parse failures abort cleanly with exit 1. Filter applies BEFORE --json / text rendering so both modes see the same survivors.')
     .option('--sort <key>', 'sort surviving saved searches by one of: lastRunTs (asc — oldest-run first, the natural "what is most overdue" ordering for a cron dashboard; never-run digests sort to the TOP because lastRunTs === null is more overdue than any timestamp), runs (desc — most-frequently-run first; the "which saved searches are getting hammered" question), title (asc alphabetical, for stable cross-snapshot diffs of `digest list --json`). Applied AFTER -q / --since so the sort orders the SURVIVORS of any narrowing filter (matches the operator\'s "sort what I asked for" expectation). Pairs naturally with --since for the canonical overdue audit: `digest list --since "$(...)" --sort lastRunTs --json` returns overdue digests with the longest-overdue at the top. Ties at the same sort key fall back to API order (secondary sort by original index for cross-snapshot determinism). Unknown keys abort cleanly with exit 1. The default (no --sort) preserves the API-returned order so existing scripts diffing `digest list --json` snapshots stay byte-stable.')
+    .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` / `feedback list --reverse` byte-for-byte). With --sort lastRunTs the default is asc (oldest-run first); --reverse gives desc — the "most-recently-run digests first" question, the inverse of the overdue-audit default. With --sort runs the default is desc (most-frequently-run first); --reverse gives asc — surfaces the long tail of seldom-run saved searches that may be candidates for retirement. With --sort title the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. Ignored without --sort (the API ordering is a fixed contract). The secondary tie-break by original index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction. Note on the lastRunTs null-handling: under --reverse the never-run digests sort to the BOTTOM (the desc inverse of "null === most overdue" is "null === least recently run"), which is the colloquially correct reading — a never-run digest cannot be "most recently run".')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; sort?: string; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; sort?: string; reverse?: boolean; json?: boolean }) => {
      await runAction('digest list', async () => {
       const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
       let out = (await apiFetch('GET', `/v1/digests${qs}`)) as {
@@ -154,6 +155,23 @@ export function digestCommand() {
         if (!validKeys.includes(sortKey)) {
           throw new ApiError(`--sort value must be one of: lastRunTs, runs, title (got "${opts.sort}")`);
         }
+        // --reverse flips the per-key direction. Mirrors `stale --reverse`
+        // / `search --reverse` / `related --reverse` / `feedback list
+        // --reverse` byte-for-byte: a single sign-flipping multiplier
+        // (dir = -1 under --reverse, else 1) applied to BOTH the
+        // primary comparator AND the secondary tie-break by original
+        // index. The dual-flip preserves cross-snapshot determinism
+        // under --reverse — without it, ties would silently shift on
+        // every other run.
+        //
+        // Note on the lastRunTs null-handling under --reverse: the
+        // default treats null as -Infinity (sorts to top under asc =
+        // "most overdue"). Under --reverse the multiplier flips that
+        // to "-Infinity * -1 = +Infinity", which sorts to the bottom
+        // under the visible desc ordering — i.e. never-run digests
+        // are "least recently run" which is the colloquially correct
+        // reading of `--sort lastRunTs --reverse`.
+        const dir = opts.reverse ? -1 : 1;
         const ranked = out.items
           .map((it, idx) => ({ it, idx }))
           .sort((a, b) => {
@@ -170,9 +188,11 @@ export function digestCommand() {
             } else if (sortKey === 'title') {
               cmp = a.it.title.localeCompare(b.it.title);
             }
-            if (cmp !== 0) return cmp;
+            if (cmp !== 0) return cmp * dir;
             // Secondary sort by original index for deterministic ties.
-            return a.idx - b.idx;
+            // Also reversed under --reverse so cross-snapshot determinism
+            // holds in either direction.
+            return (a.idx - b.idx) * dir;
           })
           .map((r) => r.it);
         out = { ...out, items: ranked };

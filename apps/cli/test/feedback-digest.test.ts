@@ -1365,6 +1365,103 @@ describe('digest cli', () => {
     process.exitCode = 0;
   });
 
+  // --reverse: mirrors `stale --reverse` / `search --reverse` /
+  // `related --reverse` / `feedback list --reverse` byte-for-byte.
+  // The 5th command in the family-wide reverse-modifier sweep.
+  // -----------------------------------------------------------------
+
+  it('digest list exposes --reverse on the command surface', () => {
+    const flags = digestCommand().commands
+      .find((c) => c.name() === 'list')!.options
+      .map((o) => o.long);
+    expect(flags).toContain('--reverse');
+  });
+
+  it('digest list --sort lastRunTs --reverse orders most-recently-run first (the inverse of the overdue default)', async () => {
+    // Default --sort lastRunTs is asc (oldest-run first / overdue
+    // audit). --reverse gives desc — "what ran most recently".
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { savedSearchId: 'mid', title: 'mid', query: 'q', lastRunTs: 200, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 'old', title: 'old', query: 'q', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 'new', title: 'new', query: 'q', lastRunTs: 300, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ],
+      }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--sort', 'lastRunTs', '--reverse', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string }[] };
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['new', 'mid', 'old']);
+  });
+
+  it('digest list --sort lastRunTs --reverse places never-run digests at the BOTTOM (desc inverse of null === most overdue)', async () => {
+    // Under the default asc, null sorts to the top because null is
+    // -Infinity. Under --reverse the dir multiplier flips that to
+    // sort-to-bottom, which is the colloquially correct reading: a
+    // never-run digest cannot be "most recently run".
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { savedSearchId: 'a', title: 'a', query: 'q', lastRunTs: 100, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 'never', title: 'never', query: 'q', lastRunTs: null, lastNewCount: 0, lastRemovedCount: 0, runs: 0 },
+          { savedSearchId: 'b', title: 'b', query: 'q', lastRunTs: 200, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ],
+      }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--sort', 'lastRunTs', '--reverse', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string }[] };
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['b', 'a', 'never']);
+  });
+
+  it('digest list --sort runs --reverse orders survivors asc (long tail of seldom-run digests first)', async () => {
+    // Default --sort runs is desc (most-frequently-run first);
+    // --reverse gives asc — surfaces saved searches that are
+    // candidates for retirement.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { savedSearchId: 'mid', title: 'mid', query: 'q', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 5 },
+          { savedSearchId: 'hammer', title: 'hammer', query: 'q', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 99 },
+          { savedSearchId: 'tail', title: 'tail', query: 'q', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ],
+      }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--sort', 'runs', '--reverse', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string }[] };
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['tail', 'mid', 'hammer']);
+  });
+
+  it('digest list --reverse without --sort is silently ignored (default API ordering preserved)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { savedSearchId: 'c', title: 'c', query: 'q', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 'a', title: 'a', query: 'q', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 'b', title: 'b', query: 'q', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ],
+      }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--reverse', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string }[] };
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('digest list --sort title --reverse preserves cross-snapshot determinism on ties (secondary index also reversed)', async () => {
+    // Two entries with title === 'tie' — under --reverse the
+    // secondary index sort is ALSO reversed so the snapshot is
+    // byte-stable in either direction.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { savedSearchId: 'first-tie', title: 'tie', query: 'q', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 'loner', title: 'zzz', query: 'q', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+          { savedSearchId: 'second-tie', title: 'tie', query: 'q', lastRunTs: 0, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        ],
+      }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--sort', 'title', '--reverse', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { savedSearchId: string }[] };
+    // Desc title order: 'zzz' first, then the two 'tie' entries in
+    // REVERSED original-index order (second-tie at idx 2 before
+    // first-tie at idx 0).
+    expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['loner', 'second-tie', 'first-tie']);
+  });
+
   it('run with id prints diffs', async () => {
     await digestCommand().parseAsync(['node', 'cli', 'run', 's1']);
     const out = captured.join('');
