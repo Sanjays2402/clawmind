@@ -514,4 +514,118 @@ describe('tags list --sort / --top', () => {
     expect(parsed.count).toBe(0);
     expect(parsed.tags).toEqual([]);
   });
+
+  // -----------------------------------------------------------------
+  // tags paths <tag> --json --slim: re-key the payload to the family-
+  // wide cron-dashboard convention `{count, tag, paths}` so a
+  // downstream poller scripting against multiple slim-shape commands
+  // (aliases / pins / mutes / tags list / digest / etc.) sees the
+  // SAME top-level `{count, ...}` shape everywhere. The `tag`
+  // identifier is preserved because it disambiguates which tag's
+  // paths these are — useful when a single script polls multiple
+  // tags and dumps them into the same NDJSON stream.
+  // -----------------------------------------------------------------
+
+  it('exposes --slim on the tags paths subcommand surface', () => {
+    const paths = tagsCommand().commands.find((c) => c.name() === 'paths');
+    expect(paths).toBeDefined();
+    const flags = paths!.options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('tags paths --json --slim re-keys to {count, tag, paths} with count-first ordering', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work',
+      paths: ['/a.md', '/b.md', '/c.md'],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--json', '--slim']);
+    const raw = stdout.join('');
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    // Top-level: exactly count + tag + paths (sorted alphabetically).
+    expect(Object.keys(parsed).sort()).toEqual(['count', 'paths', 'tag']);
+    // Count-first ordering: emit order is count, tag, paths so the
+    // raw bytes start with `{"count":`.
+    expect(raw.startsWith('{"count":')).toBe(true);
+    expect(parsed.count).toBe(3);
+    expect(parsed.tag).toBe('work');
+    expect(parsed.paths).toEqual(['/a.md', '/b.md', '/c.md']);
+  });
+
+  it('tags paths --json --slim with a zero-source tag yields {count: 0, tag: "<tag>", paths: []}', async () => {
+    // A tag with no sources is a SIGNAL worth surfacing, not a parse
+    // failure. The slim shape preserves the tag identifier so a
+    // per-tag stability dashboard can see "tag X dropped to zero"
+    // without losing which tag it was.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'empty',
+      paths: [],
+      count: 0,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'empty', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; tag: string; paths: string[] };
+    expect(parsed.count).toBe(0);
+    expect(parsed.tag).toBe('empty');
+    expect(parsed.paths).toEqual([]);
+  });
+
+  it('tags paths --json --slim emits single-line JSON (NDJSON-friendly snapshot stream)', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work',
+      paths: ['/a.md', '/b.md'],
+      count: 2,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--json', '--slim']);
+    const out = stdout.join('');
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1).includes('\n')).toBe(false);
+    expect(out).not.toMatch(/\n  /);
+  });
+
+  it('tags paths --json --slim invariant: count === paths.length', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work',
+      paths: ['/a.md', '/b.md', '/c.md', '/d.md', '/e.md'],
+      count: 5,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; paths: string[] };
+    expect(parsed.count).toBe(parsed.paths.length);
+  });
+
+  it('tags paths --paths-only short-circuits --slim (pipeline shape wins)', async () => {
+    // Mirrors the family-wide --paths-only > --json precedence:
+    // --slim is a --json shape modifier, so when --paths-only is
+    // ALSO set the pipeline path-stream wins. Same precedent as
+    // search / forget / related --paths-only.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work',
+      paths: ['/a.md', '/b.md'],
+      count: 2,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync([
+      'node', 'cli', 'paths', 'work', '--json', '--slim', '--paths-only',
+    ]);
+    // One path per line, no JSON wrapper.
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n');
+  });
+
+  it('tags paths --slim WITHOUT --json is silently ignored (text mode unchanged)', async () => {
+    const payload = {
+      tag: 'work',
+      paths: ['/a.md'],
+      count: 1,
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(payload), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work']);
+    const baseline = stdout.join('');
+    stdout.length = 0;
+    globalThis.fetch = (async () => new Response(JSON.stringify(payload), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--slim']);
+    expect(stdout.join('')).toBe(baseline);
+  });
 });

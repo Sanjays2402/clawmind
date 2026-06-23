@@ -150,7 +150,8 @@ export function tagsCommand() {
     .option('--json', 'emit results as JSON for scripting')
     .option('--paths', 'pipeline-friendly: emit ONLY the path column (no styling, no headers, no "no sources tagged" hint). Zero matches yields an empty stream so xargs/wc keep working. Predates the family-wide `--paths-only` naming used by search/forget/related/stale/pins/mutes/aliases; `--paths-only` is the recommended alias going forward.')
     .option('--paths-only', 'alias for --paths to bring the tags surface in line with the family-wide `--paths-only` naming exposed by search/forget/related/stale. Either flag emits exactly the same byte stream (one path per line, no ANSI, no header, no "no sources tagged" hint) so existing scripts using --paths keep working unchanged. When both are passed, the effect is identical (no precedence — they are truly equivalent). Mirrors the stale --paths / --paths-only alias relationship byte-for-byte. Composes with --json (--paths-only short-circuits --json).')
-    .action(async (tag: string, opts: { json?: boolean; paths?: boolean; pathsOnly?: boolean }) => {
+    .option('--slim', 'with --json: emit a slimmed `{count, tag, paths}` shape that drops nothing (the full --json payload is already {tag, paths, count}). The slim shape just re-keys to the family-wide cron-dashboard convention so a downstream poller scripting against multiple slim-shape commands (aliases / pins / mutes / tags list / digest / etc.) sees the SAME top-level shape `{count, ...}` everywhere. The `tag` identifier is preserved because it disambiguates which tag\'s paths these are — useful when a single script polls `tags paths <a> --json --slim` and `tags paths <b> --json --slim` and dumps both into the same NDJSON stream. Composes naturally with the `tags paths <tag>` command\'s zero-match contract: a tag with no sources yields `{count: 0, tag: "<tag>", paths: []}` rather than an error or empty stream — same shape as a popular tag, just empty arrays. `count === paths.length` always. Ignored without --json (text mode unchanged); short-circuited by --paths / --paths-only (the pipeline shape wins).')
+    .action(async (tag: string, opts: { json?: boolean; paths?: boolean; pathsOnly?: boolean; slim?: boolean }) => {
       const enc = encodeURIComponent(tag);
       const out = (await apiFetch('GET', `/v1/tags/${enc}`)) as {
         tag: string; paths: string[]; count: number;
@@ -170,6 +171,43 @@ export function tagsCommand() {
         return;
       }
       if (opts.json) {
+        // --slim re-keys the full payload to the family-wide cron-
+        // dashboard convention `{count, tag, paths}` so a downstream
+        // poller scripting against multiple slim-shape commands
+        // (aliases / pins / mutes / tags list / digest / etc.) sees
+        // the SAME top-level `{count, ...}` shape everywhere. The
+        // full --json payload (`{tag, paths, count}`) is already
+        // slim — there is no per-row metadata to drop — but the
+        // key ORDER differs (count comes last in the full shape)
+        // and the slim shape pins the leading-count convention so
+        // a `jq '.count'` filter works against every slim shape in
+        // the family without case-by-case handling.
+        //
+        // The `tag` identifier is preserved because it disambiguates
+        // which tag's paths these are — useful when a single cron
+        // script polls `tags paths <a> --json --slim` and
+        // `tags paths <b> --json --slim` and dumps both into the
+        // same NDJSON stream. Without `tag` the dashboard parser
+        // would have to know which command produced which line by
+        // out-of-band convention.
+        //
+        // Zero matches yields `{count: 0, tag: "<tag>", paths: []}`
+        // (NOT an empty stream or an error) so a downstream cron
+        // poll polling a tag that has no sources sees the same shape
+        // as a popular tag, just with empty arrays. The natural use
+        // is a per-tag stability dashboard where a tag dropping to
+        // zero is a SIGNAL worth surfacing, not a parse failure.
+        //
+        // `count === paths.length` always (the API already enforces
+        // this on the source side; we re-emit it for symmetry).
+        //
+        // Single-line JSON.stringify so an NDJSON snapshot stream
+        // diffs cleanly across ticks.
+        if (opts.slim) {
+          const slim = { count: out.count, tag: out.tag, paths: out.paths };
+          process.stdout.write(JSON.stringify(slim) + '\n');
+          return;
+        }
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
         return;
       }
