@@ -1041,3 +1041,176 @@ describe('watch cli --once --preview-json', () => {
     expect(body.slice(0, -1)).not.toContain('\n');
   });
 });
+
+// ---------------------------------------------------------------
+// --once --preview-json --slim: dashboard probe shape `{count,
+// since}` that drops `root` AND `files[]` entirely. The classic
+// cron use is `clawmind watch --once --since <iso> --preview-json
+// --slim` polled every minute as a "is the watcher seeing
+// anything" probe without paying the per-file path list. On a
+// workspace with thousands of files matching the cutoff, the full
+// --preview-json payload can be hundreds of kilobytes; the slim
+// shape is ~40 bytes regardless.
+// ---------------------------------------------------------------
+
+describe('watch cli --once --preview-json --slim', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    lastWatcherOpts = null;
+    discoverFilesCalls = [];
+    ingestPathsCalls = [];
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md'];
+    ingestPathsResult = { processed: 2, chunks: 10, skipped: 0 };
+    ingestPathsImpl = null;
+    statMtimeMs = {};
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes --slim on the command surface', () => {
+    const flags = watchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--once --preview-json --slim emits the {count, since} 2-key shape and SKIPS ingestPaths entirely', async () => {
+    // Headline contract: 2 keys exactly, count = post-dedupe length,
+    // since = null when not passed. lance/bm25/manifest untouched
+    // (ingestPathsCalls stays empty — same pure-preview semantics
+    // as the regular --preview-json path).
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/c.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--preview-json', '--slim']);
+    expect(ingestPathsCalls).toHaveLength(0);
+    // discoverFiles STILL fired — we still walked the workspace.
+    expect(discoverFilesCalls).toEqual(['/tmp/r']);
+    const doc = JSON.parse(stdout.join('').trim());
+    expect(doc).toEqual({ count: 3, since: null });
+    // The legacy `root` and `files` MUST be absent so a downstream
+    // dashboard parser does not have to handle the variant.
+    expect('root' in doc).toBe(false);
+    expect('files' in doc).toBe(false);
+  });
+
+  it('--once --preview-json --slim composes with --since (post-cutoff survivors count, cutoff echoed)', async () => {
+    // The slim count is the SURVIVORS of the mtime filter. The
+    // since echo lets a multi-cutoff dashboard identify the row.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/c.md'];
+    statMtimeMs = {
+      '/tmp/r/a.md': Date.parse('2026-06-15T00:00:00Z'),
+      '/tmp/r/b.md': Date.parse('2026-04-01T00:00:00Z'),
+      '/tmp/r/c.md': Date.parse('2026-06-20T00:00:00Z'),
+    };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--since', '2026-06-01', '--preview-json', '--slim']);
+    expect(ingestPathsCalls).toHaveLength(0);
+    const doc = JSON.parse(stdout.join('').trim());
+    expect(doc).toEqual({ count: 2, since: '2026-06-01' });
+  });
+
+  it('--once --preview-json --slim with zero survivors emits {count: 0, since}', async () => {
+    // An empty discovery is the cron-probe sweet spot: a watcher
+    // polled at 1Hz wants the "0 to do" signal as a parseable
+    // single line, not a special-case empty stream (which is the
+    // --paths-only contract).
+    discoverFilesFiles = [];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--preview-json', '--slim']);
+    const doc = JSON.parse(stdout.join('').trim());
+    expect(doc).toEqual({ count: 0, since: null });
+  });
+
+  it('--once --preview-json --slim with cutoff dropping every file yields {count: 0, since}', async () => {
+    // Same shape as the empty-discovery case: the dashboard parser
+    // does NOT need to distinguish "no files at all" from "all
+    // files pre-date the cutoff" — both report count=0.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md'];
+    statMtimeMs = {
+      '/tmp/r/a.md': Date.parse('2024-01-01T00:00:00Z'),
+      '/tmp/r/b.md': Date.parse('2024-01-01T00:00:00Z'),
+    };
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--since', '2026-06-01', '--preview-json', '--slim']);
+    const doc = JSON.parse(stdout.join('').trim());
+    expect(doc).toEqual({ count: 0, since: '2026-06-01' });
+  });
+
+  it('--once --preview-json --slim dedupes the discovered set (count matches the deduped length)', async () => {
+    // Same Set-backed dedupe as --paths-only / --preview-json:
+    // the slim count must report the UNIQUE path count, not the
+    // raw discovery list length. A dashboard counter wired off
+    // `count > N` would be lied to if we leaked duplicates.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md', '/tmp/r/a.md', '/tmp/r/c.md', '/tmp/r/b.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--preview-json', '--slim']);
+    const doc = JSON.parse(stdout.join('').trim());
+    // 5 discovered, 3 unique.
+    expect(doc.count).toBe(3);
+  });
+
+  it('--once --preview-json --slim is single-line JSON with a trailing newline (NDJSON-friendly)', async () => {
+    // The slim shape is the cron-snapshot contract. `while true;
+    // do clawmind watch --once --since X --preview-json --slim;
+    // sleep 60; done` must produce clean NDJSON. We pin: no
+    // embedded newlines in the body, exactly one trailing newline.
+    discoverFilesFiles = ['/tmp/r/a.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--preview-json', '--slim']);
+    const out = stdout.join('');
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1)).not.toContain('\n');
+    // No indentation — single-line JSON.stringify.
+    expect(out).not.toContain('  "');
+  });
+
+  it('--once --paths-only WINS over --once --preview-json --slim (pipeline trumps dashboard)', async () => {
+    // The precedence contract: --paths-only stays the pipeline-
+    // friendly older contract for xargs callers. A script that
+    // grew --paths-only first and later added --preview-json
+    // --slim (perhaps copy-pasted from a different command) must
+    // keep getting the path-per-line stream the script was built
+    // around. Same precedent as --paths-only winning over
+    // --preview-json without --slim.
+    discoverFilesFiles = ['/tmp/r/x.md', '/tmp/r/y.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--paths-only', '--preview-json', '--slim']);
+    const body = stdout.join('');
+    // Path-per-line, NOT JSON.
+    expect(body).toBe('/tmp/r/x.md\n/tmp/r/y.md\n');
+    expect(() => JSON.parse(body)).toThrow();
+    expect(ingestPathsCalls).toHaveLength(0);
+  });
+
+  it('--slim without --preview-json is silently ignored (regular --once ingest report still emits)', async () => {
+    // --slim is a --preview-json modifier. Used without it on the
+    // --once path, the regular ingest report (text or --json) is
+    // emitted unchanged. We assert ingestPaths DID fire (no pure-
+    // preview short-circuit) and the slim shape is NOT on stdout.
+    discoverFilesFiles = ['/tmp/r/a.md', '/tmp/r/b.md'];
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--slim']);
+    // ingestPaths fired (slim alone is a no-op without --preview-json).
+    expect(ingestPathsCalls).toHaveLength(1);
+    // Stdout has the text-mode ingest report, NOT the slim JSON.
+    const out = stdout.join('');
+    expect(out).not.toMatch(/^\{/);
+    expect(out).toContain('Indexed');
+  });
+
+  it('--once --preview-json --slim with an invalid --since aborts cleanly BEFORE the discovery walk', async () => {
+    // Same up-front validation as --paths-only / --preview-json:
+    // a --since typo cannot silently degrade to "probe the whole
+    // workspace" (which is the worst possible failure mode for a
+    // flag whose purpose is to do less work).
+    await watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--once', '--preview-json', '--slim', '--since', 'banana']);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('--since value "banana" is not a valid ISO date');
+    expect(discoverFilesCalls).toEqual([]);
+    expect(ingestPathsCalls).toHaveLength(0);
+    // Stdout stays free of a half-emitted JSON document.
+    expect(stdout.join('')).toBe('');
+  });
+});

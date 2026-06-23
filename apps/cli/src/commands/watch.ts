@@ -16,7 +16,8 @@ export function watchCommand() {
     .option('--since <iso-date>', 'with --once: only ingest files whose filesystem mtime is at-or-after this ISO date. Pairs the new --once mode with the `ingest --since` semantics so a cron tick can ride out a quiet workspace without re-walking every file. The canonical cron flow:\n  clawmind watch --once --since "$(date -u -d \'1 hour ago\' +%FT%TZ)"\nThe filter applies AFTER discoverFiles() (same .clawmindignore + include/exclude globs still walked) but BEFORE the per-file ingest decision, so the operator pays exactly one stat() per discovered file. Cutoff is INCLUSIVE (>=) — a file modified exactly at the cutoff was "modified at the cutoff", which is the boundary an operator passing the previous tick\'s wall-clock cares about. Parse failures abort cleanly with exit 1 — a typo cannot silently degrade to "no filter" (which would re-ingest the entire workspace, the worst possible failure mode for a flag whose purpose is to do LESS work). Ignored WITHOUT --once (the live watcher has no use for an mtime cutoff — chokidar already only fires on actual file events, so --since on the live path would be a confusing no-op). stat() failures on individual files are non-fatal (matches `ingest --since`).')
     .option('--paths-only', 'with --once: pure preview — emit the deduplicated list of files that WOULD be ingested (one path per line, no styling, no header) WITHOUT touching the lance/bm25/manifest. Mirrors `ingest --dry-run --paths-only` and `reindex --dry-run --paths-only` byte-for-byte (same xargs-safe contract) but lives on the `watch` command surface so the cron muscle memory carries: `watch --once --since X --paths-only` is the natural \"what would this scheduled refresh tick touch?\" probe. Composes naturally with --since: the preview list is exactly the post-cutoff survivors. Skips ingestPaths() entirely (the file scan happens, the mtime filter applies, but nothing is read/hashed/embedded/upserted). Empty discovery (or every file pre-dating the cutoff) yields a clean empty stream — `wc -l` sees exactly 0, no header, no \"nothing to do\" hint that would poison `xargs ls`. Wins over --json (a downstream `xargs` consumer wants path-per-line, NOT a JSON document with a paths array) — matches the precedent set by forget/search/related --paths-only short-circuiting over --json. Ignored without --once (no live-watch preview semantics; the live watcher emits per-event NDJSON which is the preview shape for that surface).')
     .option('--preview-json', 'with --once: pure preview — emit a structured `{root, count, files:[...]}` JSON wrapper of the files that WOULD be ingested WITHOUT touching the lance/bm25/manifest. The dashboard-friendly twin of --paths-only: where --paths-only short-circuits --json for xargs callers, --preview-json is the explicit "give me the JSON wrapper" path for dashboard / web-UI callers who want the structured count + root context alongside the file list. Same byte layout as `ingest --dry-run --json` and `reindex --dry-run --json` so a multi-command dashboard can use one parser across all three preview surfaces. Composes naturally with --since: the files array is exactly the post-cutoff survivors. Skips ingestPaths() entirely (the file scan happens, the mtime filter applies, but nothing is read/hashed/embedded/upserted). Empty discovery yields `{root, count: 0, files: []}` (NOT an empty stream — the JSON shape is preserved so a `jq .count` consumer always gets an integer). --paths-only wins over --preview-json when both are passed (xargs callers should still get the path-per-line stream; --preview-json is the opt-in for the JSON consumer). Ignored without --once (no live-watch preview semantics).')
-    .action(async (root: string | undefined, opts: { json?: boolean; debounce?: number; quiet?: boolean; once?: boolean; since?: string; pathsOnly?: boolean; previewJson?: boolean }) => {
+    .option('--slim', 'with --once --preview-json: emit a slimmed `{count, since}` 2-key shape that drops the `root` and `files[]` array entirely. The classic cron use is `clawmind watch --once --since <iso> --preview-json --slim` polled every minute as a "is the watcher seeing anything" probe without paying the per-file path list. On a workspace with thousands of files matching the cutoff, the full --preview-json payload can be hundreds of kilobytes (every path is its own string); the slim shape is ~40 bytes regardless. Mirrors `ingest --dry-run --json --slim`, `reindex --dry-run --json --slim`, `digest run --json --slim`, `compact --json --slim`, and the family-wide cron-dashboard slim contract byte-for-byte: single-line JSON, no per-row detail, only the integers a dashboard panel needs. `count` is the integer the dashboard branches on (`count > 0` = "the next scheduled refresh will touch something"); `since` echoes the cutoff (or null when absent) so a multi-cutoff dashboard polling several scopes can identify which row it is reading without out-of-band tracking. `root` is intentionally dropped (a dashboard polling a single workspace already knows the root from cron config) and `files[]` is the whole point of the slim shape (we are dropping it). Composes naturally with --since (slim count describes the post-cutoff survivors). Ignored without --once + --preview-json. --paths-only still wins over --slim when both are set with --once + --paths-only + --preview-json + --slim (the pipeline-friendly path-per-line stream is the older, simpler contract for xargs callers — same precedent as --paths-only winning over --preview-json without --slim).')
+    .action(async (root: string | undefined, opts: { json?: boolean; debounce?: number; quiet?: boolean; once?: boolean; since?: string; pathsOnly?: boolean; previewJson?: boolean; slim?: boolean }) => {
       // --debounce forwards directly to the watcher's `debounceMs`
       // wiring (which already exists in WatcherOptions; this just
       // exposes it on the cli). Reject zero / negative / NaN values
@@ -196,6 +197,48 @@ export function watchCommand() {
               seen.add(p);
               deduped.push(p);
             }
+          }
+          // --slim emits a `{count, since}` 2-key shape that drops
+          // `root` AND `files[]` entirely. Mirrors the family-wide
+          // cron-dashboard slim contract (`ingest --dry-run --json
+          // --slim`, `reindex --dry-run --json --slim`, `digest run
+          // --json --slim`, `compact --json --slim`, etc.) byte-
+          // for-byte: single-line JSON, no per-row detail, only the
+          // integers + identifiers a dashboard panel needs.
+          //
+          // Why this 2-key shape:
+          //   - `count` is the integer the dashboard branches on:
+          //     `count > 0` = "the next scheduled refresh will
+          //     touch something". The headline cron-poll answer.
+          //   - `since` echoes the cutoff (or null when absent) so
+          //     a multi-cutoff dashboard polling several time-
+          //     windows can identify which row it is reading
+          //     without out-of-band tracking; mirrors the family-
+          //     wide cron-dashboard `--since` echo contract.
+          //   - `root` is intentionally dropped: a dashboard
+          //     polling a single workspace already knows the root
+          //     from cron config; a multi-workspace dashboard can
+          //     identify them via cron labels rather than carry
+          //     the path through the JSON payload (~80 byte
+          //     saving per snapshot, meaningful at NDJSON-append
+          //     scale)
+          //   - `files[]` is the whole point of the slim shape
+          //     (we are dropping it); on a workspace with
+          //     thousands of files matching the cutoff, the array
+          //     is the bulk of the payload, and a dashboard
+          //     counting `count > N` does not need the per-path
+          //     detail (the operator can re-run with --preview-
+          //     json alone to see the full list if a panel turns
+          //     red and needs investigation)
+          //
+          // The single-line JSON.stringify (no indent) keeps the
+          // NDJSON snapshot diff clean across cron ticks.
+          if (opts.slim) {
+            process.stdout.write(JSON.stringify({
+              count: deduped.length,
+              since: opts.since ?? null,
+            }) + '\n');
+            return;
           }
           process.stdout.write(
             JSON.stringify({ root: target, count: deduped.length, files: deduped }) + '\n',
