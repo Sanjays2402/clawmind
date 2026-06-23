@@ -970,4 +970,177 @@ describe('stale cli', () => {
     // the entire size ordering is reversed.
     expect(parsed.items.map((i) => i.path)).toEqual(['/second.md', '/first.md', '/big.md']);
   });
+
+  // ---------------------------------------------------------------
+  // --json --slim tests — cron-dashboard shape for stale-budget
+  // panels polling "how many files are stale right now". Mirrors
+  // the family-wide slim contract: single-line JSON, no per-row
+  // detail, only the integers a dashboard panel needs.
+  // ---------------------------------------------------------------
+
+  it('exposes --slim on the command surface', () => {
+    const flags = staleCommand().options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--json --slim emits {count, thresholdDays, since} single-line shape', async () => {
+    // The canonical cron panel: count the survivors, echo the
+    // threshold parameter, echo --since (null when absent). No
+    // per-row detail, no indentation.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/a.md', ageDays: 100, chunkCount: 1, size: 100 },
+        { path: '/b.md', ageDays: 75, chunkCount: 2, size: 200 },
+        { path: '/c.md', ageDays: 50, chunkCount: 3, size: 300 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--slim']);
+    const raw = stdout.join('');
+    // Single-line JSON: no indentation newlines mid-document.
+    expect(raw.split('\n').filter((l) => l.length > 0)).toHaveLength(1);
+    const parsed = JSON.parse(raw);
+    expect(parsed).toEqual({ count: 3, thresholdDays: 30, since: null });
+    // Critical: NO `items`, NO `total` — the slim shape uses `count` instead.
+    expect(parsed.items).toBeUndefined();
+    expect(parsed.total).toBeUndefined();
+  });
+
+  it('--json --slim composes with --since (count describes survivors, since echoes cutoff)', async () => {
+    // The --since filter narrows client-side. The slim shape MUST
+    // describe the post-filter survivors so a cron poll asking
+    // "how many files have been stale since X" gets the right
+    // number. The `since` field echoes the cutoff verbatim.
+    const payload = {
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        // Anchor "now" at parseable time. ageDays=100 means
+        // lastIngestedAt = now - 100d, which < cutoff if cutoff
+        // is "now - 50d" - we use ISO so the rows survive.
+        { path: '/old.md', ageDays: 100, chunkCount: 1, size: 100 },
+        { path: '/older.md', ageDays: 200, chunkCount: 2, size: 200 },
+        // A recent file: ageDays=10 means lastIngestedAt is in the
+        // last 10 days, which is AFTER the cutoff if cutoff = -50d.
+        { path: '/recent.md', ageDays: 10, chunkCount: 3, size: 300 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    // Cutoff at 50 days ago — keep files older than that (old.md, older.md).
+    const cutoff = new Date(Date.now() - 50 * 86_400_000).toISOString();
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--slim', '--since', cutoff]);
+    const parsed = JSON.parse(stdout.join(''));
+    expect(parsed.count).toBe(2); // old.md and older.md survive
+    expect(parsed.thresholdDays).toBe(30);
+    expect(parsed.since).toBe(cutoff);
+  });
+
+  it('--json --slim composes with -q (slim count reflects q-filtered survivors)', async () => {
+    // -q is forwarded server-side, so the API already returns the
+    // narrowed payload. The slim count must match that payload's
+    // length, not the unfiltered set.
+    const payload = {
+      thresholdDays: 30,
+      total: 2,
+      items: [
+        { path: '/notes/foo.md', ageDays: 50, chunkCount: 1, size: 100 },
+        { path: '/notes/bar.md', ageDays: 75, chunkCount: 2, size: 200 },
+      ],
+    };
+    let seenUrl = '';
+    globalThis.fetch = (async (u: string) => {
+      seenUrl = String(u);
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--slim', '-q', 'notes']);
+    // -q forwarded as a query string parameter.
+    expect(seenUrl).toContain('q=notes');
+    const parsed = JSON.parse(stdout.join(''));
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--json --slim with zero matches emits count=0 cleanly', async () => {
+    // Edge: empty workspace yields {count: 0, thresholdDays: <n>, since: null}.
+    // A downstream `jq .count` consumer can branch on emptiness without
+    // re-running. Critically: NOT the empty-table "no sources stale" hint.
+    const payload = { thresholdDays: 30, total: 0, items: [] };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join(''));
+    expect(parsed).toEqual({ count: 0, thresholdDays: 30, since: null });
+  });
+
+  it('--json --slim wins over --paths when all three are set (stale-specific: --json branch comes first)', async () => {
+    // Unlike search/reindex/ingest where --paths-only short-circuits
+    // before --json, in stale the --json branch is checked FIRST in
+    // source order (this is the long-standing stale precedence and
+    // is pinned by `--json wins over --paths` tests earlier in this
+    // suite). The slim shape lives inside the --json branch, so when
+    // --json --slim --paths are all set, the slim payload fires.
+    // This deviates from the family-wide pipeline-beats-dashboard
+    // precedent but it preserves stale's existing --json precedence —
+    // we'd rather honour the established command-local contract than
+    // re-order the branches and risk breaking back-compat for the
+    // long-standing `clawmind stale --json --paths` shape that the
+    // tests above already pinned.
+    const payload = {
+      thresholdDays: 30,
+      total: 2,
+      items: [
+        { path: '/a.md', ageDays: 100, chunkCount: 1, size: 100 },
+        { path: '/b.md', ageDays: 75, chunkCount: 2, size: 200 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--paths', '--json', '--slim']);
+    // --slim shape, NOT the --paths stream — --json branch fires first
+    // in stale (matches the existing precedence; see also the test
+    // `--paths wins over --json` would FAIL on stale because that's
+    // not the stale contract).
+    const parsed = JSON.parse(stdout.join(''));
+    expect(parsed).toEqual({ count: 2, thresholdDays: 30, since: null });
+  });
+
+  it('--slim is ignored without --json (text mode unchanged)', async () => {
+    // Without --json the text path is unchanged. The "N stale" header
+    // still fires so a future regression that hijacked text mode under
+    // --slim would surface.
+    const payload = {
+      thresholdDays: 30,
+      total: 1,
+      items: [
+        { path: '/a.md', ageDays: 100, chunkCount: 1, size: 100 },
+      ],
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--slim']);
+    const out = stdout.join('');
+    expect(out).toContain('1 stale');
+    expect(out).toContain('/a.md');
+  });
 });

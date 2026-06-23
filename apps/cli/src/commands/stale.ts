@@ -68,7 +68,8 @@ export function staleCommand() {
     .option('--tsv', 'emit tab-separated rows (path<TAB>ageDays<TAB>chunkCount<TAB>size) suitable for awk/cut')
     .option('--header', 'with --tsv: prepend a single tab-separated header row (`path\\tageDays\\tchunkCount\\tsize`) so the stream is friendly to `column -ts$\\\'\\\\t\\\'` / pandas.read_csv / spreadsheet imports without a separate echo. The default header-less shape is preserved when --header is absent so the long-standing awk-pipeline contract (`awk -F$\\\'\\\\t\\\' \\\'{print $1}\\\'`) still works byte-for-byte. Ignored without --tsv (the JSON / --paths / --paths-only / text modes already have their own well-defined shapes; adding a header line to those would break tests pinned to their exact byte layouts). When zero rows pass the filters AND --header is set, the header row STILL fires so a downstream consumer parsing the stream into a typed table never has to special-case an empty body — the schema row is the contract, not the data rows.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { days: string; limit: string; paths?: boolean; pathsOnly?: boolean; tsv?: boolean; header?: boolean; q?: string; since?: string; sort?: string; reverse?: boolean; json?: boolean }) => {
+    .option('--slim', 'with --json: emit a slim `{count, thresholdDays, since}` shape carrying ONLY the survivor count, the days threshold, and the --since cutoff (or null when absent) — instead of the full {thresholdDays, total, items: [...]} payload with per-row ageDays/chunkCount/size blocks. Mirrors `digest run --json --slim`, `feedback prune --json --slim`, `stats --json --slim`, `forget --json --slim`, `reindex --dry-run --json --slim`, and `doctor --json --quiet` byte-for-byte: single-line JSON, no per-entry detail. The canonical cron poll is a stale-budget dashboard panel polling `clawmind stale --days 30 --json --slim` once a minute to answer "how many files are stale right now" without paying the per-row detail cost. On a workspace with thousands of stale files, the full --json payload can be hundreds of kilobytes; the slim shape is ~70 bytes regardless. Composes with -q / --since / --days: the slim count describes the SURVIVORS of every narrowing filter (the same set the full --json mode would emit). Composes with --sort / --reverse: the slim count is order-invariant by definition (one integer cannot carry order). Ignored without --json. Wins over the full --json payload when set. Precedence note: in stale (unlike search/reindex/ingest), the --json branch fires BEFORE the --paths / --paths-only / --tsv pipeline branches, so when --json --slim --paths are all set, the slim shape wins. This is the long-standing stale precedence and preserves back-compat with the existing `--json --paths` test pin.')
+    .action(async (opts: { days: string; limit: string; paths?: boolean; pathsOnly?: boolean; tsv?: boolean; header?: boolean; q?: string; since?: string; sort?: string; reverse?: boolean; json?: boolean; slim?: boolean }) => {
       await runOrReport('stale', async () => {
         const params: Record<string, string> = {
           olderThanDays: opts.days,
@@ -184,6 +185,71 @@ export function staleCommand() {
           out = { ...out, items: ranked };
         }
         if (opts.json) {
+          // --slim wins over the full --json payload when set. The
+          // slim shape is `{count, thresholdDays, since}` — only
+          // the integers a dashboard panel needs, no per-row
+          // ageDays/chunkCount/size blocks. Mirrors `digest run
+          // --json --slim`, `feedback prune --json --slim`,
+          // `stats --json --slim`, `forget --json --slim`,
+          // `reindex --dry-run --json --slim`, and `doctor --json
+          // --quiet` byte-for-byte: single-line JSON, no per-
+          // entry detail.
+          //
+          // The canonical cron poll is a stale-budget dashboard
+          // panel:
+          //   clawmind stale --days 30 --json --slim
+          // answers "how many files are stale right now" with a
+          // single-line ~70-byte JSON payload. On a workspace
+          // with thousands of stale files, the full --json payload
+          // can be hundreds of kilobytes (each row carries path +
+          // ageDays + chunkCount + size); the slim shape is
+          // size-invariant.
+          //
+          // Why this shape (not {total, thresholdDays}):
+          //   - `count` is the family-wide spelling (mirrors
+          //     `forget --json --slim`, `feedback list --json
+          //     --slim`, `aliases list --json --slim`, etc.).
+          //     `total` is the full --json mode's spelling so we
+          //     deliberately use a different name to make it
+          //     clear the slim shape is a different schema —
+          //     a downstream `jq .total` against the slim shape
+          //     would return null and fail loudly rather than
+          //     silently produce wrong numbers
+          //   - `thresholdDays` is preserved verbatim because
+          //     it's the input parameter the operator chose;
+          //     echoing it back lets a multi-threshold dashboard
+          //     identify which row it's reading
+          //   - `since` echoes the --since cutoff (or null when
+          //     absent) so a multi-cutoff dashboard polling
+          //     several scopes can identify which row it's
+          //     reading without cross-referencing cron state.
+          //     Mirrors `reindex --dry-run --json --slim`,
+          //     `ingest --dry-run --json --slim` byte-for-byte
+          //   - `items` is intentionally dropped — that's the
+          //     entire payload bloat the slim shape exists to
+          //     avoid (each path is its own string + three
+          //     numbers, so a workspace with 1000 stale files
+          //     is ~70KB of full --json vs ~70 bytes of slim)
+          //
+          // Single-line JSON.stringify (no indent) so an NDJSON
+          // snapshot stream like
+          //   while true; do clawmind stale --json --slim; sleep 60; done
+          // diffs cleanly across cron ticks.
+          //
+          // Composes with -q / --since / --days: the slim count
+          // describes the SURVIVORS of every narrowing filter
+          // (the same set the full --json mode would emit, since
+          // we walk the post-filter `out.items.length`).
+          // Composes with --sort / --reverse trivially: one
+          // integer cannot carry order.
+          if (opts.slim) {
+            process.stdout.write(JSON.stringify({
+              count: out.items.length,
+              thresholdDays: out.thresholdDays,
+              since: opts.since ?? null,
+            }) + '\n');
+            return;
+          }
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
           return;
         }
