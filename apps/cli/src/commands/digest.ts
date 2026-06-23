@@ -489,8 +489,9 @@ export function digestCommand() {
     .option('--diff', 'with --paths-only: split the flat-merge emit into a `git diff`-style stream where every new-path line is prefixed with `+ ` and every removed-path line with `- `. The default --paths-only walks newSources first then removedSources for each row, deduped against a SINGLE Set — which is the right shape for "feed xargs ingest with EVERY path the digest touched" but NOT for the symmetric "feed xargs ingest with only the NEW paths" cron use. --diff closes that gap with prefixes operators already know from `git diff`. The walk order within each direction is preserved: rows newest-first, within each row the API order. Two SEPARATE dedupe sets (one per direction) so a path that appears in both newSources of one row AND removedSources of another row surfaces TWICE — once with `+ `, once with `- ` — because semantically those are two different events (the path was added at one ts, removed at another); collapsing them would lose the symmetric history. The canonical cron pipes this enables:\n         clawmind digest show s1 --paths-only --diff --last 1 | grep "^+ " | cut -c3- | xargs ingest\n         clawmind digest show s1 --paths-only --diff --last 1 | grep "^- " | cut -c3- | xargs forget --apply\n     close the symmetric gap that the previous flat emit forced operators to bridge with `comm` or `jq`. Silently ignored without --paths-only (the JSON / text modes already have their own well-defined shapes; the prefix-stream lives only inside --paths-only). Pairs naturally with --only-added / --only-removed to skip the grep step entirely for single-direction pipelines.')
     .option('--only-added', 'with --paths-only --diff: emit ONLY the `+ `-prefixed new-paths stream, suppressing the `- `-prefixed removed-paths entirely. Closes the gap that the bare `--diff` shape forced operators to bridge with `grep "^+ " | cut -c3-`: a dedicated flag pair lets the cron pipe become `clawmind digest show s1 --paths-only --diff --only-added --last 1 | xargs ingest` (one less pipeline stage, one less subprocess fork, one less place a regex typo can swallow a path). Composes with --diff naturally (it is a --diff modifier). Composes with --only-removed: when BOTH are set, the result is the FLAT shape (every line emitted, BOTH prefixes survive) — i.e. equivalent to plain --paths-only --diff WITHOUT the --only-* flags (the union of both directions is identical to the unfiltered diff stream). This "both = none" semantic is the natural reading: --only-added asks "give me the additions only", --only-removed asks "give me the removals only", their AND is "give me what is added AND what is removed" = everything. Composes with -q / --since / --last (the filters narrow the rows BEFORE the direction-split). Ignored without --diff. Empty after filter yields a clean empty stream (xargs/wc-safe).')
     .option('--only-removed', 'with --paths-only --diff: emit ONLY the `- `-prefixed removed-paths stream, suppressing the `+ `-prefixed new-paths entirely. Mirror of --only-added byte-for-byte (see --only-added for the full semantics). The canonical cron pipe becomes `clawmind digest show s1 --paths-only --diff --only-removed --last 1 | xargs forget --apply` (the digest-driven forget-the-stale-set automation flow). When passed together with --only-added, both flags emit (= unfiltered --diff stream — see --only-added). Ignored without --diff.')
+    .option('--slim', 'with --json: emit a slimmed `{count, addedCount, removedCount}` 3-integer shape that drops the per-row `ts` / `newSources[]` / `removedSources[]` / `totalSources` blocks. `count` is the number of surviving history rows after -q / --since / --last narrow the set; `addedCount` is the SUM of newSources.length across all surviving rows (the total paths added in the window); `removedCount` is the SUM of removedSources.length across all surviving rows. The canonical cron use is a dashboard panel polling "did this saved search churn paths since cutoff X" once a minute as a single ~70-byte poll: `clawmind digest show s1 --since "$(date -u -d \'1 hour ago\' +%FT%TZ)" --json --slim` answers three questions in one shot (count = how many runs fired, addedCount = total adds across them, removedCount = total removes). On a saved search with thousands of paths surfaced per run, the full --json payload can be megabytes (every path string is its own row); the slim shape is constant-size regardless. Mirrors `digest run --json --slim` byte-for-byte (3 integers) but on the read-side: `digest show --json --slim` is the per-saved-search churn-history shape, where `digest run --json --slim` is the per-batch run shape. Composes with -q / --since / --last (the slim counts describe the survivors of every narrowing filter); the slim shape itself does not carry per-row order so --sort would not change it. Ignored without --json (text mode unchanged); short-circuited by --paths-only (the pipeline shape wins — same precedent as the bare --paths-only short-circuits --json). Single-line JSON.stringify for NDJSON snapshot streams.')
     .option('--json', 'emit the history as JSON for scripting')
-    .action(async (id: string, opts: { q?: string; since?: string; last?: number; pathsOnly?: boolean; diff?: boolean; onlyAdded?: boolean; onlyRemoved?: boolean; json?: boolean }) => {
+    .action(async (id: string, opts: { q?: string; since?: string; last?: number; pathsOnly?: boolean; diff?: boolean; onlyAdded?: boolean; onlyRemoved?: boolean; slim?: boolean; json?: boolean }) => {
      await runAction('digest show', async () => {
       const out = (await apiFetch('GET', `/v1/digests/${id}`)) as {
         state: { query: string; history: { ts: number; newSources: { path: string }[]; removedSources: string[]; totalSources: number }[] };
@@ -663,6 +664,46 @@ export function digestCommand() {
         return;
       }
       if (opts.json) {
+        // --slim emits a `{count, addedCount, removedCount}` 3-integer
+        // shape that drops the per-row ts/newSources/removedSources
+        // /totalSources blocks. The natural cron use is a dashboard
+        // panel polling "did this saved search churn paths since
+        // cutoff X" once a minute as a single ~70-byte poll: the
+        // three integers answer three questions in one shot.
+        //
+        //   count        -> survivors of -q / --since / --last
+        //                   (mirrors the full-shape `state.history.length`).
+        //   addedCount   -> SUM of newSources.length across survivors —
+        //                   the total paths added in the window.
+        //   removedCount -> SUM of removedSources.length across survivors —
+        //                   the total paths removed in the window.
+        //
+        // Mirrors `digest run --json --slim` byte-for-byte (3
+        // integers) but on the read-side: `digest show --json --slim`
+        // is the per-saved-search churn-history shape, where `digest
+        // run --json --slim` is the per-batch run shape.
+        //
+        // Composes with -q / --since / --last (the slim counts
+        // describe the survivors of every narrowing filter). The
+        // slim shape itself does not carry per-row order so --sort
+        // would not change it.
+        //
+        // Single-line JSON.stringify (no indent) for NDJSON snapshot
+        // streams that diff cleanly between ticks.
+        if (opts.slim) {
+          let addedCount = 0;
+          let removedCount = 0;
+          for (const h of filteredHistory) {
+            addedCount += h.newSources.length;
+            removedCount += h.removedSources.length;
+          }
+          process.stdout.write(JSON.stringify({
+            count: filteredHistory.length,
+            addedCount,
+            removedCount,
+          }) + '\n');
+          return;
+        }
         process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
         return;
       }

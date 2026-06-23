@@ -3052,4 +3052,142 @@ describe('digest cli', () => {
     // newSources/removedSources uses its own colored format).
     expect(out.split('\n').filter((l) => l.startsWith('+ ') || l.startsWith('- '))).toHaveLength(0);
   });
+
+  // -----------------------------------------------------------------
+  // digest show --json --slim: 3-integer churn-history shape per
+  // saved search. The natural cron use is a dashboard panel polling
+  // "did this saved search churn paths since cutoff X" once a minute.
+  // Mirrors `digest run --json --slim` byte-for-byte (3 integers) but
+  // on the read-side: `digest show --json --slim` is the per-saved-
+  // search churn-history shape, where `digest run --json --slim` is
+  // the per-batch run shape.
+  // -----------------------------------------------------------------
+
+  it('exposes --slim on the show subcommand surface', () => {
+    const show = digestCommand().commands.find((c) => c.name() === 'show')!;
+    const flags = show.options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('show --json --slim emits {count, addedCount, removedCount} 3-integer shape (default fixture)', async () => {
+    // Default fixture history (newest-first):
+    //   ts=2: newSources=[/n1.md], removedSources=[]
+    //   ts=1: newSources=[/p1.md], removedSources=[old]
+    // Expected: count=2 (rows), addedCount=2 (1+1), removedCount=1 (0+1).
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--slim']);
+    const parsed = JSON.parse(captured.join('')) as Record<string, unknown>;
+    // Top-level: exactly 3 keys.
+    expect(Object.keys(parsed).sort()).toEqual(['addedCount', 'count', 'removedCount']);
+    expect(parsed.count).toBe(2);
+    expect(parsed.addedCount).toBe(2);
+    expect(parsed.removedCount).toBe(1);
+    // No per-row leaks.
+    const raw = captured.join('');
+    expect(raw).not.toContain('newSources');
+    expect(raw).not.toContain('removedSources');
+    expect(raw).not.toContain('history');
+    expect(raw).not.toContain('totalSources');
+    expect(raw).not.toContain('"ts"');
+  });
+
+  it('show --json --slim composes with --since (counts describe the survivor window)', async () => {
+    // --since 1970-01-01T00:00:00.002Z keeps only the ts=2 row
+    // (the older ts=1 row is dropped). Expected: count=1, addedCount=1
+    // (the /n1.md added at ts=2), removedCount=0 (ts=2 has no removes).
+    await digestCommand().parseAsync([
+      'node', 'cli', 'show', 's1', '--json', '--slim', '--since', '1970-01-01T00:00:00.002Z',
+    ]);
+    const parsed = JSON.parse(captured.join('')) as { count: number; addedCount: number; removedCount: number };
+    expect(parsed.count).toBe(1);
+    expect(parsed.addedCount).toBe(1);
+    expect(parsed.removedCount).toBe(0);
+  });
+
+  it('show --json --slim composes with -q (substring filter narrows the rows BEFORE the sum)', async () => {
+    // -q "old" keeps only the ts=1 row (the only row touching
+    // a path containing "old" — the removed `old` path). Expected:
+    // count=1, addedCount=1 (the /p1.md added at ts=1), removedCount=1
+    // (the `old` removed at ts=1).
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--slim', '-q', 'old']);
+    const parsed = JSON.parse(captured.join('')) as { count: number; addedCount: number; removedCount: number };
+    expect(parsed.count).toBe(1);
+    expect(parsed.addedCount).toBe(1);
+    expect(parsed.removedCount).toBe(1);
+  });
+
+  it('show --json --slim composes with --last (cap to newest N rows then sum)', async () => {
+    // --last 1 keeps only the newest row (ts=2). Expected: count=1,
+    // addedCount=1, removedCount=0.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--slim', '--last', '1']);
+    const parsed = JSON.parse(captured.join('')) as { count: number; addedCount: number; removedCount: number };
+    expect(parsed.count).toBe(1);
+    expect(parsed.addedCount).toBe(1);
+    expect(parsed.removedCount).toBe(0);
+  });
+
+  it('show --json --slim with empty history yields {count: 0, addedCount: 0, removedCount: 0}', async () => {
+    // An empty history is a normal case — a saved search just added,
+    // never run. The slim shape MUST emit a valid 3-integer document
+    // (NOT an empty stream) so a downstream `jq .count` consumer
+    // always gets an integer.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: { query: 'snip', history: [] },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--slim']);
+    const parsed = JSON.parse(captured.join('')) as { count: number; addedCount: number; removedCount: number };
+    expect(parsed).toEqual({ count: 0, addedCount: 0, removedCount: 0 });
+  });
+
+  it('show --json --slim emits single-line JSON (NDJSON-friendly)', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--slim']);
+    const out = captured.join('');
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1).includes('\n')).toBe(false);
+    expect(out).not.toMatch(/\n  /);
+  });
+
+  it('show --paths-only short-circuits --json --slim (pipeline shape wins)', async () => {
+    // Mirrors the family-wide --paths-only > --json precedence: a
+    // script passing --json --slim --paths-only gets the path-per-
+    // line stream, NOT the slim 3-integer JSON.
+    await digestCommand().parseAsync([
+      'node', 'cli', 'show', 's1', '--paths-only', '--json', '--slim',
+    ]);
+    // Bare --paths-only output (matches the existing flat-merge test).
+    expect(captured.join('')).toBe('/n1.md\n/p1.md\nold\n');
+    // No JSON wrapper.
+    expect(() => JSON.parse(captured.join(''))).toThrow();
+  });
+
+  it('show --slim WITHOUT --json is silently ignored (default text mode unchanged)', async () => {
+    // --slim is a --json shape modifier. Used alone (text mode), it
+    // must be a no-op — the default text rendering of query/history
+    // is preserved.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--slim']);
+    const out = captured.join('');
+    expect(out).toContain('query:');
+    // No JSON document on stdout.
+    expect(out.startsWith('{')).toBe(false);
+  });
+
+  it('show --json --slim invariant: addedCount + removedCount add up across multiple rows (no double-count)', async () => {
+    // Override fixture with 4 rows carrying distinct paths so the
+    // sum is auditable: 3 + 2 + 1 + 0 added = 6, 0 + 0 + 2 + 5 removed = 7.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 4, newSources: [{ path: '/a' }, { path: '/b' }, { path: '/c' }], removedSources: [], totalSources: 3 },
+          { ts: 3, newSources: [{ path: '/d' }, { path: '/e' }], removedSources: [], totalSources: 5 },
+          { ts: 2, newSources: [{ path: '/f' }], removedSources: ['/x', '/y'], totalSources: 6 },
+          { ts: 1, newSources: [], removedSources: ['/p', '/q', '/r', '/s', '/t'], totalSources: 11 },
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--json', '--slim']);
+    const parsed = JSON.parse(captured.join('')) as { count: number; addedCount: number; removedCount: number };
+    expect(parsed.count).toBe(4);
+    expect(parsed.addedCount).toBe(6);
+    expect(parsed.removedCount).toBe(7);
+  });
 });
