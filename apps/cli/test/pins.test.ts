@@ -338,4 +338,117 @@ describe('pins cli', () => {
     expect(stdout.join('')).toBe('');
     expect(stderr.join('')).toBe('');
   });
+
+  // -----------------------------------------------------------------
+  // pins list --json --slim: drop the per-entry pinnedAt / pinnedBy /
+  // note blocks and emit a `{count, paths}` shape. The natural cron
+  // use is a dashboard panel polling "is the pin set stable" once a
+  // minute. Mirrors `aliases list --json --slim` byte-for-byte but
+  // with the paths axis (pins have no name field; the path IS the
+  // identity).
+  // -----------------------------------------------------------------
+
+  it('exposes --slim on the pins list subcommand surface', () => {
+    const list = pinsCommand().commands.find((c) => c.name() === 'list');
+    expect(list).toBeDefined();
+    const flags = list!.options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--json --slim emits {count, paths} and drops the per-entry blocks', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', note: 'why a', pinnedAt: 1700000000000, pinnedBy: 'me' },
+        { path: '/b.md', pinnedAt: 1700000001000, pinnedBy: 'other' },
+        { path: '/c.md', note: 'why c', pinnedAt: 1700000002000, pinnedBy: 'me' },
+      ],
+      count: 3,
+    });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as Record<string, unknown>;
+    // Top-level: exactly count + paths.
+    expect(Object.keys(parsed).sort()).toEqual(['count', 'paths']);
+    expect(parsed.count).toBe(3);
+    expect(parsed.paths).toEqual(['/a.md', '/b.md', '/c.md']);
+    // No per-entry block leaks: no items[], no pinnedAt, no pinnedBy,
+    // no note.
+    const raw = stdout.join('');
+    expect(raw).not.toContain('items');
+    expect(raw).not.toContain('pinnedAt');
+    expect(raw).not.toContain('pinnedBy');
+    expect(raw).not.toContain('note');
+    expect(raw).not.toContain('why');
+  });
+
+  it('--json --slim composes with --since: slim count + paths describe survivors of the cutoff', async () => {
+    // Cron poll: "what got pinned at-or-after the cutoff".
+    stubFetch({
+      items: [
+        { path: '/a.md', pinnedAt: 3000, pinnedBy: 'me' },
+        { path: '/b.md', pinnedAt: 2000, pinnedBy: 'me' },
+        { path: '/c.md', pinnedAt: 1000, pinnedBy: 'me' },
+      ],
+      count: 3,
+    });
+    await pinsCommand().parseAsync([
+      'node', 'cli', 'list', '--json', '--slim', '--since', new Date(2000).toISOString(),
+    ]);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; paths: string[] };
+    expect(parsed.paths).toEqual(['/a.md', '/b.md']);
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--json --slim composes with --by: slim shape describes the per-creator subset', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', pinnedAt: 1, pinnedBy: 'sanjay' },
+        { path: '/b.md', pinnedAt: 2, pinnedBy: 'other' },
+        { path: '/c.md', pinnedAt: 3, pinnedBy: 'sanjay' },
+      ],
+      count: 3,
+    });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim', '--by', 'sanjay']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; paths: string[] };
+    expect(parsed.paths).toEqual(['/a.md', '/c.md']);
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--json --slim emits single-line JSON (NDJSON-friendly snapshot stream)', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', pinnedAt: 1, pinnedBy: 'me' },
+        { path: '/b.md', pinnedAt: 2, pinnedBy: 'me' },
+      ],
+      count: 2,
+    });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const out = stdout.join('');
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1).includes('\n')).toBe(false);
+    // No indentation noise.
+    expect(out).not.toMatch(/\n  /);
+  });
+
+  it('--slim WITHOUT --json is silently ignored (text mode unchanged)', async () => {
+    // Mirrors aliases --slim-without-json silent-ignore precedent.
+    const payload = {
+      items: [{ path: '/a.md', pinnedAt: 1700000000000, pinnedBy: 'me' }],
+      count: 1,
+    };
+    stubFetch(payload);
+    await pinsCommand().parseAsync(['node', 'cli', 'list']);
+    const baseline = stdout.join('');
+    stdout.length = 0;
+    stubFetch(payload);
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--slim']);
+    expect(stdout.join('')).toBe(baseline);
+  });
+
+  it('--json --slim with zero matches yields {count: 0, paths: []}', async () => {
+    stubFetch({ items: [], count: 0 });
+    await pinsCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; paths: string[] };
+    expect(parsed.count).toBe(0);
+    expect(parsed.paths).toEqual([]);
+  });
 });

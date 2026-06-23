@@ -86,8 +86,9 @@ export function pinsCommand() {
     .option('--by <user>', 'keep only pins whose pinnedBy matches this user id EXACTLY. The natural cron use is scoping a daily snapshot to a specific creator in a multi-user workspace where the pin map grows fast — `clawmind pins list --by sanjay --since "$(date -u -d \'1 day ago\' +%FT%TZ)"` answers "what did Sanjay pin today" without scrolling through every member\'s additions. Exact-match semantics (not substring) so the filter is deterministic and pin maps with overlapping user-id prefixes (`sanjay-readonly` vs `sanjay`) don\'t bleed. Composes with -q and --since as an intersection. Filter applies BEFORE --paths / --json / text rendering so every output mode sees the same filtered subset and the recomputed count reflects the filtered length. An empty match yields a clean empty stream / `count: 0` payload — same shape as zero matches from --since or -q.')
     .option('--paths', 'emit only the pinned paths, one per line, with no styling or notes (pipe-friendly)')
     .option('--paths-only', 'family-wide canonical alias for --paths. Mirrors `stale --paths-only` / `tags paths --paths-only` (which also expose both spellings) so the muscle-memory contract is uniform across every list-style command. Both flags emit the byte-identical stream; passing either or both produces the same output. The `--paths` spelling stays for backwards compatibility with existing scripts.')
+    .option('--slim', 'with --json: emit a slimmed `{count, paths}` shape that drops the per-entry pinnedAt / pinnedBy / note blocks. Mirrors `aliases list --json --slim` byte-for-byte but with the paths axis (pins have no name field; the path IS the identity). The classic cron use is a dashboard panel polling \"is the pin set stable\" once a minute — the full --json payload includes the per-entry pinnedAt timestamp (which is a creation timestamp; a snapshot diff over a stable pin set would see no changes, but the JSON payload still costs bytes), pinnedBy, and the optional note body. The `paths` array is the path list IN WHICHEVER ORDER the prior filter pipeline produced (the API returns pins newest-first sorted by pinnedAt desc, so the default slim shape is newest-first). Composes with -q / --since / --by: the slim count + paths describe SURVIVORS of every narrowing filter. `count === paths.length` always. Ignored without --json (text mode unchanged).')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; by?: string; paths?: boolean; pathsOnly?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; by?: string; paths?: boolean; pathsOnly?: boolean; slim?: boolean; json?: boolean }) => {
       await runOrReport('pins list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/pins${qs}`)) as {
@@ -148,6 +149,52 @@ export function pinsCommand() {
           out = { ...out, items, count: items.length };
         }
         if (opts.json) {
+          // --slim emits a `{count, paths}` shape that drops the
+          // per-entry pinnedAt / pinnedBy / note blocks. Mirrors
+          // `aliases list --json --slim` byte-for-byte but with
+          // the paths axis (pins have no name field; the path IS
+          // the identity, so the array name is `paths` not
+          // `names`).
+          //
+          // The natural cron use is a dashboard panel polling
+          // "is the pin set stable" once a minute. The full --json
+          // payload includes the per-entry pinnedAt timestamp
+          // (a creation timestamp — a stable pin set would emit a
+          // stable payload, but the per-row metadata still costs
+          // bytes), pinnedBy (per-creator attribution), and the
+          // optional note body (a free-form string that can be
+          // arbitrarily long). The slim shape drops all of those
+          // — a dashboard that only cares about HOW MANY pins
+          // exist + WHICH paths are pinned pays for what it does
+          // not need.
+          //
+          // The `paths` array is the path list IN WHICHEVER ORDER
+          // the prior filter pipeline produced. The API natively
+          // returns pins newest-first sorted by pinnedAt desc, so
+          // the default slim shape is newest-first. -q narrows
+          // server-side; --since and --by narrow client-side; the
+          // slim shape emits whichever order survived.
+          //
+          // `count` mirrors the full shape's `count` field (post-
+          // filter recomputation, NOT the API natural total). The
+          // sum-equals-total invariant holds: count === paths.length.
+          //
+          // Single-line JSON.stringify (no indent) so an NDJSON
+          // snapshot stream like
+          //   while true; do clawmind pins list --json --slim; sleep 60; done
+          // produces clean NDJSON that diffs cleanly between
+          // ticks (multi-line indent would force every diff to
+          // walk indentation noise — and the paths array diff is
+          // what an operator polling the pin set actually wants
+          // to see).
+          if (opts.slim) {
+            const slim = {
+              count: out.items.length,
+              paths: out.items.map((it) => it.path),
+            };
+            process.stdout.write(JSON.stringify(slim) + '\n');
+            return;
+          }
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
           return;
         }
