@@ -366,4 +366,155 @@ describe('forget cli', () => {
     expect(parsed.removedPaths).toEqual(['/a.md', '/b.md']);
     expect(parsed.dryRun).toBe(true);
   });
+
+  // -----------------------------------------------------------------
+  // forget --json --slim: drop the per-path removedPaths[] AND the
+  // patterns echo; emit `{count, matched, removedChunks, dryRun}`.
+  // The natural cron use is a dashboard panel polling "is the forget
+  // pattern stable" once a minute. The full --json payload can be
+  // megabytes on a wildcard pattern; the slim shape is ~80 bytes
+  // regardless. Mirrors the family-wide --json --slim convention
+  // (leading `count` so jq .count works everywhere).
+  // -----------------------------------------------------------------
+
+  it('exposes --slim on the forget command surface', () => {
+    const flags = forgetCommand().options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--json --slim emits {count, matched, removedChunks, dryRun} and drops removedPaths + patterns', async () => {
+    const payload = {
+      matched: 12,
+      removedChunks: 47,
+      removedPaths: ['/a.md', '/b.md', '/c.md', '/d.md', '/e.md', '/f.md', '/g.md', '/h.md', '/i.md', '/j.md', '/k.md', '/l.md'],
+      dryRun: true,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as Record<string, unknown>;
+    // Top-level: exactly count + matched + removedChunks + dryRun.
+    expect(Object.keys(parsed).sort()).toEqual(['count', 'dryRun', 'matched', 'removedChunks']);
+    expect(parsed.count).toBe(12);
+    expect(parsed.matched).toBe(12);
+    expect(parsed.removedChunks).toBe(47);
+    expect(parsed.dryRun).toBe(true);
+    // Critical: removedPaths array does NOT leak into the slim shape.
+    const raw = stdout.join('');
+    expect(raw).not.toContain('removedPaths');
+    expect(raw).not.toContain('/a.md');
+    expect(raw).not.toContain('/l.md');
+    // patterns echo also dropped.
+    expect(raw).not.toContain('patterns');
+    expect(raw).not.toContain('/tmp/*.md');
+  });
+
+  it('--json --slim count alias mirrors matched value (family-wide leading-count convention)', async () => {
+    // `count` is an alias for `matched` so a downstream `jq .count`
+    // filter works against every slim shape in the family uniformly.
+    // Verify the two fields ALWAYS carry the same value (no drift,
+    // no off-by-one — the alias is byte-faithful).
+    const payload = {
+      matched: 7,
+      removedChunks: 19,
+      removedPaths: ['/a.md', '/b.md', '/c.md', '/d.md', '/e.md', '/f.md', '/g.md'],
+      dryRun: true,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; matched: number };
+    expect(parsed.count).toBe(parsed.matched);
+  });
+
+  it('--json --slim preserves dryRun: true for preview mode', async () => {
+    // dryRun disambiguates the slim shape between preview and apply.
+    // No --apply -> dryRun: true.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        matched: 3, removedChunks: 10, removedPaths: ['/a', '/b', '/c'], dryRun: true,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as { dryRun: boolean };
+    expect(parsed.dryRun).toBe(true);
+  });
+
+  it('--json --slim preserves dryRun: false under --apply', async () => {
+    // With --apply -> dryRun: false. Same structural shape, just the
+    // dryRun bit flips. Dashboard parsing the stream can branch on
+    // dryRun to distinguish preview snapshots from apply snapshots
+    // even when they emit the same matched/removedChunks numbers.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        matched: 3, removedChunks: 10, removedPaths: ['/a', '/b', '/c'], dryRun: false,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--apply', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as { dryRun: boolean };
+    expect(parsed.dryRun).toBe(false);
+  });
+
+  it('--json --slim emits single-line JSON (NDJSON-friendly snapshot stream)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        matched: 2, removedChunks: 4, removedPaths: ['/a', '/b'], dryRun: true,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--json', '--slim']);
+    const out = stdout.join('');
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1).includes('\n')).toBe(false);
+    expect(out).not.toMatch(/\n  /);
+  });
+
+  it('--json --slim with zero matches yields {count: 0, matched: 0, removedChunks: 0, dryRun: true}', async () => {
+    // Empty discovery yields a structurally complete payload, not an
+    // empty stream — a dashboard parsing the stream sees the same
+    // shape whether the pattern matched zero or many.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        matched: 0, removedChunks: 0, removedPaths: [], dryRun: true,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/nonexistent/*.md', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; matched: number; removedChunks: number; dryRun: boolean };
+    expect(parsed.count).toBe(0);
+    expect(parsed.matched).toBe(0);
+    expect(parsed.removedChunks).toBe(0);
+    expect(parsed.dryRun).toBe(true);
+  });
+
+  it('--paths-only short-circuits --slim (pipeline shape wins)', async () => {
+    // Mirrors family-wide --paths-only > --json precedence. --slim
+    // is a --json shape modifier; when --paths-only is also set the
+    // pipeline path-stream wins.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        matched: 2, removedChunks: 5, removedPaths: ['/a.md', '/b.md'], dryRun: true,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await forgetCommand().parseAsync([
+      'node', 'cli', '/tmp/*.md', '--json', '--slim', '--paths-only',
+    ]);
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n');
+  });
+
+  it('--slim WITHOUT --json is silently ignored (text mode unchanged)', async () => {
+    const payload = {
+      matched: 2, removedChunks: 5, removedPaths: ['/a.md', '/b.md'], dryRun: true,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md']);
+    const baseline = stdout.join('');
+    stdout.length = 0;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), {
+        status: 200, headers: { 'content-type': 'application/json' },
+      })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--slim']);
+    expect(stdout.join('')).toBe(baseline);
+  });
 });
