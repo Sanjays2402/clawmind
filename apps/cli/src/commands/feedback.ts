@@ -88,8 +88,9 @@ export function feedbackCommand() {
     .option('--below <n>', 'keep only entries whose boost multiplier is strictly less than this value (typical: --below 1.0 to show only downvote-dominant paths)', (v) => Number.parseFloat(v))
     .option('--top <n>', 'cap the listed entries to the N loudest votes by absolute distance from neutral (|boost - 1.0|), descending. Answers "which votes are the LOUDEST regardless of direction" in a single call — the natural cron-audit invocation is `clawmind feedback list --top 10 --json` to surface the entries that drag retrieval ranking the hardest in either direction. Applied AFTER -q / --above / --below so the cap is "the N loudest entries that pass the other filters". Ties at the same |boost - 1.0| distance preserve the API-provided order (deterministic across snapshots). A non-positive or NaN value falls back to "no cap" so a typo like `--top 0` still yields a useful response rather than an empty list (matches `tags list --top` / `stats --top` precedent). Composes naturally with --above/--below: `--above 1.0 --top 5` is "the 5 strongest upvotes", `--below 1.0 --top 5` is "the 5 strongest downvotes", `--top 10` alone (no band filter) is "the 10 loudest entries either direction".', (v) => Number.parseInt(v, 10))
     .option('--sort <key>', 'sort entries by one of: boost (desc — highest-boost first, "show me my most-trusted paths"), path (asc alphabetical, for stable cross-snapshot diffs), ups (desc — most-upvoted first), downs (desc — most-downvoted first). Applied AFTER -q / --above / --below so the sort orders the SURVIVORS of any narrowing filter. Applied BEFORE --top so `--sort downs --top 10` is "the 10 entries with the most downvotes regardless of boost magnitude" — distinct from the existing --top semantic ("the 10 loudest votes by |boost-1.0|") which is a SEPARATE ranking primitive answering a different question. Ties at the same sort key fall back to API order (deterministic across snapshots; secondary sort by the original index). Unknown keys abort cleanly with exit 1 — a typo cannot silently fall back to API order which would be indistinguishable from an empty `--sort` invocation in the cron log. The default (no --sort) preserves the API-returned order — existing scripts diffing `feedback list --json` snapshots stay byte-stable.')
+    .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` byte-for-byte). With --sort boost the default is desc (highest-trust first); --reverse gives asc (lowest-trust first) — the natural "which paths are getting penalised hardest by feedback" question, complementary to the "most-trusted" default. With --sort path the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. With --sort ups the default is desc (loudest upvotes first); --reverse gives asc (entries with the fewest ups first) — surfaces the long tail of paths the operator has not yet acknowledged. With --sort downs the default is desc (loudest downvotes first); --reverse gives asc (fewest downs first) — the same long-tail question on the punishing side. Ignored without --sort (the API ordering is a fixed contract). The secondary tie-break by original index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction (two consecutive --sort + --reverse runs over identical-ties input produce byte-identical output). Composes with --top: the cap applies to the head of the post-reverse ordering, so `--sort downs --reverse --top 5` is "the 5 entries with the FEWEST downvotes" (not the 5 with the most).')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; above?: number; below?: number; top?: number; sort?: string; json?: boolean }) => {
+    .action(async (opts: { q?: string; above?: number; below?: number; top?: number; sort?: string; reverse?: boolean; json?: boolean }) => {
       await runOrReport('feedback list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/feedback${qs}`)) as {
@@ -166,6 +167,17 @@ export function feedbackCommand() {
           if (!validKeys.includes(sortKey)) {
             throw new FeedbackCliError(`unknown --sort key "${opts.sort}" (expected one of: ${validKeys.join(', ')})`);
           }
+          // --reverse flips the per-key direction. Mirrors `stale --reverse`
+          // / `search --reverse` / `related --reverse` byte-for-byte: a
+          // single sign-flipping multiplier (dir = -1 under --reverse,
+          // else 1) applied to BOTH the primary comparator AND the
+          // secondary tie-break by original index. The dual-flip
+          // preserves cross-snapshot determinism under --reverse —
+          // without it, ties would silently shift on every other run
+          // because the primary returned 0 but the secondary kept
+          // ascending while the visible ordering of every other row
+          // was descending.
+          const dir = opts.reverse ? -1 : 1;
           const ranked = out.items
             .map((it, idx) => ({ it, idx }))
             .sort((a, b) => {
@@ -174,9 +186,11 @@ export function feedbackCommand() {
               else if (sortKey === 'ups') cmp = b.it.ups - a.it.ups;
               else if (sortKey === 'downs') cmp = b.it.downs - a.it.downs;
               else if (sortKey === 'path') cmp = a.it.path.localeCompare(b.it.path);
-              if (cmp !== 0) return cmp;
+              if (cmp !== 0) return cmp * dir;
               // Secondary sort by original index for deterministic ties.
-              return a.idx - b.idx;
+              // Also reversed under --reverse so cross-snapshot determinism
+              // holds in either direction.
+              return (a.idx - b.idx) * dir;
             })
             .map((r) => r.it);
           out = { ...out, items: ranked };

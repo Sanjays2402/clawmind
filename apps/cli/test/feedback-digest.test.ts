@@ -409,6 +409,105 @@ describe('feedback cli', () => {
     expect(parsed.items.map((it) => it.ups)).toEqual([9, 5, 5]);
   });
 
+  // --reverse: mirrors `stale --reverse` / `search --reverse` /
+  // `related --reverse` byte-for-byte. The 4th command in the
+  // family-wide reverse-modifier sweep. After this commit feedback
+  // joins the family contract.
+  // -----------------------------------------------------------------
+
+  it('feedback list exposes --reverse on the command surface', () => {
+    const flags = feedbackCommand().commands
+      .find((c) => c.name() === 'list')!.options
+      .map((o) => o.long);
+    expect(flags).toContain('--reverse');
+  });
+
+  it('feedback list --sort boost --reverse orders survivors ascending (lowest-trust first)', async () => {
+    // Default --sort boost is desc (highest-trust first); --reverse
+    // gives asc — the "which paths are getting penalised hardest"
+    // question, complementary to the default.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/mid.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/high.md', ups: 5, downs: 0, boost: 1.40 },
+        { path: '/low.md', ups: 0, downs: 4, boost: 0.65 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--sort', 'boost', '--reverse', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((it) => it.path)).toEqual(['/low.md', '/mid.md', '/high.md']);
+  });
+
+  it('feedback list --sort path --reverse orders alphabetically descending', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/zeta.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/alpha.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/mu.md', ups: 1, downs: 0, boost: 1.05 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--sort', 'path', '--reverse', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((it) => it.path)).toEqual(['/zeta.md', '/mu.md', '/alpha.md']);
+  });
+
+  it('feedback list --reverse without --sort is silently ignored (default API ordering preserved)', async () => {
+    // The default API order is a fixed contract. --reverse alone has
+    // nothing to flip — matches `stale --reverse` / `search --reverse`
+    // / `related --reverse` byte-for-byte.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/c.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/a.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/b.md', ups: 1, downs: 0, boost: 1.05 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--reverse', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((it) => it.path)).toEqual(['/c.md', '/a.md', '/b.md']);
+  });
+
+  it('feedback list --sort ups --reverse preserves cross-snapshot determinism on ties (secondary index also reversed)', async () => {
+    // Two entries with ups=5 — under --reverse the secondary index
+    // sort is ALSO reversed so the snapshot is byte-stable in either
+    // direction. Without the index reverse, the visible ordering of
+    // every other row would be ascending but the tied pair would
+    // still be in original-index order, breaking determinism.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/first-tied.md', ups: 5, downs: 0, boost: 1.20 },
+        { path: '/loud-loner.md', ups: 9, downs: 0, boost: 1.45 },
+        { path: '/second-tied.md', ups: 5, downs: 0, boost: 1.25 },
+        { path: '/quiet.md', ups: 0, downs: 0, boost: 1.0 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--sort', 'ups', '--reverse', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string; ups: number }[] };
+    // Ascending: quiet (0) first, then the two tied entries in
+    // REVERSED original-index order (second-tied at idx 2 before
+    // first-tied at idx 0), then loud-loner (9) last.
+    expect(parsed.items.map((it) => it.path)).toEqual(['/quiet.md', '/second-tied.md', '/first-tied.md', '/loud-loner.md']);
+    expect(parsed.items.map((it) => it.ups)).toEqual([0, 5, 5, 9]);
+  });
+
+  it('feedback list --sort downs --reverse --top 2 caps the head of the asc-downs ordering (fewest downs first)', async () => {
+    // The composition pin: --top applies to the HEAD of the post-
+    // reverse ordering. `--sort downs --reverse --top 2` is "the 2
+    // entries with the FEWEST downvotes" — NOT the 2 with the most.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/huge-up.md', ups: 5, downs: 0, boost: 1.50 },
+        { path: '/mid-downs.md', ups: 0, downs: 3, boost: 0.90 },
+        { path: '/heavy-downs.md', ups: 0, downs: 8, boost: 0.80 },
+        { path: '/quiet.md', ups: 1, downs: 1, boost: 1.0 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--sort', 'downs', '--reverse', '--top', '2', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { items: { path: string; downs: number }[] };
+    expect(parsed.items.map((it) => it.path)).toEqual(['/huge-up.md', '/quiet.md']);
+    expect(parsed.items.map((it) => it.downs)).toEqual([0, 1]);
+  });
+
   it('reports a clean message when the api is unreachable', async () => {
     const stderrBuf: string[] = [];
     const origErr = process.stderr.write.bind(process.stderr);
