@@ -15,11 +15,12 @@ export function relatedCommand() {
     .option('--above <n>', 'keep only neighbours whose score is STRICTLY greater than this value. The classic cron use is "the strongest signal neighbours" — `--above 0.9` answers "is this source semantically isolated or is it part of a tight cluster" without piping --json through jq. Strict comparison (>) so a neighbour at exactly the threshold is excluded — paired with --threshold (inclusive lower bound) the operator gets a clean half-open interval `[--threshold, ...]`. Non-numeric values are silently ignored (matches --threshold) so `--above $MAYBE` does not break on an empty env var. Composes with --below as an intersection to form an asymmetric band: `--above 0.5 --below 0.8` is the "marginal" range (\"strong enough to keep but weak enough to flag for re-rank tuning\"). Applies BEFORE --paths-only / --json / text rendering and the `count` in --json reflects the filtered length.', (v) => Number.parseFloat(v))
     .option('--below <n>', 'keep only neighbours whose score is STRICTLY less than this value. The classic cron use is "the weakest survivors" — `--below 0.4` answers "is this source about to drop out of the related set the next time the rerank shuffles". Strict comparison (<) so a neighbour at exactly the threshold is excluded. Non-numeric values are silently ignored. Composes with --above (intersection forms a band) and with --threshold (intersection with the inclusive lower bound). Applies BEFORE --paths-only / --json / text rendering and the `count` in --json reflects the filtered length.', (v) => Number.parseFloat(v))
     .option('--paths-only', 'pipeline-friendly: emit ONLY the neighbour paths, one per line, in rank order. No styling, no header, no "no related sources" hint. Zero matches yields a clean empty stream so xargs/wc keep working. Mirrors the contract used by search --paths-only, forget --paths-only, and the pins/mutes/aliases/tags --paths family.')
-    .option('--sort <key>', 'sort survivors of --threshold / --above / --below by one of: score (desc — highest-score-first, matches the default API ordering; useful as a no-op for symmetry with other commands), path (asc alphabetical, for stable cross-snapshot diffs of `related --json`), namespace (asc alphabetical, groups neighbours by namespace so diffs against a known set are visually clean). Applied AFTER --threshold / --above / --below so the sort orders the SURVIVORS of any band-filter. Mirrors `feedback list --sort` / `digest list --sort` / `aliases list --sort` precedent: ties carry a secondary sort by original index for cross-snapshot determinism, unknown keys abort cleanly with exit 1. The default (no --sort) preserves the API-returned score-descending order so existing scripts diffing `related --json` stay byte-stable.')
+    .option('--sort <key>', 'sort survivors of --threshold / --above / --below by one of: score (desc — highest-score-first, matches the default API ordering; useful as a no-op for symmetry with other commands), path (asc alphabetical, for stable cross-snapshot diffs of `related --json`), namespace (asc alphabetical, groups neighbours by namespace so diffs against a known set are visually clean). Applied AFTER --threshold / --above / --below so the sort orders the SURVIVORS of any band-filter. Mirrors the `feedback list --sort` / `digest list --sort` / `aliases list --sort` family contract: ties carry a secondary sort by original index for cross-snapshot determinism, unknown keys abort cleanly with exit 1.')
+    .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` and `search --reverse` byte-for-byte). With --sort path the default is asc alphabetical; --reverse gives desc — the cron use is "the alphabetically-last neighbour first" for symmetry with cross-command tail-style log scrapes. With --sort namespace the default is asc grouping; --reverse gives desc — the alphabetically-last namespace at the top, useful for cron snapshots that want the freshest namespace first (the canonical "most-recent neighbour" question). With --sort score the default is desc; --reverse gives asc (weakest-first) — useful for "the neighbours about to drop out of the related set the next time the rerank shuffles". Ignored without --sort (the default API ordering is a fixed contract). The secondary tie-break by original index is ALSO reversed so cross-snapshot determinism holds in either direction. Composes with --paths-only — the dedupe walks the post-reverse order.')
     .option('--json', 'emit results as JSON for scripting')
     .description('Find sources semantically similar to a given indexed path');
 
-  cmd.action(async (path: string, opts: { k: number; namespaces?: string; threshold?: string; above?: number; below?: number; sort?: string; pathsOnly?: boolean; json?: boolean }) => {
+  cmd.action(async (path: string, opts: { k: number; namespaces?: string; threshold?: string; above?: number; below?: number; sort?: string; reverse?: boolean; pathsOnly?: boolean; json?: boolean }) => {
     const env = loadEnv();
     const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
     const url = new URL(`${base}/v1/related`);
@@ -137,6 +138,16 @@ export function relatedCommand() {
         process.exitCode = 1;
         return;
       }
+      // --reverse flips the per-key direction. Mirrors `stale --reverse`
+      // and `search --reverse` byte-for-byte: a single sign-flipping
+      // multiplier (dir = -1 under --reverse, else 1) applied to BOTH
+      // the primary comparator AND the secondary tie-break by original
+      // index. The dual-flip preserves cross-snapshot determinism
+      // under --reverse — without it, ties would silently shift on
+      // every other run because the primary returned 0 but the
+      // secondary kept ascending while the visible ordering of every
+      // other row was descending.
+      const dir = opts.reverse ? -1 : 1;
       sortedItems = filteredItems
         .map((it, idx) => ({ it, idx }))
         .sort((a, b) => {
@@ -144,9 +155,11 @@ export function relatedCommand() {
           if (sortKey === 'score') cmp = b.it.score - a.it.score;
           else if (sortKey === 'path') cmp = a.it.path.localeCompare(b.it.path);
           else if (sortKey === 'namespace') cmp = a.it.namespace.localeCompare(b.it.namespace);
-          if (cmp !== 0) return cmp;
+          if (cmp !== 0) return cmp * dir;
           // Secondary sort by original index for deterministic ties.
-          return a.idx - b.idx;
+          // Also reversed under --reverse so cross-snapshot determinism
+          // holds in either direction.
+          return (a.idx - b.idx) * dir;
         })
         .map((r) => r.it);
     }

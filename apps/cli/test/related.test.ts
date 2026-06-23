@@ -838,4 +838,144 @@ describe('related cli', () => {
     expect(err).toContain('related failed: --sort value must be one of: score, path, namespace');
     expect(err).toContain('"banana"');
   });
+
+  // -----------------------------------------------------------------
+  // --reverse: mirrors `stale --reverse` and `search --reverse` byte-
+  // for-byte. The third (and final, for the queued list) command in
+  // the --sort-bearing family to expose --reverse. After this commit
+  // the family-wide reverse-modifier contract is complete on all three
+  // commands the queued list called out (stale, search, related).
+  // -----------------------------------------------------------------
+
+  it('exposes --reverse on the command surface', () => {
+    const flags = relatedCommand().options.map((o) => o.long);
+    expect(flags).toContain('--reverse');
+  });
+
+  it('--sort path --reverse orders neighbours desc alphabetical (flips the default asc)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 3,
+        items: [
+          { path: 'mu.md', namespace: 'memory', score: 0.90, hits: 1, excerpt: 'm' },
+          { path: 'alpha.md', namespace: 'memory', score: 0.65, hits: 1, excerpt: 'a' },
+          { path: 'zeta.md', namespace: 'memory', score: 0.40, hits: 1, excerpt: 'z' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--sort', 'path', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[] };
+    expect(parsed.items.map((it) => it.path)).toEqual(['zeta.md', 'mu.md', 'alpha.md']);
+  });
+
+  it('--sort namespace --reverse groups by namespace desc, secondary index reversed within each namespace', async () => {
+    // Default --sort namespace is asc; --reverse gives desc. Within
+    // each namespace the secondary index sort is also reversed.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 4,
+        items: [
+          { path: 'm1.md', namespace: 'memory', score: 0.95, hits: 1, excerpt: 'm1' },
+          { path: 'p1.md', namespace: 'projects', score: 0.85, hits: 1, excerpt: 'p1' },
+          { path: 'm2.md', namespace: 'memory', score: 0.70, hits: 1, excerpt: 'm2' },
+          { path: 'p2.md', namespace: 'projects', score: 0.55, hits: 1, excerpt: 'p2' },
+        ],
+        count: 4,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--sort', 'namespace', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string; namespace: string }[] };
+    // projects (desc-first), within projects the index is reversed so
+    // p2 before p1. Then memory (desc-second), within memory the index
+    // is reversed so m2 before m1.
+    expect(parsed.items.map((it) => it.path)).toEqual(['p2.md', 'p1.md', 'm2.md', 'm1.md']);
+  });
+
+  it('--sort score --reverse orders neighbours weakest-first (asc score)', async () => {
+    // The cron use: "the neighbours about to drop out of the related
+    // set the next time the rerank shuffles" — answers a different
+    // question than --below (which filters; --sort score --reverse
+    // orders).
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 3,
+        items: [
+          { path: 'strong.md', namespace: 'memory', score: 0.95, hits: 1, excerpt: 's' },
+          { path: 'mid.md', namespace: 'memory', score: 0.55, hits: 1, excerpt: 'm' },
+          { path: 'weak.md', namespace: 'memory', score: 0.32, hits: 1, excerpt: 'w' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--sort', 'score', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string; score: number }[] };
+    expect(parsed.items.map((it) => it.score)).toEqual([0.32, 0.55, 0.95]);
+  });
+
+  it('--reverse without --sort is silently ignored (default API ordering preserved)', async () => {
+    // The default API order is a fixed contract. --reverse alone has
+    // nothing to flip — matches `stale --reverse` / `search --reverse`
+    // silent-ignore precedent.
+    const payload = {
+      path: 'foo.md',
+      sourceChunkCount: 3,
+      items: [
+        { path: 'high.md', namespace: 'memory', score: 0.95, hits: 1, excerpt: 'h' },
+        { path: 'mid.md', namespace: 'memory', score: 0.55, hits: 1, excerpt: 'm' },
+        { path: 'low.md', namespace: 'memory', score: 0.32, hits: 1, excerpt: 'l' },
+      ],
+      count: 3,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json']);
+    const baseline = stdout.join('');
+    stdout.length = 0;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--reverse']);
+    expect(stdout.join('')).toBe(baseline);
+  });
+
+  it('--sort path --reverse composes with --paths-only: dedupe walks the post-reverse desc order', async () => {
+    // The dedupe walks AFTER the sort+reverse. The API returns each
+    // path once (related is path-granular not chunk-granular), but
+    // the contract promises dedupe — pinning that --reverse does
+    // not break it.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 3,
+        items: [
+          { path: 'alpha.md', namespace: 'memory', score: 0.95, hits: 1, excerpt: 'a' },
+          { path: 'charlie.md', namespace: 'memory', score: 0.55, hits: 1, excerpt: 'c' },
+          { path: 'bravo.md', namespace: 'memory', score: 0.32, hits: 1, excerpt: 'b' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--paths-only', '--sort', 'path', '--reverse']);
+    expect(stdout.join('')).toBe('charlie.md\nbravo.md\nalpha.md\n');
+  });
+
+  it('--sort path --reverse composes with --above (band-filter narrows, sort orders the survivors desc)', async () => {
+    // Combine band filter and reverse to pin "the alphabetically-
+    // last neighbour that survived --above".
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 4,
+        items: [
+          { path: 'zeta.md', namespace: 'memory', score: 0.90, hits: 1, excerpt: 'z' },
+          { path: 'alpha.md', namespace: 'memory', score: 0.40, hits: 1, excerpt: 'a' }, // dropped by --above 0.5
+          { path: 'beta.md', namespace: 'memory', score: 0.75, hits: 1, excerpt: 'b' },
+          { path: 'omega.md', namespace: 'memory', score: 0.35, hits: 1, excerpt: 'o' }, // dropped
+        ],
+        count: 4,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--above', '0.5', '--sort', 'path', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; count: number };
+    expect(parsed.items.map((it) => it.path)).toEqual(['zeta.md', 'beta.md']);
+    expect(parsed.count).toBe(2);
+  });
 });
