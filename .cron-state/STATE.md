@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-23 11:25 PDT (current)
+### Tick 2026-06-23 15:09 PDT (current)
+
+- [x] feat(watch): --only-add/--only-change/--only-unlink event-kind filter triplet on the live NDJSON stream (e16f742)
+- [x] feat(tags): paths <tag> --sort path + --reverse port to the family-wide --sort/--reverse contract (5373fc4)
+- [x] feat(digest): show <id> --json --slim emits {count, addedCount, removedCount} 3-integer churn-history shape (fc45981)
+- [x] feat(stats): --tsv --header prepends the schema row for typed-table parsers (08b52b2)
+- [x] feat(stale): --top <n> caps survivors of every narrowing + ordering filter (50cc616)
+
+### Tick 2026-06-23 11:25 PDT
 
 - [x] feat(compact): --json --slim emits {scanned, removed, kept, dryRun} 4-integer shape for cron-dashboard polls (1637323)
 - [x] feat(export): --slim emits {format, since, bytes} 3-key dashboard probe shape that drops the body (4c404de)
@@ -238,10 +246,20 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(watch): add --once --paths-only --json --slim (count of paths discovered in this scan). The previewing case is well covered by --once --paths-only; the slim shape covers the polling case for "is the watcher seeing anything" without parsing the path list. — DONE 97f6647: shipped as --once --preview-json --slim emitting {count, since}. The --once --paths-only --json --slim shape was reconsidered — the --paths-only contract short-circuits before --json/--slim by design (pipeline contract trumps everything), so a slim shape on top of --paths-only would inherit the precedence and never fire. Instead the slim flag sits ON --preview-json (the explicit JSON path) where it naturally composes. RESOLVED.
 - [ ] feat(digest): extend show --paths-only --diff with `--only-added` / `--only-removed` exclusive emit modes (the `--diff` shape requires post-processing with `grep "^+ " | cut -c3-` for the single-direction stream; a dedicated flag pair would skip that step. Open question: do both flags compose naturally, or should `--only-added --only-removed` be a no-op equivalent to plain `--paths-only` (since the union is the flat shape)? Or should it abort because the two are semantically exclusive?). — DONE 9ecbc55: shipped with the "both = none" semantic (both flags = unfiltered --diff stream, byte-identical to the bare --paths-only --diff invocation). Pinned with a dedicated test. RESOLVED.
 - [ ] feat(forget): port the `--slim` body-suppression pattern (just shipped on export 4c404de) to forget — a polling `clawmind forget <pat> --dry-run --slim --json` could emit `{count, matched, removedChunks, dryRun}` with the body-suppressed contract (today the --json --slim shape already exists for forget, but the symmetric "polling dashboard wants the integers only, never the paths" body-suppression precedent from export is worth a uniform pattern). Open question: is there meaningful daylight between the existing forget --json --slim shape and the "polling probe" intent, or is it already exactly that? Audit first; ship only if there's a real delta.
-- [ ] feat(watch): port the `--only-*` exclusive-emit pattern (just shipped on digest show --paths-only --diff 9ecbc55) to the live watch path's per-event NDJSON: `--only-add` / `--only-change` / `--only-unlink` flag triplet that filters which event kinds reach stdout. The natural cron use is a tight "ingest just the additions" pipe that does not want change/unlink NDJSON noise. "All = none" semantic carries over (all three flags = unfiltered stream). Pairs naturally with --debounce + --quiet for the cron-restarted watcher.
+- [ ] feat(watch): port the `--only-*` exclusive-emit pattern (just shipped on digest show --paths-only --diff 9ecbc55) to the live watch path's per-event NDJSON: `--only-add` / `--only-change` / `--only-unlink` flag triplet that filters which event kinds reach stdout. The natural cron use is a tight "ingest just the additions" pipe that does not want change/unlink NDJSON noise. "All = none" semantic carries over (all three flags = unfiltered stream). Pairs naturally with --debounce + --quiet for the cron-restarted watcher. — DONE e16f742: shipped as --only-add / --only-change / --only-unlink triplet with the "all = none" semantic; applies to both text and --json mode; the filter sits INSIDE onEvent so the underlying ingest still fires (only the operator-facing stream is narrowed — index stays consistent). RESOLVED.
 - [ ] feat(stats): add `--json --slim --paths --since` 3-flag composition byte-layout pin (the slim-paths re-target just shipped 0ee197f only has --sort/--top composition tests; the --since narrowing path needs an independent pin so a future change to the filter order would surface). Should be a 3-line addition to the new --json --slim --paths describe block.
 - [ ] feat(export): consider porting --slim's HEAD-style body-suppression precedent to the existing `forget --dry-run --json --slim` shape (currently emits the per-path removedChunks count and matched count; the `bytes`-equivalent for forget would be the total bytes of source-file content that the apply-equivalent would remove, surfaced as a single integer). Operator value question: is byte count more meaningful than chunk count for a forget-budget dashboard? Likely yes for "did we free up enough storage" but the chunk count is already a perfect proxy. Audit before shipping.
-- [ ] feat(digest): port the `--only-added` / `--only-removed` pattern (just shipped 9ecbc55) to `digest run --json --slim` — today the slim shape carries `{ran, deferred, sinceSkipped}` as 3 integers; the "additions-only" / "removals-only" cron use for digest run is "how many of those ran-saved-searches added paths vs removed paths". Open: does the existing API surface `addedCount` / `removedCount` per-run? If not, this needs an API addition before the cli can compute the breakdown. Audit first.
+- [ ] feat(digest): port the `--only-added` / `--only-removed` pattern (just shipped 9ecbc55) to `digest run --json --slim` — today the slim shape carries `{ran, deferred, sinceSkipped}` as 3 integers; the "additions-only" / "removals-only" cron use for digest run is "how many of those ran-saved-searches added paths vs removed paths". Open: does the API surface `addedCount` / `removedCount` per-run? If not, this needs an API addition before the cli can compute the breakdown. Audit first.
+- [ ] feat(tags): port the --reverse contract to `tags paths <tag> --paths-only` — the paths-only stream is currently in API order. Adding a `--sort path` would let cron snapshots diff cleanly; adding `--sort path --reverse` would complete the family on this command too. The natural use is a daily snapshot of "the paths under tag X" diffing cleanly even when the API order shifts across ingests. — DONE 5373fc4: shipped `tags paths <tag> --sort path` + `--reverse` with the family-wide secondary-by-original-index sort (no-op in practice because paths are unique, kept for family-contract consistency). --reverse without --sort is a no-op (the API ordering is a fixed contract). RESOLVED.
+- [ ] feat(stale): add the `--reverse` family-wide modifier docs clarification with per-key default-direction notes ("--reverse flips the default DIRECTION for the key, not the SEMANTIC direction"). PUNTED this tick — the help text on --reverse already documents per-key default directions (oldest-first under --sort age, asc alphabetical under --sort path, biggest-first under --sort size); a separate dedicated test pin that the help string contains the per-key direction notes would be a doc-only test that doesn't catch any real regression. Closing as not-needed.
+- [ ] feat(stats): add --slim --paths --json composition byte-layout pin: when --slim, --paths, and --json are all set, which one wins? The current code path is undocumented in the cli help; --paths short-circuits BEFORE --json which short-circuits BEFORE --slim. Pin the precedence so a future refactor that changed the order would surface immediately. — DONE 0ee197f: --slim + --paths + --json now re-target --paths to the flat namespace-name stream; pinned with byte-layout tests including the "not JSON, not framed" explicit precedence assertion. RESOLVED.
+- [ ] feat(digest): add show --json --slim emitting {count, addedCount, removedCount} 3-integer churn-history shape per saved search — the natural cron use is "did this saved search churn paths since cutoff X" as a single ~70-byte poll. Mirrors `digest run --json --slim` byte-for-byte on the read-side. — DONE fc45981: shipped {count, addedCount, removedCount} 3-integer aggregate over the filtered history rows. Composes with -q / --since / --last (counts describe survivors); --paths-only short-circuits the slim emit. The read-side complement to `digest run --json --slim`. RESOLVED.
+- [ ] feat(stats): add --tsv --header prepending the schema row (`namespace\tfiles\tchunks\tbytes\tnewestIngestedAt`) so the stream is friendly to typed-table parsers (column -t / pandas.read_csv) without a separate echo. Mirrors `stale --tsv --header` byte-for-byte: zero-row body still gets the header (the schema row is the contract). Under --json --slim the header is the 2-col `namespace\tfiles` (matches the slim shape). — DONE 08b52b2. RESOLVED.
+- [ ] feat(stale): add --top <n> client-side post-sort cap. Family-wide --top contract (mirrors stats / feedback list / tags list / search --top): clamped to positive integer; non-positive or NaN falls back to "no cap"; recomputes `total` to the post-cap count; applies uniformly across every output mode (--json / --tsv / --paths / --paths-only / text). The canonical cron-budget use is `clawmind stale --sort size --top 10 --paths | xargs forget --apply` — "the 10 biggest stale files, in size-priority order". — DONE 50cc616. RESOLVED.
+- [ ] feat(watch): port the live-watch event-kind filter triplet (--only-add / --only-change / --only-unlink) to the --once preview path? Today the --once mode emits the ingest report shape (not per-event NDJSON), so the --only-* filter has no per-event axis to operate on. Audit first: is there a meaningful read of "preview only the adds" that the existing --paths-only / --preview-json doesn't already cover? Likely not — --paths-only / --preview-json are already pure-preview shapes that don't distinguish adds/changes/unlinks because ingest doesn't either at that level. Closing as not-needed.
+- [ ] feat(digest): port the family-wide --sort contract to `digest show` history rows. Today `digest show` emits history in API order (newest-first); a dedicated `--sort ts` (with --reverse) would let the operator pick oldest-first. The shape question: is there meaningful daylight between `digest show --sort ts` and the existing API order? The API is contractually newest-first so --sort ts default is a no-op; --sort ts --reverse gives oldest-first. Worth a port for family-contract consistency. Also: --sort addedCount / --sort removedCount would surface the loudest churn rows in either direction. Audit first.
+- [ ] feat(forget): port the family-wide --top contract to `forget --json --slim` for "preview the top N paths the forget would touch ordered by their per-chunk cost". Today the slim shape carries `{count, matched, removedChunks, dryRun}` — adding --top would let an operator cap the dry-run preview at N to bound the "would I really delete this much" judgment. Audit first: the existing slim shape drops the path list, so the operator polling the slim shape doesn't see paths at all. The --top would be meaningful on the bare --dry-run --json path (NOT the slim). Worth a separate test pin in either case.
+- [ ] feat(search): port the --tsv contract (just shipped on stats --tsv --header today) to search. Today search has --no-snippet for slim JSON and --paths-only for the pipeline stream, but no --tsv mode. Cron snapshots of search rankings would benefit from a tab-separated `rank\tpath\tscore\tnamespace` shape that diffs cleanly across ticks. Pairs with --tsv --header for typed-table parsers. Audit first: is search ranking stable enough across ticks for the diff to be meaningful, or does score float on every ingest making the diff noisy?
 
 ## Conventions
 
@@ -2762,3 +2780,98 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   remain (stats-reverse-all-keys, stale-reverse, feedback-prune-
   reverse, tags-paths-reverse). The queue stays well above the
   >=5 ready-items floor.
+
+- 2026-06-23 15:09 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: e16f742, 5373fc4, fc45981, 08b52b2, 50cc616. Test gate:
+  `@clawmind/cli` 833/833 vitest pass (up from 785). 48 net new tests
+  spread across 5 files: watch.test.ts (+10), tags.test.ts (+9),
+  feedback-digest.test.ts (+9), stats.test.ts (+8), stale.test.ts (+10).
+  Typecheck: `@clawmind/cli` clean. Same one pre-existing red outside
+  cli (telemetry OpenTelemetry 1.x/2.x peer mismatch — queued since
+  tick 1, unchanged by this batch). The rag/hybrid alpha-blend test
+  that was flagged in earlier ticks no longer appears as a failure
+  (consistent with the 2026-06-23 03:17 PDT tick observation).
+
+  Theme: this tick CLEARED FOUR queued items from the previous tick's
+  refilled list AND shipped a new family-wide --top port to stale.
+  Each feature touches a different command in the cli — no two
+  commands shared a theme, but every commit ports a family-wide
+  pattern that already exists elsewhere to a command that was
+  missing it.
+
+    1. watch --only-add / --only-change / --only-unlink (e16f742):
+       port of the digest --only-added / --only-removed pattern to
+       the live watch event stream. Triplet of flags with the
+       "all = none" semantic. Critical design property: the filter
+       sits INSIDE onEvent so the underlying ingest still fires
+       for every event — only the operator-facing stdout stream is
+       narrowed. Filtering ingest by kind would silently leave
+       stale entries in BM25 on a forgotten unlink; the split
+       keeps the index consistent while still narrowing the
+       cron pipeline.
+
+    2. tags paths <tag> --sort path + --reverse (5373fc4): the
+       per-tag paths command joins the family-wide --sort family
+       (stats / feedback list / digest list / aliases list / tags
+       list / stale / search / related --sort). Only `path` is
+       supported today (the per-path payload has no other meaningful
+       sort key); the flag exists for symmetry so a future addition
+       (e.g. lastIngestedAt) drops in without a breaking change.
+
+    3. digest show <id> --json --slim (fc45981): 3-integer
+       churn-history shape `{count, addedCount, removedCount}`.
+       The natural cron use is a dashboard panel polling "did this
+       saved search churn paths since cutoff X" once a minute as a
+       single ~70-byte poll. Mirrors `digest run --json --slim`
+       byte-for-byte (3 integers) but on the read-side: `digest
+       show` is per-saved-search churn-history, `digest run` is
+       per-batch run shape.
+
+    4. stats --tsv --header (08b52b2): prepend a single tab-
+       separated schema row to the TSV stream so the body is
+       friendly to typed-table parsers without a separate `echo`
+       prelude. Mirrors `stale --tsv --header` byte-for-byte. Two
+       header shapes: full 5-col under bare --tsv, 2-col
+       `namespace<TAB>files` under --json --slim --tsv. Zero-row
+       contract: header still fires (the schema row is the CONTRACT).
+
+    5. stale --top <n> (50cc616): post-sort client-side cap.
+       Family-wide --top contract (mirrors stats / feedback list /
+       tags list / search --top). Applied LAST so the cap honours
+       the chosen ordering. RECOMPUTES `total` to the post-cap
+       survivor count so a downstream `jq .total` consumer always
+       matches `items.length`.
+
+  Process notes:
+  - Stale .d.ts / .js sidecars: cleared at tick start (same macOS
+    quirk from prior ticks).
+  - Two patches mid-tick had escape-doubling issues in kleur error
+    messages — `\'` apostrophes were double-escaped to `\\'` during
+    the patch insertion, producing TS1005 syntax errors. Fixed by
+    re-patching with the single-escape form. No semantic bug, just
+    a patch-tool gotcha worth noting for future ticks.
+  - One test-iteration regression mid-tick: the first version of
+    tags paths --sort did NOT thread the sorted `paths` into the
+    --json full / --slim / text branches. Fixed by re-threading
+    `paths` through all three emit branches. The 3 failing tests
+    caught it cleanly.
+  - Verify gate: ran `pnpm run ci:verify` (full 21-task pipeline).
+    19 successful, 1 failed (telemetry OpenTelemetry peer mismatch
+    unchanged from every tick since tick 1).
+
+  Identity: commits land on main directly, each commit signed as
+  `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+
+  Theme connector: this is the sixteenth consecutive ship-from-
+  patterns tick. Five different family-wide patterns ported to
+  five different commands this batch:
+    (a) --only-* exclusive-emit pattern (digest -> watch)
+    (b) --sort path family contract (stats etc. -> tags paths)
+    (c) --json --slim cron-dashboard shape (digest list/run -> digest show)
+    (d) --tsv --header schema-row contract (stale -> stats)
+    (e) --top family-wide post-sort cap (stats etc. -> stale)
+  Each port closes a queued item AND establishes the pattern on
+  one more command in the cli surface. The queue refilled with
+  4 new follow-up items (digest --sort ts, forget --top, search
+  --tsv, plus a closed-as-not-needed watch --once --only-* audit)
+  so it stays well above the >=5 ready-items floor for the next tick.
