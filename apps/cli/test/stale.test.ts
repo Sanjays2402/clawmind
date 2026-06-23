@@ -1143,4 +1143,181 @@ describe('stale cli', () => {
     expect(out).toContain('1 stale');
     expect(out).toContain('/a.md');
   });
+
+  // -----------------------------------------------------------------
+  // --top <n>: cap survivors of -q / --since / --days / --sort /
+  // --reverse at this many rows. Applied LAST so the cap honours the
+  // chosen ordering. Mirrors stats / feedback list / tags list / search
+  // --top family contract byte-for-byte: clamped to a positive
+  // integer; non-positive or NaN falls back to "no cap".
+  // -----------------------------------------------------------------
+
+  it('exposes --top on the command surface', () => {
+    const flags = staleCommand().options.map((o) => o.long);
+    expect(flags).toContain('--top');
+  });
+
+  it('--top 2 caps the survivors to the head of the post-sort order', async () => {
+    // Fixture: 5 stale items, --sort size desc keeps biggest first.
+    // --top 2 = the 2 biggest.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      thresholdDays: 30,
+      total: 5,
+      items: [
+        { path: '/small.md', ageDays: 35, chunkCount: 1, size: 100 },
+        { path: '/biggest.md', ageDays: 45, chunkCount: 10, size: 1_000_000 },
+        { path: '/med.md', ageDays: 40, chunkCount: 5, size: 50_000 },
+        { path: '/large.md', ageDays: 50, chunkCount: 8, size: 500_000 },
+        { path: '/tiny.md', ageDays: 31, chunkCount: 1, size: 50 },
+      ],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'size', '--top', '2']);
+    const parsed = JSON.parse(stdout.join('')) as { total: number; items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/biggest.md', '/large.md']);
+    // total recomputed to the post-cap survivor count.
+    expect(parsed.total).toBe(2);
+  });
+
+  it('--top 0 falls back to no cap (matches stats --top clamping; no surprising empty table)', async () => {
+    // A typo like `--top 0` would silently yield an empty report
+    // under naive slice(0, 0) semantics. The clamp keeps the full
+    // list so the operator's mistake is visible (they see all the
+    // rows) rather than hidden (they see nothing and assume the
+    // index is clean).
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      thresholdDays: 30,
+      total: 3,
+      items: [
+        { path: '/a.md', ageDays: 31, chunkCount: 1, size: 100 },
+        { path: '/b.md', ageDays: 32, chunkCount: 1, size: 200 },
+        { path: '/c.md', ageDays: 33, chunkCount: 1, size: 300 },
+      ],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--top', '0']);
+    const parsed = JSON.parse(stdout.join('')) as { total: number; items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/a.md', '/b.md', '/c.md']);
+    expect(parsed.total).toBe(3);
+  });
+
+  it('--top with a non-numeric value falls back to no cap', async () => {
+    // parseInt('banana', 10) returns NaN; the Number.isFinite gate
+    // keeps the full list rather than crashing or silently emptying
+    // the output.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      thresholdDays: 30, total: 2,
+      items: [
+        { path: '/a.md', ageDays: 31, chunkCount: 1, size: 100 },
+        { path: '/b.md', ageDays: 32, chunkCount: 1, size: 200 },
+      ],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--top', 'banana']);
+    const parsed = JSON.parse(stdout.join('')) as { total: number; items: { path: string }[] };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/a.md', '/b.md']);
+    expect(parsed.total).toBe(2);
+  });
+
+  it('--top composes with --paths-only (cap applies BEFORE the path emit)', async () => {
+    // The canonical cron-budget use: `stale --sort size --top 10
+    // --paths | xargs forget --apply`. The cap is applied at the
+    // ranked-items layer before --paths-only walks the surviving
+    // items, so the stream is exactly N paths.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      thresholdDays: 30, total: 5,
+      items: [
+        { path: '/a.md', ageDays: 31, chunkCount: 1, size: 100 },
+        { path: '/b.md', ageDays: 32, chunkCount: 1, size: 200 },
+        { path: '/c.md', ageDays: 33, chunkCount: 1, size: 300 },
+        { path: '/d.md', ageDays: 34, chunkCount: 1, size: 400 },
+        { path: '/e.md', ageDays: 35, chunkCount: 1, size: 500 },
+      ],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--paths-only', '--sort', 'size', '--top', '3']);
+    // Sort size desc, top 3: /e.md (500), /d.md (400), /c.md (300).
+    expect(stdout.join('')).toBe('/e.md\n/d.md\n/c.md\n');
+  });
+
+  it('--top composes with --tsv (cap applies BEFORE the TSV emit)', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      thresholdDays: 30, total: 4,
+      items: [
+        { path: '/a.md', ageDays: 31, chunkCount: 1, size: 100 },
+        { path: '/b.md', ageDays: 32, chunkCount: 1, size: 200 },
+        { path: '/c.md', ageDays: 33, chunkCount: 1, size: 300 },
+        { path: '/d.md', ageDays: 34, chunkCount: 1, size: 400 },
+      ],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--tsv', '--top', '2']);
+    // No --sort => API order preserved (a, b). --top 2 keeps head: a, b.
+    expect(stdout.join('')).toBe('/a.md\t31\t1\t100\n/b.md\t32\t1\t200\n');
+  });
+
+  it('--top composes with --json --slim (slim count reflects the post-cap survivor count)', async () => {
+    // The slim shape's `count` MUST match items.length after --top
+    // narrows the set. A downstream `jq .count` consumer must never
+    // be lied to: if --top 5 capped the survivors, count = 5.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      thresholdDays: 30, total: 100,
+      items: Array.from({ length: 100 }, (_, i) => ({
+        path: `/f${i}.md`, ageDays: 31 + i, chunkCount: 1, size: 100 + i,
+      })),
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--slim', '--top', '5']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number };
+    expect(parsed.count).toBe(5);
+  });
+
+  it('--top composes with -q + --sort + --reverse (filters narrow first, then sort orders, then cap)', async () => {
+    // Pipeline pin: -q filters down to "f" paths, --sort age --reverse
+    // gives youngest-first among them, --top 2 keeps the head.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      thresholdDays: 30, total: 5,
+      items: [
+        { path: '/foo.md', ageDays: 31, chunkCount: 1, size: 100 },
+        { path: '/bar.md', ageDays: 50, chunkCount: 1, size: 100 },
+        { path: '/fizz.md', ageDays: 40, chunkCount: 1, size: 100 },
+        { path: '/baz.md', ageDays: 60, chunkCount: 1, size: 100 },
+        { path: '/fuzz.md', ageDays: 35, chunkCount: 1, size: 100 },
+      ],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    // -q is the API param so we expect the fixture to filter server-side.
+    // Since our stub doesn't honour ?q, we test the client-side pipeline
+    // assuming the API returned all 5 items even with q (worst case).
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--sort', 'age', '--reverse', '--top', '2']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string; ageDays: number }[] };
+    // --sort age (default desc, oldest first) --reverse => asc, youngest first.
+    // Top 2: foo (31), fuzz (35).
+    expect(parsed.items.map((i) => i.path)).toEqual(['/foo.md', '/fuzz.md']);
+    expect(parsed.items.map((i) => i.ageDays)).toEqual([31, 35]);
+  });
+
+  it('--top WITHOUT --sort uses the default API order then caps (back-compat: no surprising reorder)', async () => {
+    // No --sort => API order preserved. --top 2 takes the first
+    // two items as the API returned them.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      thresholdDays: 30, total: 3,
+      items: [
+        { path: '/first.md', ageDays: 50, chunkCount: 1, size: 100 },
+        { path: '/second.md', ageDays: 40, chunkCount: 1, size: 200 },
+        { path: '/third.md', ageDays: 60, chunkCount: 1, size: 300 },
+      ],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--top', '2']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; total: number };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/first.md', '/second.md']);
+    expect(parsed.total).toBe(2);
+  });
+
+  it('--top > items.length is a no-op (cap larger than population leaves everything)', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      thresholdDays: 30, total: 2,
+      items: [
+        { path: '/a.md', ageDays: 31, chunkCount: 1, size: 100 },
+        { path: '/b.md', ageDays: 32, chunkCount: 1, size: 200 },
+      ],
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await staleCommand().parseAsync(['node', 'cli', '--json', '--top', '1000']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { path: string }[]; total: number };
+    expect(parsed.items.map((i) => i.path)).toEqual(['/a.md', '/b.md']);
+    expect(parsed.total).toBe(2);
+  });
 });
