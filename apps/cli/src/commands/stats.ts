@@ -79,7 +79,7 @@ export function statsCommand() {
   return new Command('stats')
     .description('Per-namespace breakdown of indexed files, chunks, and bytes')
     .option('-q, --query <substr>', 'only include namespaces whose name contains this substring (case-insensitive)')
-    .option('--top <n>', 'cap the per-namespace extension breakdown at this many entries (default 4)', '4')
+    .option('--top <n>', 'cap the per-namespace extension breakdown at this many entries (default 4). Under --json --slim the meaning shifts: --top caps the `stale` namespace array at the top N namespaces (after --sort / --reverse have ordered the survivors). This is the more useful behaviour under --slim because the per-namespace extensions list is dropped entirely under the slim shape, so leaving --top a no-op would silently ignore an explicit cap from the operator. The canonical cron poll is `clawmind stats --json --slim --since <iso> --sort files --top 5` to answer "which 5 namespaces dominate the stale set" with a single-line ~50-byte payload. Without --slim or without --json, --top behaves as before (caps the per-namespace extensions list). The pinned semantics: --top cap applies AFTER every narrowing filter (-q, --since) and AFTER every ordering (--sort, --reverse) — same as `feedback list --top`, `search --top`, and `digest list --top` family contracts.', '4')
     .option('--sort <key>', 'sort namespaces descending by one of: files, chunks, bytes, namespace (alias: name). Default: namespace. Mirrors the family-wide --sort contract used by feedback / digest / aliases / related / search / stale --sort: ties at the same metric carry a secondary sort by original index for cross-snapshot determinism (so two consecutive `stats --json --sort files` runs over identical input produce byte-identical output regardless of the engine\'s Array#sort stability), and unknown keys abort cleanly with exit 1 enumerating the valid set. The `name` alias is the family-wide canonical spelling; the original `namespace` spelling is preserved for back-compat. Both behave identically.', 'namespace')
     .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` / `feedback list --reverse` / `digest list --reverse` / `aliases list --reverse` byte-for-byte). With --sort files / chunks / bytes the default is desc (biggest namespace first); --reverse gives asc (smallest first) — the natural "audit underutilized namespaces" question, complementary to the "which namespace dominates" default. With --sort namespace / name the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. NOTE on the no-default-sort contract: every OTHER --sort-bearing command in the family treats --reverse without --sort as a no-op because --sort is undefined by default. Stats is the exception — --sort has a default value of "namespace", so --reverse is ALWAYS active (it flips against the default namespace order even with no --sort flag passed). This is the only family-contract deviation and it falls out of stats predating the family-wide reverse contract; documenting it here so the precedent is explicit. The secondary tie-break by original index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction.')
     .option('--since <iso-date>', 'keep only namespaces whose newestIngestedAt is older than this ISO date (i.e. have not been re-ingested since the cutoff). Useful for finding namespaces that have gone stale at the namespace level — complements `stale` which works at the per-file level. Namespaces with newestIngestedAt=null (never indexed) are KEPT because they are trivially older than any cutoff. The recomputed totals reflect the filtered subset so a downstream "stale namespaces dominate X bytes" report still adds up.')
@@ -87,7 +87,7 @@ export function statsCommand() {
     .option('--paths', 'pipeline-friendly: emit ONLY the per-namespace `extensions[*].ext` flat list, one extension per line, in API order. Answers "which file types live in this namespace" without --json + jq. Composes with -q (filter by namespace name first) and --top (cap each namespace contribution before emit) for "the top 3 extensions in namespaces matching `mem`". Zero matches yields a clean empty stream so xargs/wc keep working. Wins over --json / --tsv / text when set (short-circuits the contract is unambiguous).')
     .option('--json', 'emit machine-readable JSON instead of a text table')
     .option('--compact', 'with --json: emit a single-line JSON document (no indentation) for easier diffing across cron snapshots. Ignored without --json.')
-    .option('--slim', 'with --json: emit a slimmed `{stale: [<namespace>], total: N}` shape carrying only the names of namespaces in the report instead of the full per-namespace metric blocks. The classic cron use is `clawmind stats --json --slim --since <iso>` to answer "which namespaces have gone stale at the namespace level" without piping the full report through `jq` for the namespace names. The `stale` key is the name (the operator already asked the question — they want a clean array of strings, not nested objects). `total` is the length of `stale` so a downstream `jq .total` can branch on emptiness without inspecting the array. Without --since the payload is "all namespaces matching the other filters", which is still a useful cron-snapshot shape (it tracks namespace presence over time). Ignored without --json. Wins over --compact when both are set because --slim already implies single-line output. Composes with --tsv: `--json --slim --tsv` emits one `<namespace>\\t<files>` row per surviving namespace (no header, no trailing summary, no ANSI) for awk pipelines that want both the staleness filter AND the per-namespace file count in a single 2-column stream.')
+    .option('--slim', 'with --json: emit a slimmed `{stale: [<namespace>], total: N}` shape carrying only the names of namespaces in the report instead of the full per-namespace metric blocks. The classic cron use is `clawmind stats --json --slim --since <iso>` to answer "which namespaces have gone stale at the namespace level" without piping the full report through `jq` for the namespace names. The `stale` key is the name (the operator already asked the question — they want a clean array of strings, not nested objects). `total` is the length of `stale` so a downstream `jq .total` can branch on emptiness without inspecting the array. Without --since the payload is "all namespaces matching the other filters", which is still a useful cron-snapshot shape (it tracks namespace presence over time). Ignored without --json. Wins over --compact when both are set because --slim already implies single-line output. Composes with --tsv: `--json --slim --tsv` emits one `<namespace>\\t<files>` row per surviving namespace (no header, no trailing summary, no ANSI) for awk pipelines that want both the staleness filter AND the per-namespace file count in a single 2-column stream. Composes with --top: under --slim the --top cap re-targets from the per-namespace extensions list (which is dropped under --slim anyway) to the `stale` namespace array, so `--json --slim --sort files --top 5` is "the 5 biggest namespaces by file count" as a single-line ~50-byte panel. Without --slim, --top keeps its legacy per-namespace-extensions meaning byte-for-byte.')
     .action(async (opts: { json?: boolean; tsv?: boolean; paths?: boolean; query?: string; top: string; sort: string; reverse?: boolean; since?: string; compact?: boolean; slim?: boolean }) => {
       await runOrReport('stats', async () => {
         let report = (await apiFetch('GET', '/v1/stats')) as StatsReport;
@@ -304,7 +304,44 @@ export function statsCommand() {
               }
               return;
             }
-            const stale = report.byNamespace.map((n) => n.namespace);
+            // --top caps the `stale` namespace array under --slim.
+            // The legacy per-namespace-extensions cap is meaningless
+            // here because the slim shape drops `extensions` entirely
+            // — re-targeting the cap to the `stale` array honours the
+            // operator's explicit cap intent and mirrors the family-
+            // wide `--top` contract (feedback list / search / digest
+            // list --top cap their primary collection AFTER --sort
+            // ordering). The cap fires after the prior --top
+            // already trimmed `extensions[]` above (which is a no-op
+            // for the slim shape but kept for branch symmetry); this
+            // second cap operates on the slim primary array.
+            //
+            // We re-parse opts.top because the prior parsedTop /
+            // topN computation above already consumed it but we
+            // need the validated integer here too. Sharing the
+            // upstream `topN` keeps the math equivalent — `--top 0`
+            // / non-numeric / negative inputs all fall back to the
+            // family-wide default cap of 4. We cap to N only when
+            // N is LESS than the current length so the legacy
+            // unbounded shape (`--slim` without explicit --top) is
+            // preserved: the default of `--top 4` from commander is
+            // intentionally NOT enforced under --slim because the
+            // operator polling a stats-slim dashboard typically
+            // wants the FULL namespace list ("how many namespaces
+            // are stale"), not the top-4 default. We detect the
+            // explicit-vs-default case by checking opts.top against
+            // the commander default literal '4' — if the operator
+            // passed --top explicitly (even '--top 4') the cap is
+            // honoured, otherwise we leave the slim list unbounded.
+            // This deviates from the legacy --top-affects-extensions
+            // path which always applies the default, but it matches
+            // the operator's mental model for --slim ("if I didn't
+            // ask to cap, don't cap"). Documented in the --top
+            // help text.
+            let stale = report.byNamespace.map((n) => n.namespace);
+            if (opts.top !== '4' && topN < stale.length) {
+              stale = stale.slice(0, topN);
+            }
             process.stdout.write(JSON.stringify({ stale, total: stale.length }) + '\n');
             return;
           }

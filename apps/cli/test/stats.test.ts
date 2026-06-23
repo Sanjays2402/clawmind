@@ -948,4 +948,134 @@ describe('stats cli --slim', () => {
       'loner', 'second-tied', 'first-tied',
     ]);
   });
+
+  // ---------------------------------------------------------------
+  // --json --slim --top tests — under --slim, --top re-targets from
+  // the per-namespace extensions list (dropped in the slim shape)
+  // to the `stale` namespace array. Mirrors `feedback list --top`,
+  // `search --top`, and `digest list --top` family contracts where
+  // --top caps the primary collection AFTER --sort ordering.
+  // ---------------------------------------------------------------
+
+  it('--json --slim --top N caps the `stale` array at the top N namespaces (after --sort)', async () => {
+    // Five namespaces sorted by files desc; --top 3 keeps the
+    // first 3 in the sorted order.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 150, chunks: 1500, bytes: 150_000, namespaces: 5 },
+      byNamespace: [
+        { namespace: 'tiny',   files: 5,   chunks: 50,   bytes: 5_000,   oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'medium', files: 20,  chunks: 200,  bytes: 20_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'big',    files: 50,  chunks: 500,  bytes: 50_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'small',  files: 10,  chunks: 100,  bytes: 10_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'huge',   files: 65,  chunks: 650,  bytes: 65_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--sort', 'files', '--top', '3']);
+    const parsed = JSON.parse(captured.join(''));
+    // Sorted by files desc: huge(65), big(50), medium(20), small(10), tiny(5).
+    // Top 3: huge, big, medium.
+    expect(parsed.stale).toEqual(['huge', 'big', 'medium']);
+    expect(parsed.total).toBe(3);
+  });
+
+  it('--json --slim without explicit --top leaves the slim list unbounded (no implicit top-4 cap)', async () => {
+    // Critical contract: the family-wide default `--top 4` from
+    // commander is intentionally NOT enforced under --slim. The
+    // operator polling a stats-slim dashboard typically wants the
+    // FULL namespace count, not the top-4 default. Without an
+    // explicit --top the slim list carries every surviving namespace.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 30, chunks: 300, bytes: 30_000, namespaces: 5 },
+      byNamespace: [
+        { namespace: 'a', files: 5,  chunks: 50,  bytes: 5_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'b', files: 5,  chunks: 50,  bytes: 5_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'c', files: 5,  chunks: 50,  bytes: 5_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'd', files: 5,  chunks: 50,  bytes: 5_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'e', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim']);
+    const parsed = JSON.parse(captured.join(''));
+    // All 5 namespaces present — the top-4 default does NOT apply.
+    expect(parsed.stale).toHaveLength(5);
+    expect(parsed.total).toBe(5);
+  });
+
+  it('--json --slim --top composes with --since (cap applies to the post-filter survivors)', async () => {
+    // --since narrows the namespace set first; --top caps the
+    // post-filter list. The slim count reflects the capped subset.
+    const now = Date.now();
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 100, chunks: 1000, bytes: 100_000, namespaces: 4 },
+      byNamespace: [
+        // Two stale (newestIngestedAt before cutoff)
+        { namespace: 'stale-1', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: now - 1_000_000, extensions: [] },
+        { namespace: 'stale-2', files: 20, chunks: 200, bytes: 20_000, oldestIngestedAt: null, newestIngestedAt: now - 2_000_000, extensions: [] },
+        { namespace: 'stale-3', files: 30, chunks: 300, bytes: 30_000, oldestIngestedAt: null, newestIngestedAt: now - 3_000_000, extensions: [] },
+        // One fresh (after cutoff) — should be filtered out
+        { namespace: 'fresh',   files: 40, chunks: 400, bytes: 40_000, oldestIngestedAt: null, newestIngestedAt: now, extensions: [] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    const cutoff = new Date(now - 500_000).toISOString();
+    await statsCommand().parseAsync([
+      'node', 'cli', '--json', '--slim', '--since', cutoff, '--sort', 'files', '--top', '2',
+    ]);
+    const parsed = JSON.parse(captured.join(''));
+    // After --since: 3 stale survive. Sorted by files desc:
+    // stale-3 (30), stale-2 (20), stale-1 (10). --top 2 keeps the
+    // first two: stale-3, stale-2.
+    expect(parsed.stale).toEqual(['stale-3', 'stale-2']);
+    expect(parsed.total).toBe(2);
+  });
+
+  it('--json --slim --top N where N >= length is a no-op (does not pad or wrap)', async () => {
+    // Edge: --top 10 against 3 namespaces yields all 3, NOT 10
+    // copies, NOT an error. Mirrors the family-wide --top
+    // contract.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 15, chunks: 150, bytes: 15_000, namespaces: 3 },
+      byNamespace: [
+        { namespace: 'a', files: 5, chunks: 50, bytes: 5_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'b', files: 5, chunks: 50, bytes: 5_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'c', files: 5, chunks: 50, bytes: 5_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--top', '10']);
+    const parsed = JSON.parse(captured.join(''));
+    expect(parsed.stale).toHaveLength(3);
+    expect(parsed.total).toBe(3);
+  });
+
+  it('--top WITHOUT --json --slim keeps its legacy per-namespace-extensions meaning (back-compat)', async () => {
+    // Critical regression check: without --slim, --top still caps
+    // each namespace's `extensions` array. The legacy contract is
+    // preserved byte-for-byte; the --slim re-targeting is opt-in.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 1, chunks: 5, bytes: 1_000, namespaces: 1 },
+      byNamespace: [
+        {
+          namespace: 'memory', files: 1, chunks: 5, bytes: 1_000,
+          oldestIngestedAt: null, newestIngestedAt: null,
+          extensions: [
+            { ext: 'md', count: 10 },
+            { ext: 'ts', count: 5 },
+            { ext: 'json', count: 2 },
+            { ext: 'yaml', count: 1 },
+          ],
+        },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--top', '2']);
+    const parsed = JSON.parse(captured.join(''));
+    // Legacy contract: extensions trimmed to top 2.
+    expect(parsed.byNamespace[0].extensions).toEqual([
+      { ext: 'md', count: 10 },
+      { ext: 'ts', count: 5 },
+    ]);
+  });
 });
