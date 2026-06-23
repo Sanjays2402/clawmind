@@ -84,11 +84,12 @@ export function statsCommand() {
     .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` / `feedback list --reverse` / `digest list --reverse` / `aliases list --reverse` byte-for-byte). With --sort files / chunks / bytes the default is desc (biggest namespace first); --reverse gives asc (smallest first) — the natural "audit underutilized namespaces" question, complementary to the "which namespace dominates" default. With --sort namespace / name the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. NOTE on the no-default-sort contract: every OTHER --sort-bearing command in the family treats --reverse without --sort as a no-op because --sort is undefined by default. Stats is the exception — --sort has a default value of "namespace", so --reverse is ALWAYS active (it flips against the default namespace order even with no --sort flag passed). This is the only family-contract deviation and it falls out of stats predating the family-wide reverse contract; documenting it here so the precedent is explicit. The secondary tie-break by original index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction.')
     .option('--since <iso-date>', 'keep only namespaces whose newestIngestedAt is older than this ISO date (i.e. have not been re-ingested since the cutoff). Useful for finding namespaces that have gone stale at the namespace level — complements `stale` which works at the per-file level. Namespaces with newestIngestedAt=null (never indexed) are KEPT because they are trivially older than any cutoff. The recomputed totals reflect the filtered subset so a downstream "stale namespaces dominate X bytes" report still adds up.')
     .option('--tsv', 'emit tab-separated rows (namespace<TAB>files<TAB>chunks<TAB>bytes<TAB>newestIngestedAt) for awk/cut pipelines')
+    .option('--header', 'with --tsv: prepend a single tab-separated header row (`namespace\\tfiles\\tchunks\\tbytes\\tnewestIngestedAt`) so the stream is friendly to `column -ts$\\\'\\\\t\\\'` / pandas.read_csv / spreadsheet imports without a separate echo. The default header-less shape is preserved when --header is absent so the long-standing awk-pipeline contract (`awk -F$\\\'\\\\t\\\' \\\'{print $1}\\\'`) still works byte-for-byte. Ignored without --tsv (the JSON / --paths / text modes already have their own well-defined shapes; adding a header line to those would break tests pinned to their exact byte layouts). Mirrors `stale --tsv --header` byte-for-byte: when zero rows pass the filters AND --header is set, the header row STILL fires so a downstream consumer parsing the stream into a typed table never has to special-case an empty body — the schema row is the contract, not the data rows. Composes with --json --slim --tsv (the slim 2-column shape) — under --slim the header is `namespace\\tfiles` (the columns the slim shape carries). Without --slim it is the full 5-column header above.')
     .option('--paths', 'pipeline-friendly: emit ONLY the per-namespace `extensions[*].ext` flat list, one extension per line, in API order. Answers "which file types live in this namespace" without --json + jq. Composes with -q (filter by namespace name first) and --top (cap each namespace contribution before emit) for "the top 3 extensions in namespaces matching `mem`". Zero matches yields a clean empty stream so xargs/wc keep working. Wins over --json / --tsv / text when set (short-circuits the contract is unambiguous). NOTE on --json --slim composition: with the `--json --slim` flag pair active, --paths re-targets from the per-namespace extension stream to the FLAT NAMESPACE-NAME stream (one namespace name per line). This is the natural pipeline-friendly twin of the slim JSON shape `{stale, total}` — a downstream `xargs` consumer (e.g. `clawmind stats --json --slim --since X --paths | xargs -I{} clawmind digest run --namespace {}`) wants the namespace names path-style, NOT wrapped in JSON. Without --slim, --paths preserves its legacy extension-stream meaning byte-for-byte (no regression for existing scripts).')
     .option('--json', 'emit machine-readable JSON instead of a text table')
     .option('--compact', 'with --json: emit a single-line JSON document (no indentation) for easier diffing across cron snapshots. Ignored without --json.')
     .option('--slim', 'with --json: emit a slimmed `{stale: [<namespace>], total: N}` shape carrying only the names of namespaces in the report instead of the full per-namespace metric blocks. The classic cron use is `clawmind stats --json --slim --since <iso>` to answer "which namespaces have gone stale at the namespace level" without piping the full report through `jq` for the namespace names. The `stale` key is the name (the operator already asked the question — they want a clean array of strings, not nested objects). `total` is the length of `stale` so a downstream `jq .total` can branch on emptiness without inspecting the array. Without --since the payload is "all namespaces matching the other filters", which is still a useful cron-snapshot shape (it tracks namespace presence over time). Ignored without --json. Wins over --compact when both are set because --slim already implies single-line output. Composes with --tsv: `--json --slim --tsv` emits one `<namespace>\\t<files>` row per surviving namespace (no header, no trailing summary, no ANSI) for awk pipelines that want both the staleness filter AND the per-namespace file count in a single 2-column stream. Composes with --top: under --slim the --top cap re-targets from the per-namespace extensions list (which is dropped under --slim anyway) to the `stale` namespace array, so `--json --slim --sort files --top 5` is "the 5 biggest namespaces by file count" as a single-line ~50-byte panel. Without --slim, --top keeps its legacy per-namespace-extensions meaning byte-for-byte.')
-    .action(async (opts: { json?: boolean; tsv?: boolean; paths?: boolean; query?: string; top: string; sort: string; reverse?: boolean; since?: string; compact?: boolean; slim?: boolean }) => {
+    .action(async (opts: { json?: boolean; tsv?: boolean; header?: boolean; paths?: boolean; query?: string; top: string; sort: string; reverse?: boolean; since?: string; compact?: boolean; slim?: boolean }) => {
       await runOrReport('stats', async () => {
         let report = (await apiFetch('GET', '/v1/stats')) as StatsReport;
         if (opts.query) {
@@ -340,6 +341,16 @@ export function statsCommand() {
             // JSON. The text-mode `--tsv` path on the full stats
             // is unaffected because that's gated on `!opts.json`.
             if (opts.tsv) {
+              // --header prepends the slim 2-column schema row
+              // (namespace + files — the columns the slim --tsv
+              // shape emits). The header fires unconditionally when
+              // --header is set, INCLUDING on a zero-row body, so a
+              // downstream typed-table parser never has to special-
+              // case the empty stream. Mirrors `stale --tsv --header`
+              // byte-for-byte.
+              if (opts.header) {
+                process.stdout.write('namespace\tfiles\n');
+              }
               for (const ns of report.byNamespace) {
                 process.stdout.write(`${ns.namespace}\t${ns.files}\n`);
               }
@@ -410,6 +421,16 @@ export function statsCommand() {
           // identifies each row. newestIngestedAt is the raw epoch ms
           // (or empty string when never indexed) so downstream tools
           // can format it however they want.
+          //
+          // --header prepends a single tab-separated schema row
+          // (`namespace\tfiles\tchunks\tbytes\tnewestIngestedAt`) when
+          // set. Fires unconditionally — even on a zero-row body —
+          // so a downstream typed-table parser sees the schema first
+          // and never has to special-case the empty case. Mirrors
+          // `stale --tsv --header` byte-for-byte.
+          if (opts.header) {
+            process.stdout.write('namespace\tfiles\tchunks\tbytes\tnewestIngestedAt\n');
+          }
           for (const ns of report.byNamespace) {
             const newest = ns.newestIngestedAt == null ? '' : String(ns.newestIngestedAt);
             process.stdout.write(

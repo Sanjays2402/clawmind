@@ -1252,4 +1252,111 @@ describe('stats cli --slim', () => {
       expect(line).not.toContain('"');
     }
   });
+
+  // -----------------------------------------------------------------
+  // --tsv --header: prepend a single tab-separated schema row so the
+  // stream is friendly to `column -t` / pandas.read_csv / spreadsheet
+  // imports without a separate echo. Mirrors `stale --tsv --header`
+  // byte-for-byte. Composes with --slim (slim emits the 2-col schema
+  // `namespace\tfiles`); without --slim the full 5-col schema fires.
+  // -----------------------------------------------------------------
+
+  it('exposes --header on the command surface', () => {
+    const flags = statsCommand().options.map((o) => o.long);
+    expect(flags).toContain('--header');
+  });
+
+  it('--tsv --header prepends the full 5-column schema row', async () => {
+    // Schema row: namespace<TAB>files<TAB>chunks<TAB>bytes<TAB>newestIngestedAt
+    // followed by the existing tab-separated data rows.
+    await statsCommand().parseAsync(['node', 'cli', '--tsv', '--header']);
+    const out = captured.join('');
+    expect(out).toBe(
+      'namespace\tfiles\tchunks\tbytes\tnewestIngestedAt\n' +
+      'memory\t10\t100\t10000\t\n' +
+      'sessions\t5\t50\t5000\t\n' +
+      'projects\t15\t150\t15000\t\n',
+    );
+    // No ANSI styling — typed-table parsers must see plain text.
+    expect(out).not.toMatch(/\x1b\[/);
+  });
+
+  it('--tsv WITHOUT --header keeps the legacy header-less shape byte-for-byte (regression)', async () => {
+    // Critical back-compat contract: every existing pipeline using
+    // `stats --tsv | awk` MUST keep seeing the legacy shape. The
+    // existing test at line 190 already pins this; we re-assert here
+    // alongside the --header pin to make the precedence explicit.
+    await statsCommand().parseAsync(['node', 'cli', '--tsv']);
+    const out = captured.join('');
+    // No header row.
+    expect(out).not.toMatch(/^namespace\t/);
+    // Same data rows as the legacy test.
+    expect(out).toBe(
+      'memory\t10\t100\t10000\t\n' +
+      'sessions\t5\t50\t5000\t\n' +
+      'projects\t15\t150\t15000\t\n',
+    );
+  });
+
+  it('--tsv --header fires the schema row even on a zero-row body (typed-parser contract)', async () => {
+    // The schema row is the CONTRACT, not the data rows. A downstream
+    // consumer parsing the stream into a typed table never has to
+    // special-case an empty body — the header always anchors the
+    // schema. Mirrors `stale --tsv --header` zero-row behaviour.
+    await statsCommand().parseAsync(['node', 'cli', '--tsv', '--header', '-q', 'nope']);
+    expect(captured.join('')).toBe('namespace\tfiles\tchunks\tbytes\tnewestIngestedAt\n');
+  });
+
+  it('--tsv --header composes with --sort (header first, then sorted rows)', async () => {
+    // The header is emitted ONCE at the top regardless of sort order;
+    // the per-namespace rows are then sorted by the chosen key.
+    await statsCommand().parseAsync(['node', 'cli', '--tsv', '--header', '--sort', 'files']);
+    const lines = captured.join('').split('\n').filter(Boolean);
+    expect(lines[0]).toBe('namespace\tfiles\tchunks\tbytes\tnewestIngestedAt');
+    // After the header, rows sorted desc by files: projects (15), memory (10), sessions (5).
+    expect(lines.slice(1).map((l) => l.split('\t')[0])).toEqual(['projects', 'memory', 'sessions']);
+  });
+
+  it('--json --slim --tsv --header prepends the slim 2-column schema row (namespace\\tfiles)', async () => {
+    // Under --slim the --tsv shape is 2-col (namespace, files). The
+    // --header schema row matches that — `namespace\tfiles` — NOT
+    // the full 5-col schema. Documented in the --header help text.
+    await statsCommand().parseAsync([
+      'node', 'cli', '--json', '--slim', '--tsv', '--header',
+    ]);
+    const out = captured.join('');
+    expect(out.startsWith('namespace\tfiles\n')).toBe(true);
+    // The 2-col data rows follow.
+    const lines = out.split('\n').filter(Boolean);
+    expect(lines[0]).toBe('namespace\tfiles');
+    // Every data row has exactly one tab.
+    for (const line of lines.slice(1)) {
+      expect(line.split('\t')).toHaveLength(2);
+    }
+  });
+
+  it('--header WITHOUT --tsv is silently ignored (no header injected into JSON / text / --paths)', async () => {
+    // The --header flag is meaningful only inside --tsv. Other output
+    // modes have their own well-defined shapes that the header would
+    // corrupt (a JSON document with a TSV header line in front is
+    // unparseable). We pin the no-op silently — same precedent as
+    // --slim ignored without --json.
+    await statsCommand().parseAsync(['node', 'cli', '--header']);
+    const out = captured.join('');
+    // Text mode totals line still fires; no header row leak.
+    expect(out).toContain('files');
+    expect(out).not.toMatch(/^namespace\tfiles\tchunks/);
+  });
+
+  it('--tsv --header determinism: two consecutive runs produce byte-identical output', async () => {
+    // End-to-end pin of the cron snapshot diff property — the
+    // header row alongside the data rows must be byte-stable across
+    // runs over identical input.
+    await statsCommand().parseAsync(['node', 'cli', '--tsv', '--header']);
+    const tick1 = captured.join('');
+    captured.length = 0;
+    await statsCommand().parseAsync(['node', 'cli', '--tsv', '--header']);
+    const tick2 = captured.join('');
+    expect(tick1).toBe(tick2);
+  });
 });
