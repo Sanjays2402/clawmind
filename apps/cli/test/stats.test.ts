@@ -1078,4 +1078,178 @@ describe('stats cli --slim', () => {
       { ext: 'ts', count: 5 },
     ]);
   });
+
+  // ---------------------------------------------------------------
+  // --json --slim --paths tests — re-target the flat stream from
+  // per-namespace extensions to the FLAT NAMESPACE-NAME stream
+  // (one namespace name per line, xargs-safe). The natural
+  // pipeline-friendly twin of the slim JSON shape `{stale, total}`.
+  // The re-target is GATED on --json --slim being active so existing
+  // scripts using just `--paths` (without --slim) continue to get
+  // the legacy extension-stream byte-for-byte — no regression.
+  // ---------------------------------------------------------------
+
+  it('--json --slim --paths emits one namespace name per line (xargs-safe)', async () => {
+    // Default fixture from the outer describe has 3 namespaces in
+    // API order: memory, sessions, projects. The slim-paths stream
+    // emits them one per line in the post-sort/--top order. Without
+    // --since the default --sort namespace is a no-op (API order
+    // preserved) — mirrors the slim JSON `{stale}` array contract.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--paths']);
+    const out = captured.join('');
+    // One namespace per line, no styling, no header, trailing newline.
+    const lines = out.split('\n').filter(Boolean);
+    expect(lines).toEqual(['memory', 'sessions', 'projects']);
+    // No ANSI styling — pipeline mode must be plain text.
+    expect(out).not.toMatch(/\x1b\[/);
+    // Not JSON — the slim-paths stream is path-style.
+    expect(() => JSON.parse(out)).toThrow();
+  });
+
+  it('--json --slim --paths emits the EXACT same namespace set as --json --slim (the two shapes are observationally consistent)', async () => {
+    // The slim JSON shape and the slim-paths stream must surface
+    // the SAME survivor set in the SAME order — they answer the
+    // same question, just framed differently. Pin the invariant:
+    // a consumer reading `parsed.stale` from the JSON shape and
+    // a consumer reading `.split('\n')` from the paths shape get
+    // the byte-identical namespace list.
+    captured.length = 0;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim']);
+    const parsedJson = JSON.parse(captured.join(''));
+    captured.length = 0;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--paths']);
+    const pathsList = captured.join('').split('\n').filter(Boolean);
+    expect(pathsList).toEqual(parsedJson.stale);
+  });
+
+  it('--json --slim --paths composes with --since (post-cutoff survivors only)', async () => {
+    // Override fixture to exercise the staleness filter against
+    // the path stream. Two namespaces older than the cutoff, one
+    // newer — only the older two should land in the path stream.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 30, chunks: 300, bytes: 30_000, namespaces: 3 },
+      byNamespace: [
+        { namespace: 'memory', files: 10, chunks: 100, bytes: 10_000,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2025-01-01T00:00:00Z'),
+          extensions: [{ ext: 'md', count: 10 }] },
+        { namespace: 'sessions', files: 5, chunks: 50, bytes: 5_000,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2026-06-20T00:00:00Z'),
+          extensions: [{ ext: 'json', count: 5 }] },
+        { namespace: 'projects', files: 15, chunks: 150, bytes: 15_000,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2025-06-15T00:00:00Z'),
+          extensions: [{ ext: 'ts', count: 15 }] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--since', '2026-01-01', '--paths']);
+    const lines = captured.join('').split('\n').filter(Boolean);
+    // Two stale (memory, projects) survive — sessions filtered out.
+    // API order preserved (default --sort namespace is a no-op).
+    expect(lines).toEqual(['memory', 'projects']);
+  });
+
+  it('--json --slim --paths composes with --sort files --top (pinned canonical cron pipe)', async () => {
+    // The pinned canonical cron pipe:
+    //   clawmind stats --json --slim --since X --sort files --top 2 --paths | xargs ...
+    // For the 5-namespace fixture, --sort files desc puts e (10)
+    // first, then a/b/c/d (5 each, secondary by original index).
+    // --top 2 keeps the head: e, a.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 30, chunks: 300, bytes: 30_000, namespaces: 5 },
+      byNamespace: [
+        { namespace: 'a', files: 5,  chunks: 50,  bytes: 5_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'b', files: 5,  chunks: 50,  bytes: 5_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'c', files: 5,  chunks: 50,  bytes: 5_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'd', files: 5,  chunks: 50,  bytes: 5_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'e', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--sort', 'files', '--top', '2', '--paths']);
+    const lines = captured.join('').split('\n').filter(Boolean);
+    expect(lines).toEqual(['e', 'a']);
+  });
+
+  it('--json --slim --paths with zero survivors yields a clean empty stream (xargs/wc-safe)', async () => {
+    // --since cutoff that filters out every namespace must yield
+    // an empty stream — NOT a JSON `[]` document, NOT a header,
+    // NOT a "no namespaces" hint. Critical for `... --paths |
+    // xargs ls`: leaking any text would feed xargs a literal
+    // string instead of a path list.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 5, chunks: 50, bytes: 5_000, namespaces: 1 },
+      byNamespace: [
+        { namespace: 'sessions', files: 5, chunks: 50, bytes: 5_000,
+          oldestIngestedAt: null, newestIngestedAt: Date.parse('2026-06-20T00:00:00Z'),
+          extensions: [{ ext: 'json', count: 5 }] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--since', '2020-01-01', '--paths']);
+    expect(captured.join('')).toBe('');
+  });
+
+  it('--json --slim --paths preserves the explicit --top cap (matches the slim JSON --top contract)', async () => {
+    // Explicit --top under --slim wins (the default '4' is NOT
+    // enforced). The slim-paths stream must apply the same cap so
+    // the two shapes stay observationally consistent.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 15, chunks: 150, bytes: 15_000, namespaces: 3 },
+      byNamespace: [
+        { namespace: 'a', files: 5, chunks: 50, bytes: 5_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'b', files: 5, chunks: 50, bytes: 5_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'c', files: 5, chunks: 50, bytes: 5_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--top', '2', '--paths']);
+    const lines = captured.join('').split('\n').filter(Boolean);
+    // Default --sort namespace (no-op): a, b, c (API order).
+    // --top 2 keeps head: a, b.
+    expect(lines).toEqual(['a', 'b']);
+  });
+
+  it('--paths WITHOUT --json keeps its legacy per-namespace-extensions meaning (back-compat regression)', async () => {
+    // Critical: the slim-paths re-target is GATED on BOTH --json
+    // AND --slim. Without --json, the bare --paths emits the
+    // legacy extension stream from the default fixture (md/txt/
+    // json/yaml from memory's top-4, json from sessions, ts from
+    // projects). A regression that re-targeted under bare --paths
+    // would silently change the contract for every existing
+    // pipeline using `stats --paths` (and there are some, in the
+    // CHANGELOG dating back to the 2026-06-20 16:05 PDT tick).
+    await statsCommand().parseAsync(['node', 'cli', '--paths']);
+    const out = captured.join('');
+    // Byte-identical to the existing --paths test at line 397.
+    expect(out).toBe('md\ntxt\njson\nyaml\njson\nts\n');
+  });
+
+  it('--paths --json WITHOUT --slim keeps its legacy extension-stream meaning (slim is the trigger)', async () => {
+    // Pin: the re-target is BOTH --json AND --slim. With --json
+    // alone (no --slim), --paths still emits the legacy extension
+    // stream byte-for-byte. The slim flag is the canonical signal
+    // that the operator wants the slim-paths re-target.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--paths']);
+    const out = captured.join('');
+    // Byte-identical to the existing --paths --json test at line 454.
+    expect(out).toBe('md\ntxt\njson\nyaml\njson\nts\n');
+  });
+
+  it('--json --slim --paths is plain-text (NOT JSON) — pipeline contract wins over the slim JSON shape', async () => {
+    // The precedence contract: --paths is the pipeline-friendly
+    // contract; --json --slim is the dashboard shape. When all
+    // three combine, --paths wins (the namespace names land as
+    // path-per-line). A regression that emitted the JSON shape
+    // here would break the canonical `... --paths | xargs` flow.
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--slim', '--paths']);
+    const out = captured.join('');
+    // Not JSON.
+    expect(() => JSON.parse(out)).toThrow();
+    // Each line is a bare namespace name, no `{`, `[`, `"` framing.
+    for (const line of out.split('\n').filter(Boolean)) {
+      expect(line).not.toContain('{');
+      expect(line).not.toContain('[');
+      expect(line).not.toContain('"');
+    }
+  });
 });

@@ -84,7 +84,7 @@ export function statsCommand() {
     .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` / `feedback list --reverse` / `digest list --reverse` / `aliases list --reverse` byte-for-byte). With --sort files / chunks / bytes the default is desc (biggest namespace first); --reverse gives asc (smallest first) — the natural "audit underutilized namespaces" question, complementary to the "which namespace dominates" default. With --sort namespace / name the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. NOTE on the no-default-sort contract: every OTHER --sort-bearing command in the family treats --reverse without --sort as a no-op because --sort is undefined by default. Stats is the exception — --sort has a default value of "namespace", so --reverse is ALWAYS active (it flips against the default namespace order even with no --sort flag passed). This is the only family-contract deviation and it falls out of stats predating the family-wide reverse contract; documenting it here so the precedent is explicit. The secondary tie-break by original index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction.')
     .option('--since <iso-date>', 'keep only namespaces whose newestIngestedAt is older than this ISO date (i.e. have not been re-ingested since the cutoff). Useful for finding namespaces that have gone stale at the namespace level — complements `stale` which works at the per-file level. Namespaces with newestIngestedAt=null (never indexed) are KEPT because they are trivially older than any cutoff. The recomputed totals reflect the filtered subset so a downstream "stale namespaces dominate X bytes" report still adds up.')
     .option('--tsv', 'emit tab-separated rows (namespace<TAB>files<TAB>chunks<TAB>bytes<TAB>newestIngestedAt) for awk/cut pipelines')
-    .option('--paths', 'pipeline-friendly: emit ONLY the per-namespace `extensions[*].ext` flat list, one extension per line, in API order. Answers "which file types live in this namespace" without --json + jq. Composes with -q (filter by namespace name first) and --top (cap each namespace contribution before emit) for "the top 3 extensions in namespaces matching `mem`". Zero matches yields a clean empty stream so xargs/wc keep working. Wins over --json / --tsv / text when set (short-circuits the contract is unambiguous).')
+    .option('--paths', 'pipeline-friendly: emit ONLY the per-namespace `extensions[*].ext` flat list, one extension per line, in API order. Answers "which file types live in this namespace" without --json + jq. Composes with -q (filter by namespace name first) and --top (cap each namespace contribution before emit) for "the top 3 extensions in namespaces matching `mem`". Zero matches yields a clean empty stream so xargs/wc keep working. Wins over --json / --tsv / text when set (short-circuits the contract is unambiguous). NOTE on --json --slim composition: with the `--json --slim` flag pair active, --paths re-targets from the per-namespace extension stream to the FLAT NAMESPACE-NAME stream (one namespace name per line). This is the natural pipeline-friendly twin of the slim JSON shape `{stale, total}` — a downstream `xargs` consumer (e.g. `clawmind stats --json --slim --since X --paths | xargs -I{} clawmind digest run --namespace {}`) wants the namespace names path-style, NOT wrapped in JSON. Without --slim, --paths preserves its legacy extension-stream meaning byte-for-byte (no regression for existing scripts).')
     .option('--json', 'emit machine-readable JSON instead of a text table')
     .option('--compact', 'with --json: emit a single-line JSON document (no indentation) for easier diffing across cron snapshots. Ignored without --json.')
     .option('--slim', 'with --json: emit a slimmed `{stale: [<namespace>], total: N}` shape carrying only the names of namespaces in the report instead of the full per-namespace metric blocks. The classic cron use is `clawmind stats --json --slim --since <iso>` to answer "which namespaces have gone stale at the namespace level" without piping the full report through `jq` for the namespace names. The `stale` key is the name (the operator already asked the question — they want a clean array of strings, not nested objects). `total` is the length of `stale` so a downstream `jq .total` can branch on emptiness without inspecting the array. Without --since the payload is "all namespaces matching the other filters", which is still a useful cron-snapshot shape (it tracks namespace presence over time). Ignored without --json. Wins over --compact when both are set because --slim already implies single-line output. Composes with --tsv: `--json --slim --tsv` emits one `<namespace>\\t<files>` row per surviving namespace (no header, no trailing summary, no ANSI) for awk pipelines that want both the staleness filter AND the per-namespace file count in a single 2-column stream. Composes with --top: under --slim the --top cap re-targets from the per-namespace extensions list (which is dropped under --slim anyway) to the `stale` namespace array, so `--json --slim --sort files --top 5` is "the 5 biggest namespaces by file count" as a single-line ~50-byte panel. Without --slim, --top keeps its legacy per-namespace-extensions meaning byte-for-byte.')
@@ -244,6 +244,47 @@ export function statsCommand() {
         // same precedent set by `search --paths-only` short-circuiting
         // `--json`.
         if (opts.paths) {
+          // --json --slim --paths re-targets the flat stream from
+          // per-namespace extensions to the FLAT NAMESPACE-NAME
+          // stream (one namespace name per line, no styling, no
+          // header). The natural pipeline-friendly twin of the
+          // slim JSON shape `{stale, total}` — a downstream `xargs`
+          // consumer wants the namespace names path-style, NOT
+          // wrapped in JSON. Pinned canonical use:
+          //   clawmind stats --json --slim --since X --paths | \
+          //     xargs -I{} clawmind digest run --namespace {}
+          // is "for every namespace that's gone stale at the
+          // namespace level, run the matching digest" as a single
+          // shell pipe.
+          //
+          // The re-target is GATED on --json --slim being active
+          // so existing scripts using just `--paths` (without
+          // --slim) continue to get the legacy extension-stream
+          // byte-for-byte — no regression. Without --slim, the
+          // walk falls through to the per-namespace extension
+          // loop below.
+          //
+          // The namespace names are emitted in the SAME order the
+          // slim `stale` array would carry them: post-sort,
+          // post-reverse, post-top-cap. That matters because the
+          // slim JSON shape pins a specific ordering contract
+          // (--sort files --top 5 = the 5 biggest); the --paths
+          // re-target must preserve it so the two shapes are
+          // observationally consistent (a consumer that picks
+          // either gets the same set, just framed differently).
+          //
+          // Apply the same --top cap the slim JSON path uses:
+          // explicit --top wins, the default '4' is intentionally
+          // NOT enforced under --slim so the FULL namespace list
+          // emits when the operator did not ask for a cap.
+          if (opts.json && opts.slim) {
+            let namespaces = report.byNamespace.map((n) => n.namespace);
+            if (opts.top !== '4' && topN < namespaces.length) {
+              namespaces = namespaces.slice(0, topN);
+            }
+            for (const ns of namespaces) process.stdout.write(`${ns}\n`);
+            return;
+          }
           for (const ns of report.byNamespace) {
             for (const e of ns.extensions) {
               process.stdout.write(`${e.ext}\n`);
