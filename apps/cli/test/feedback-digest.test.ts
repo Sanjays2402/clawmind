@@ -508,6 +508,137 @@ describe('feedback cli', () => {
     expect(parsed.items.map((it) => it.downs)).toEqual([0, 1]);
   });
 
+  // -----------------------------------------------------------------
+  // feedback list --json --slim: drop the per-entry blocks and emit
+  // a 4-integer count-only shape carving the boost distribution at
+  // neutral. Mirrors `doctor --json --quiet`, `digest run --json
+  // --slim`, `feedback prune --json --slim`, and `stats --json
+  // --slim` byte-for-byte. The natural cron use is a dashboard panel
+  // polling "is the feedback distribution stable" once a minute.
+  // -----------------------------------------------------------------
+
+  it('exposes --slim on the feedback list subcommand surface', () => {
+    const list = feedbackCommand().commands.find((c) => c.name() === 'list');
+    expect(list).toBeDefined();
+    const flags = list!.options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('feedback list --json --slim emits a 4-integer count-only shape and drops items', async () => {
+    // Fixture: 1 up-dominant (1.25 > 1.0), 1 neutral (1.0), 2 down-
+    // dominant (0.9 and 0.65 both < 1.0). The slim shape must carry
+    // exactly the four bucket counts and total — no per-entry detail.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/up.md', ups: 3, downs: 0, boost: 1.25 },
+        { path: '/neutral.md', ups: 1, downs: 1, boost: 1.0 },
+        { path: '/mild-down.md', ups: 0, downs: 1, boost: 0.9 },
+        { path: '/strong-down.md', ups: 0, downs: 4, boost: 0.65 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const parsed = JSON.parse(captured.join('')) as Record<string, unknown>;
+    // Per-entry blocks MUST be absent in slim.
+    expect(parsed).not.toHaveProperty('items');
+    // The four bucket counts.
+    expect(parsed.count).toBe(4);
+    expect(parsed.upDominantCount).toBe(1);
+    expect(parsed.neutralCount).toBe(1);
+    expect(parsed.downDominantCount).toBe(2);
+    // The sum-equals-total invariant (so a downstream
+    // `jq .upDominantCount / .count` ratio is auditable).
+    expect(
+      Number(parsed.upDominantCount) + Number(parsed.neutralCount) + Number(parsed.downDominantCount),
+    ).toBe(parsed.count);
+    // Key set is exactly the slim contract — no other fields leaked.
+    expect(Object.keys(parsed).sort()).toEqual([
+      'count', 'downDominantCount', 'neutralCount', 'upDominantCount',
+    ]);
+  });
+
+  it('feedback list --json --slim splits at boost === 1.0 with STRICT comparisons (neutral excluded from both dominant buckets)', async () => {
+    // The critical contract: an entry at exactly 1.0 is neutral, not
+    // dominant in either direction. Mirrors the `feedback list
+    // --above 1.0` / `--below 1.0` strict-comparison precedent so
+    // the slim split agrees with the band-filter semantics the
+    // operator already knows.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/a.md', ups: 0, downs: 0, boost: 1.0 },   // neutral
+        { path: '/b.md', ups: 0, downs: 0, boost: 1.0 },   // neutral
+        { path: '/c.md', ups: 0, downs: 0, boost: 1.0 },   // neutral
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const parsed = JSON.parse(captured.join('')) as { count: number; neutralCount: number; upDominantCount: number; downDominantCount: number };
+    expect(parsed.count).toBe(3);
+    expect(parsed.neutralCount).toBe(3);
+    expect(parsed.upDominantCount).toBe(0);
+    expect(parsed.downDominantCount).toBe(0);
+  });
+
+  it('feedback list --json --slim composes with --above (slim counts describe SURVIVORS of the filter)', async () => {
+    // --above 1.0 keeps only up-dominant entries; the slim shape
+    // describes the survivors, not the raw API payload. The
+    // canonical "how many strong upvotes survive the threshold" poll.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/strong-up.md', ups: 5, downs: 0, boost: 1.40 },
+        { path: '/mild-up.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/neutral.md', ups: 1, downs: 1, boost: 1.0 },     // dropped by --above 1.0 (strict)
+        { path: '/mild-down.md', ups: 0, downs: 1, boost: 0.90 },  // dropped
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim', '--above', '1.0']);
+    const parsed = JSON.parse(captured.join('')) as { count: number; upDominantCount: number; downDominantCount: number; neutralCount: number };
+    // Only the two up-dominant entries survived --above 1.0.
+    expect(parsed.count).toBe(2);
+    expect(parsed.upDominantCount).toBe(2);
+    expect(parsed.neutralCount).toBe(0);
+    expect(parsed.downDominantCount).toBe(0);
+  });
+
+  it('feedback list --json --slim emits single-line JSON (NDJSON-friendly snapshot stream)', async () => {
+    // The slim shape is a single-line JSON document so cron NDJSON
+    // snapshot streams diff cleanly between ticks (multi-line indent
+    // would force every diff to walk indentation noise). Mirrors
+    // `stats --json --slim` / `digest run --json --slim` byte-for-
+    // byte.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/a.md', ups: 3, downs: 0, boost: 1.15 },
+        { path: '/b.md', ups: 0, downs: 2, boost: 0.9 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const out = captured.join('');
+    // No newlines inside the document — only the trailing one.
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1).includes('\n')).toBe(false);
+    // No indentation noise.
+    expect(out).not.toMatch(/\n  /);
+    // And parses fine.
+    expect(JSON.parse(out)).toEqual({
+      count: 2,
+      neutralCount: 0,
+      upDominantCount: 1,
+      downDominantCount: 1,
+    });
+  });
+
+  it('feedback list --slim WITHOUT --json is silently ignored (text mode unchanged)', async () => {
+    // --slim only matters in --json mode (text mode already lives
+    // without the per-entry blocks beyond what the renderer prints).
+    // Mirrors the `feedback prune --slim without --json silent-
+    // ignore` precedent. The text output should be byte-identical to
+    // running WITHOUT --slim.
+    await feedbackCommand().parseAsync(['node', 'cli', 'list']);
+    const baseline = captured.join('');
+    captured.length = 0;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--slim']);
+    expect(captured.join('')).toBe(baseline);
+  });
+
   it('reports a clean message when the api is unreachable', async () => {
     const stderrBuf: string[] = [];
     const origErr = process.stderr.write.bind(process.stderr);

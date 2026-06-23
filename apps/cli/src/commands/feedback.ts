@@ -89,8 +89,9 @@ export function feedbackCommand() {
     .option('--top <n>', 'cap the listed entries to the N loudest votes by absolute distance from neutral (|boost - 1.0|), descending. Answers "which votes are the LOUDEST regardless of direction" in a single call — the natural cron-audit invocation is `clawmind feedback list --top 10 --json` to surface the entries that drag retrieval ranking the hardest in either direction. Applied AFTER -q / --above / --below so the cap is "the N loudest entries that pass the other filters". Ties at the same |boost - 1.0| distance preserve the API-provided order (deterministic across snapshots). A non-positive or NaN value falls back to "no cap" so a typo like `--top 0` still yields a useful response rather than an empty list (matches `tags list --top` / `stats --top` precedent). Composes naturally with --above/--below: `--above 1.0 --top 5` is "the 5 strongest upvotes", `--below 1.0 --top 5` is "the 5 strongest downvotes", `--top 10` alone (no band filter) is "the 10 loudest entries either direction".', (v) => Number.parseInt(v, 10))
     .option('--sort <key>', 'sort entries by one of: boost (desc — highest-boost first, "show me my most-trusted paths"), path (asc alphabetical, for stable cross-snapshot diffs), ups (desc — most-upvoted first), downs (desc — most-downvoted first). Applied AFTER -q / --above / --below so the sort orders the SURVIVORS of any narrowing filter. Applied BEFORE --top so `--sort downs --top 10` is "the 10 entries with the most downvotes regardless of boost magnitude" — distinct from the existing --top semantic ("the 10 loudest votes by |boost-1.0|") which is a SEPARATE ranking primitive answering a different question. Ties at the same sort key fall back to API order (deterministic across snapshots; secondary sort by the original index). Unknown keys abort cleanly with exit 1 — a typo cannot silently fall back to API order which would be indistinguishable from an empty `--sort` invocation in the cron log. The default (no --sort) preserves the API-returned order — existing scripts diffing `feedback list --json` snapshots stay byte-stable.')
     .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` byte-for-byte). With --sort boost the default is desc (highest-trust first); --reverse gives asc (lowest-trust first) — the natural "which paths are getting penalised hardest by feedback" question, complementary to the "most-trusted" default. With --sort path the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. With --sort ups the default is desc (loudest upvotes first); --reverse gives asc (entries with the fewest ups first) — surfaces the long tail of paths the operator has not yet acknowledged. With --sort downs the default is desc (loudest downvotes first); --reverse gives asc (fewest downs first) — the same long-tail question on the punishing side. Ignored without --sort (the API ordering is a fixed contract). The secondary tie-break by original index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction (two consecutive --sort + --reverse runs over identical-ties input produce byte-identical output). Composes with --top: the cap applies to the head of the post-reverse ordering, so `--sort downs --reverse --top 5` is "the 5 entries with the FEWEST downvotes" (not the 5 with the most).')
+    .option('--slim', 'with --json: emit a slimmed `{count, neutralCount, upDominantCount, downDominantCount}` shape that drops the per-entry path/ups/downs/boost blocks. Mirrors the `doctor --json --quiet`, `digest run --json --slim`, `feedback prune --json --slim`, and `stats --json --slim` precedent. The classic cron use is a dashboard panel polling \"is the feedback distribution stable\" once a minute: the full --json payload can be tens of kilobytes on a workspace with hundreds of votes (each entry is ~80 bytes), and a polling consumer almost never needs the per-entry detail. --slim cuts the payload to four integers that diff cleanly across cron snapshots (no per-entry boost churn flooding the diff). The four buckets carve the boost distribution at neutral: upDominantCount (boost > 1.0), downDominantCount (boost < 1.0), neutralCount (boost === 1.0), and count (total entries — always equals the sum of the three bucket counts so a downstream `jq .upDominantCount / .count` ratio is trivially auditable). Composes naturally with -q / --above / --below for \"slim shape but only within filter X\": e.g. `feedback list --above 1.2 --json --slim` is \"how many strong upvotes survive the threshold\" as a single integer poll. Single-line JSON output so an NDJSON snapshot stream diffs cleanly between ticks. Silently ignored without --json (text mode already lives without the bucket counts).')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; above?: number; below?: number; top?: number; sort?: string; reverse?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; above?: number; below?: number; top?: number; sort?: string; reverse?: boolean; slim?: boolean; json?: boolean }) => {
       await runOrReport('feedback list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/feedback${qs}`)) as {
@@ -260,6 +261,74 @@ export function feedbackCommand() {
           }
         }
         if (opts.json) {
+          // --slim emits a 4-integer count-only shape carving the
+          // boost distribution at neutral. Mirrors `doctor --json
+          // --quiet`, `digest run --json --slim`, `feedback prune
+          // --json --slim`, and `stats --json --slim` byte-for-byte:
+          // single-line JSON, no per-entry detail, only the
+          // integers a dashboard panel needs.
+          //
+          // The canonical cron poll is a dashboard panel polling
+          //   clawmind feedback list --json --slim
+          // once a minute to answer "is the feedback distribution
+          // stable" without paying the per-entry detail cost. The
+          // full --json payload includes the per-entry path/ups/
+          // downs/boost blocks — tens of kilobytes on a workspace
+          // with hundreds of votes, vs ~80 bytes for the slim
+          // shape.
+          //
+          // Four buckets carve the distribution at neutral:
+          //   upDominantCount   -> boost > 1.0 (strict; entries
+          //                        the operator has upvoted-net)
+          //   downDominantCount -> boost < 1.0 (strict; entries
+          //                        the operator has downvoted-net)
+          //   neutralCount      -> boost === 1.0 (zero net signal;
+          //                        either no vote or paired votes
+          //                        that cancelled exactly)
+          //   count             -> total entries (always equals
+          //                        the sum of the three buckets,
+          //                        so a downstream
+          //                        `jq .upDominantCount / .count`
+          //                        ratio is trivially auditable)
+          //
+          // The strict-comparison split at 1.0 mirrors the
+          // `feedback list --above` / `--below` strict-comparison
+          // semantics — an entry at exactly 1.0 is neutral, not
+          // dominant in either direction. Same contract the operator
+          // already knows from the band-filter flags.
+          //
+          // Composes with -q / --above / --below: the slim counts
+          // describe the SURVIVORS of any narrowing filter, so
+          // `feedback list --above 1.2 --json --slim` is "how many
+          // strong upvotes survive the threshold" as a single
+          // integer poll. Composes with --top: the slim counts
+          // describe the SURVIVORS of the cap too (--top runs
+          // BEFORE the slim emit).
+          //
+          // Single-line JSON.stringify (no indent) so an NDJSON
+          // snapshot stream like
+          //   while true; do clawmind feedback list --json --slim; sleep 60; done
+          // produces clean NDJSON that diffs cleanly between ticks
+          // (multi-line indent would force every snapshot diff to
+          // walk indentation noise).
+          if (opts.slim) {
+            let upDominantCount = 0;
+            let downDominantCount = 0;
+            let neutralCount = 0;
+            for (const it of out.items) {
+              if (it.boost > 1.0) upDominantCount += 1;
+              else if (it.boost < 1.0) downDominantCount += 1;
+              else neutralCount += 1;
+            }
+            const slim = {
+              count: out.items.length,
+              neutralCount,
+              upDominantCount,
+              downDominantCount,
+            };
+            process.stdout.write(JSON.stringify(slim) + '\n');
+            return;
+          }
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
           return;
         }
