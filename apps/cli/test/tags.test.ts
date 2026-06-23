@@ -297,4 +297,106 @@ describe('tags list --sort / --top', () => {
     const firstTags = lines.map((l) => l.replace(/\x1b\[[0-9;]*m/g, '').split(' ')[0]);
     expect(firstTags).toEqual(['archive', 'memory', 'work']);
   });
+
+  // --reverse: mirrors `stale --reverse` / `search --reverse` /
+  // `related --reverse` / `feedback list --reverse` / `digest list
+  // --reverse` / `aliases list --reverse` / `stats --reverse` byte-
+  // for-byte. The 8th command in the family-wide reverse-modifier
+  // sweep AND the third command (after stats) with the default-sort
+  // deviation. Adds the secondary-by-original-index sort that
+  // predated the family-wide contract on this command.
+  // -----------------------------------------------------------------
+
+  it('exposes --reverse on the list command surface', () => {
+    const list = tagsCommand().commands.find((c) => c.name() === 'list')!;
+    const flags = list.options.map((o) => o.long);
+    expect(flags).toContain('--reverse');
+  });
+
+  it('--sort count --reverse orders tags asc (rarest tags first)', async () => {
+    // Default --sort count is desc (loudest tags first); --reverse
+    // gives asc — the "audit underused labels" question,
+    // complementary to the "which labels dominate" default.
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'count', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { tag: string; count: number }[] };
+    expect(parsed.items.map((i) => i.tag)).toEqual(['archive', 'memory', 'work']);
+    expect(parsed.items.map((i) => i.count)).toEqual([1, 4, 7]);
+  });
+
+  it('--sort tag --reverse orders tags desc alphabetical (flips the default asc)', async () => {
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'tag', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { tag: string }[] };
+    expect(parsed.items.map((i) => i.tag)).toEqual(['work', 'memory', 'archive']);
+  });
+
+  it('--sort count --reverse --top 1 surfaces the rarest tag (composition pin)', async () => {
+    // --top applies to the head of the post-reverse ordering. So
+    // `--sort count --reverse --top 1` is "the rarest tag" — NOT
+    // the most common.
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'count', '--reverse', '--top', '1']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { tag: string; count: number }[] };
+    expect(parsed.items.map((i) => i.tag)).toEqual(['archive']);
+    expect(parsed.items[0]?.count).toBe(1);
+  });
+
+  it('--sort count ties preserve API order via secondary-by-original-index sort (cross-snapshot determinism)', async () => {
+    // The family-wide contract: ties at the same primary key carry
+    // a secondary sort by original-input index for byte-stable
+    // snapshots. Two tags with count=5 — pin that the relative order
+    // matches API order regardless of V8's Array#sort stability.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { tag: 'first-tied', count: 5 },
+        { tag: 'loud-loner', count: 9 },
+        { tag: 'second-tied', count: 5 },
+      ],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'count']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { tag: string; count: number }[] };
+    // loud-loner first (count=9), then the two tied entries in API
+    // order (first-tied at idx 0, second-tied at idx 2).
+    expect(parsed.items.map((i) => i.tag)).toEqual(['loud-loner', 'first-tied', 'second-tied']);
+  });
+
+  it('--sort count --reverse preserves cross-snapshot determinism on ties (secondary index also reversed)', async () => {
+    // Under --reverse the secondary index sort is ALSO reversed so
+    // the snapshot is byte-stable in either direction.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { tag: 'first-tied', count: 5 },
+        { tag: 'rare', count: 1 },
+        { tag: 'second-tied', count: 5 },
+      ],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'count', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { tag: string; count: number }[] };
+    // Ascending: rare (1) first, then the two tied entries in
+    // REVERSED original-index order (second-tied at idx 2 before
+    // first-tied at idx 0).
+    expect(parsed.items.map((i) => i.tag)).toEqual(['rare', 'second-tied', 'first-tied']);
+  });
+
+  it('--sort count determinism: two consecutive runs over identical-ties input produce byte-identical output', async () => {
+    // End-to-end pin of the cron snapshot diff property — under
+    // identical input the output is byte-stable across runs.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { tag: 'alpha', count: 3 },
+        { tag: 'bravo', count: 3 },
+        { tag: 'charlie', count: 3 },
+      ],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'count']);
+    const tick1 = stdout.join('');
+    stdout.length = 0;
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'count']);
+    const tick2 = stdout.join('');
+    expect(tick1).toBe(tick2);
+    // And the tied trio's order matches API order.
+    const out = JSON.parse(tick1) as { items: { tag: string }[] };
+    expect(out.items.map((i) => i.tag)).toEqual(['alpha', 'bravo', 'charlie']);
+  });
 });
