@@ -309,6 +309,93 @@ describe('aliases cli', () => {
     expect(parsed.items.map((it) => it.name)).toEqual(['newer', 'tied-first', 'tied-second']);
   });
 
+  // --reverse: mirrors `stale --reverse` / `search --reverse` /
+  // `related --reverse` / `feedback list --reverse` / `digest list
+  // --reverse` byte-for-byte. The 6th command in the family-wide
+  // reverse-modifier sweep.
+  // -----------------------------------------------------------------
+
+  it('exposes --reverse on the list command surface', () => {
+    const flags = aliasesCommand().commands
+      .find((c) => c.name() === 'list')!.options
+      .map((o) => o.long);
+    expect(flags).toContain('--reverse');
+  });
+
+  it('--sort name --reverse orders aliases desc alphabetical (flips the default asc)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'aaa', path: '/a', createdAt: 1, createdBy: 'me' },
+          { name: 'mmm', path: '/m', createdAt: 2, createdBy: 'me' },
+          { name: 'zzz', path: '/z', createdAt: 3, createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'name', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[] };
+    expect(parsed.items.map((it) => it.name)).toEqual(['zzz', 'mmm', 'aaa']);
+  });
+
+  it('--sort createdAt --reverse orders aliases oldest-first (flips the default newest-first)', async () => {
+    // Default --sort createdAt is desc (newest-first); --reverse
+    // gives asc — pairs with --since for "the alias added at-or-
+    // after this cutoff with the LONGEST track record" question.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'a', path: '/a', createdAt: Date.parse('2026-01-01'), createdBy: 'me' },
+          { name: 'b', path: '/b', createdAt: Date.parse('2026-06-21'), createdBy: 'me' },
+          { name: 'c', path: '/c', createdAt: Date.parse('2026-03-15'), createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'createdAt', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[] };
+    // Oldest first: a (Jan) -> c (Mar) -> b (Jun).
+    expect(parsed.items.map((it) => it.name)).toEqual(['a', 'c', 'b']);
+  });
+
+  it('--reverse without --sort is silently ignored (default API ordering preserved)', async () => {
+    // The default API order is a fixed contract. --reverse alone has
+    // nothing to flip — matches the family-wide reverse-modifier
+    // contract.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'c', path: '/c', createdAt: 1, createdBy: 'me' },
+          { name: 'a', path: '/a', createdAt: 2, createdBy: 'me' },
+          { name: 'b', path: '/b', createdAt: 3, createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[] };
+    expect(parsed.items.map((it) => it.name)).toEqual(['c', 'a', 'b']);
+  });
+
+  it('--sort createdAt --reverse preserves cross-snapshot determinism on ties (secondary index also reversed)', async () => {
+    // Two aliases at the same createdAt — under --reverse the
+    // secondary index sort is ALSO reversed so the snapshot is
+    // byte-stable in either direction.
+    const tiedTs = Date.parse('2026-06-21T12:00:00Z');
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'tied-first',  path: '/tf', createdAt: tiedTs, createdBy: 'me' },
+          { name: 'newer',       path: '/n',  createdAt: tiedTs + 1000, createdBy: 'me' },
+          { name: 'tied-second', path: '/ts', createdAt: tiedTs, createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--sort', 'createdAt', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { items: { name: string }[] };
+    // Ascending: the two tied entries first in REVERSED original-
+    // index order (tied-second at idx 2 before tied-first at idx 0),
+    // then newer last.
+    expect(parsed.items.map((it) => it.name)).toEqual(['tied-second', 'tied-first', 'newer']);
+  });
+
   // -----------------------------------------------------------------
   // --paths-only: family-wide canonical alias for --paths. Both flags
   // emit the byte-identical stream. Mirrors `pins list --paths-only`
