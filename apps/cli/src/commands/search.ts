@@ -42,6 +42,7 @@ export function searchCommand() {
     .option('--rerank-off', 'DEBUG escape hatch: skip the lexical-rerank step in the retrieval pipeline. Surfaces the raw hybrid-merged + boost-adjusted ordering BEFORE the lexical reorder, so an operator can diagnose whether the rerank is HELPING or HURTING on a particular query. Useful when tuning hybridAlpha or chasing a regression where a known-relevant chunk drops out of the top-k. Other stages (embed call, hybrid merge, MMR diversity) stay enabled — only the heuristic lexical-rerank is bypassed. Composes with --json / --threshold / --paths-only / -k for "what does the pipeline rank as #1 without the lexical layer", "what does the top-50 look like without the rerank pull", etc.')
     .option('--rerank-only', 'DEBUG escape hatch (inverse of --rerank-off): emit ONLY the rerank stage\'s ordering, skipping the MMR diversity pass that the production flow applies on top. Pairs with --rerank-off for a 3-way A/B against the same query: default (rerank+MMR), --rerank-off (raw hybrid+boost, no rerank, with MMR), --rerank-only (rerank applied, no MMR). The use is "is the diversity pass demoting a chunk I think should be #1, or is it the rerank step itself?" — separating the two stages lets the operator point a finger at the right layer. Implementation forwards { skipMmr: true } through retrieve(); the lexical-rerank stage still runs and the top-k is the head N of its score order. Setting both --rerank-off AND --rerank-only is allowed (raw hybrid+boost ordering with NEITHER post-stage applied) for the most extreme "what does the index look like before any heuristic touches it" probe.')
     .option('--no-snippet', 'in --json mode, emit only rank/path/score/startLine (no snippet/highlights). Smaller payload for ranking pipelines')
+    .option('--slim', 'with --json: emit a slimmed `{rank, path, score, namespace}` shape per hit. Drops snippet, highlights, AND startLine — leaving only the four fields needed for "what does the top-k for query X look like over time" cron dashboards. Mirrors the `doctor --json --quiet`, `digest run --json --slim`, `feedback prune --json --slim`, `feedback list --json --slim`, and `stats --json --slim` precedent. The full --json payload includes a per-hit snippet (240 bytes default) plus a highlights array — for a cron poll asking "is the top-5 stable" this dominates the payload size. The existing `--no-snippet` already drops snippet/highlights but PRESERVES startLine; `--slim` is the deeper cut for dashboards that do not need the chunk-identifier byte either. Per-hit shape is exactly `{rank, path, score, namespace}` — namespace is included because grouping hits by namespace is the single most useful slim-shape query (a query whose top-k clusters in one namespace tells the operator something the score alone does not). Composes with -t/--threshold (slim describes survivors of the band-filter), --sort/--reverse (slim emits the post-sort order, so `--sort path --reverse --json --slim` is the desc-alphabetical slim stream), -k (slim respects the top-k cap), and namespaces/include-tags/exclude-tags (slim describes the post-filter survivors). --paths-only wins over --slim because --paths-only is the EVEN-leaner shape (no JSON wrapper at all); the precedence is --paths-only > --slim > --no-snippet > full --json. Wins over --no-snippet when both are set (slim is strictly slimmer). Silently ignored without --json. Output is single-line JSON.stringify of the array (no indent) so an NDJSON-style cron snapshot stream diffs cleanly between ticks.')
     .option('--paths-only', 'emit only the matched paths, one per line, with duplicates collapsed in rank order. Pipeline-friendly twin of `forget --paths-only` / `stale --paths`. Ignores --json / --out / --snippet / --highlight; just dumps paths.')
     .option('--json', 'emit results as a JSON array instead of formatted text')
     .option('-o, --out <file>', 'write results to a file instead of stdout')
@@ -61,6 +62,7 @@ export function searchCommand() {
           rerankOff?: boolean;
           rerankOnly?: boolean;
           snippet: boolean;
+          slim?: boolean;
           pathsOnly?: boolean;
           json?: boolean;
           out?: string;
@@ -219,6 +221,71 @@ export function searchCommand() {
         const terms = queryTerms(q.q);
         const width = Number(opts.snippetWidth) || 240;
         if (opts.json) {
+          // --slim is the deeper cut beyond --no-snippet for cron
+          // dashboards polling "what does the top-k for query X look
+          // like over time" without paying the snippet-rendering
+          // cost. Mirrors `doctor --json --quiet`, `digest run --json
+          // --slim`, `feedback prune --json --slim`, `feedback list
+          // --json --slim`, and `stats --json --slim` byte-for-byte.
+          //
+          // The full --json payload includes a per-hit snippet
+          // (240 bytes default) plus a highlights array — for a
+          // cron poll asking "is the top-5 stable" this dominates
+          // the payload size. The existing --no-snippet drops
+          // snippet/highlights but PRESERVES startLine; --slim is
+          // the deeper cut for dashboards that do not need the
+          // chunk-identifier byte either.
+          //
+          // Per-hit shape is exactly `{rank, path, score, namespace}`.
+          // Namespace is included because grouping hits by namespace
+          // is the single most useful slim-shape query (a query whose
+          // top-k clusters in one namespace tells the operator
+          // something the score alone does not — and pairs with
+          // --sort namespace for the same reason).
+          //
+          // Composes with -t/--threshold (slim describes survivors),
+          // --sort/--reverse (slim emits the post-sort order), -k
+          // (slim respects the top-k cap), and namespaces/include-
+          // tags/exclude-tags (slim describes the post-filter
+          // survivors). The precedence over the other emit modes:
+          //   --paths-only > --slim > --no-snippet > full --json
+          // --paths-only is the EVEN-leaner shape (no JSON wrapper
+          // at all) so it wins; within --json, --slim is strictly
+          // slimmer than --no-snippet so --slim wins when both set.
+          //
+          // Critical perf property: we DO NOT call snippetFor() in
+          // the slim path. A cron dashboard polling once a minute
+          // should not pay the snippet rendering cost; the slim
+          // emit walks the hits list directly. The non-slim/non-
+          // -no-snippet path still calls snippetFor() for the full
+          // shape (it needs startLine + the snippet body).
+          //
+          // Single-line JSON.stringify (no indent) so an NDJSON
+          // snapshot stream like
+          //   while true; do clawmind search foo --json --slim; sleep 60; done
+          // produces clean NDJSON that diffs cleanly between ticks.
+          //
+          // Honours --out: when set, writes the slim payload to the
+          // file and emits the "wrote N result(s)" stderr confirm
+          // line. Mirrors the full-shape --json behaviour exactly so
+          // an operator switching --slim on/off does not see the
+          // file-vs-stdout dispatch shift.
+          if (opts.slim) {
+            const slim = hits.map((h, i) => ({
+              rank: i + 1,
+              path: h.path,
+              score: h.score,
+              namespace: h.namespace,
+            }));
+            const payload = JSON.stringify(slim) + '\n';
+            if (opts.out) {
+              await writeFile(opts.out, payload, 'utf8');
+              process.stderr.write(kleur.green(`wrote ${slim.length} result(s) -> ${opts.out}\n`));
+            } else {
+              process.stdout.write(payload);
+            }
+            return;
+          }
           // --no-snippet trims the JSON payload to the bare ranking
           // fields (rank/path/score/startLine). It is roughly an order
           // of magnitude smaller than the full payload for large k and

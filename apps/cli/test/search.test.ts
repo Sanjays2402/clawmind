@@ -443,6 +443,182 @@ describe('search --no-snippet trims the json payload to ranking fields', () => {
   });
 });
 
+describe('search --slim emits the deeper-cut {rank,path,score,namespace} json shape', () => {
+  // --slim is the cron-dashboard shape: drops snippet + highlights
+  // (like --no-snippet) AND startLine, leaving just the four fields
+  // needed for "what does the top-k for query X look like over
+  // time". Mirrors the `doctor --json --quiet`, `digest run --json
+  // --slim`, `feedback prune --json --slim`, `feedback list --json
+  // --slim`, and `stats --json --slim` precedent.
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    retrieveMock.mockReset();
+    snippetForMock.mockReset();
+    // We assert below that snippetFor is NOT called in the slim
+    // path (perf property: dashboards must not pay the snippet
+    // rendering cost). Mock body returned shouldn't matter; if it
+    // does the slim assertion will catch it.
+    snippetForMock.mockImplementation((hit: { path: string }) => ({
+      startLine: 99,
+      text: `MUST_NOT_LEAK body for ${hit.path}`,
+      highlights: [{ start: 0, end: 7 }],
+    }));
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', namespace: 'memory', score: 0.91, chunk: { text: '' } },
+      { path: '/b.md', namespace: 'projects', score: 0.42, chunk: { text: '' } },
+    ]);
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+  });
+
+  it('exposes --slim on the search surface', () => {
+    const flags = searchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--json --slim emits exactly {rank,path,score,namespace} per hit (no snippet, no highlights, no startLine)', async () => {
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--slim']);
+    const out = JSON.parse(stdout.join('')) as Record<string, unknown>[];
+    expect(out).toHaveLength(2);
+    // Exact key set per row — strictly the four slim fields.
+    for (const row of out) {
+      expect(Object.keys(row).sort()).toEqual(['namespace', 'path', 'rank', 'score']);
+    }
+    expect(out[0]).toEqual({ rank: 1, path: '/a.md', score: 0.91, namespace: 'memory' });
+    expect(out[1]).toEqual({ rank: 2, path: '/b.md', score: 0.42, namespace: 'projects' });
+    // Snippet body, highlights, AND startLine MUST NOT leak.
+    const raw = stdout.join('');
+    expect(raw).not.toContain('MUST_NOT_LEAK');
+    expect(raw).not.toContain('highlights');
+    expect(raw).not.toContain('startLine');
+    expect(raw).not.toContain('"99"');
+  });
+
+  it('--json --slim DOES NOT call snippetFor (perf property: dashboards skip the snippet-rendering cost)', async () => {
+    // The critical perf property: the slim path walks `hits` directly
+    // without calling snippetFor() per hit. A cron dashboard polling
+    // once a minute over a 50-result top-k must not pay 50 snippet
+    // renders per poll — the slim shape is exactly the shape that
+    // does NOT need them. Without this property the slim emit would
+    // be no faster than --no-snippet, defeating the point.
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--slim']);
+    expect(snippetForMock).not.toHaveBeenCalled();
+    // And the full-shape path STILL calls snippetFor() (this is the
+    // baseline; if it ever stopped, --slim's perf claim would be
+    // vacuous).
+    stdout.length = 0;
+    snippetForMock.mockClear();
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json']);
+    expect(snippetForMock).toHaveBeenCalled();
+  });
+
+  it('--json --slim emits single-line JSON.stringify (NDJSON-friendly snapshot stream)', async () => {
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--slim']);
+    const out = stdout.join('');
+    // Single-line: no internal newlines, just the trailing one.
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1).includes('\n')).toBe(false);
+    // No indentation noise (the full --json shape uses 2-space
+    // indent; --slim deliberately does NOT to keep NDJSON clean).
+    expect(out).not.toMatch(/\n  /);
+  });
+
+  it('--json --slim wins over --no-snippet (--slim is strictly slimmer)', async () => {
+    // The precedence under --json:
+    //   --slim > --no-snippet > full --json
+    // --slim already drops snippet/highlights AND startLine; passing
+    // --no-snippet alongside cannot make the shape any leaner. Pin
+    // that the four-field slim shape survives when both are set.
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--slim', '--no-snippet']);
+    const out = JSON.parse(stdout.join('')) as Record<string, unknown>[];
+    for (const row of out) {
+      expect(Object.keys(row).sort()).toEqual(['namespace', 'path', 'rank', 'score']);
+    }
+    // Verify the result is byte-identical to plain --json --slim
+    // (no --no-snippet) — the modifier had no axis to operate on.
+    const composed = stdout.join('');
+    stdout.length = 0;
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--slim']);
+    expect(composed).toBe(stdout.join(''));
+  });
+
+  it('--paths-only wins over --slim (--paths-only is the EVEN-leaner emit shape)', async () => {
+    // The precedence over the other emit modes:
+    //   --paths-only > --slim > --no-snippet > full --json
+    // --paths-only is the EVEN-leaner shape (no JSON wrapper at all)
+    // so it wins. Pin that --slim does NOT inject JSON into the
+    // path-per-line stream when both are set.
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--paths-only', '--json', '--slim']);
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n');
+  });
+
+  it('--slim WITHOUT --json is silently ignored (text mode unchanged)', async () => {
+    // --slim only matters in --json mode (text mode for humans is
+    // already the human-readable rendering). Mirrors the `feedback
+    // prune --slim without --json silent-ignore` precedent. The
+    // text output should be byte-identical to running WITHOUT --slim.
+    await searchCommand().parseAsync(['node', 'cli', 'foo']);
+    const baseline = stdout.join('');
+    stdout.length = 0;
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--slim']);
+    expect(stdout.join('')).toBe(baseline);
+  });
+
+  it('--slim with --out writes the slim payload to a file and emits the wrote-N stderr confirm', async () => {
+    // Mirrors the full --json --out dispatch byte-for-byte: writes
+    // to the file, emits the "wrote N result(s)" stderr confirm
+    // line, leaves stdout empty. Switching --slim on/off should not
+    // shift the file-vs-stdout dispatch.
+    const dir = await mkdtemp(path.join(tmpdir(), 'clawmind-search-slim-'));
+    try {
+      const outPath = path.join(dir, 'hits.json');
+      await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--slim', '-o', outPath]);
+      const body = JSON.parse(await readFile(outPath, 'utf8')) as Record<string, unknown>[];
+      expect(body).toEqual([
+        { rank: 1, path: '/a.md', score: 0.91, namespace: 'memory' },
+        { rank: 2, path: '/b.md', score: 0.42, namespace: 'projects' },
+      ]);
+      // Stdout empty (everything went to the file).
+      expect(stdout.join('')).toBe('');
+      // Stderr carries the wrote-N confirm.
+      expect(stderr.join('')).toContain('wrote 2 result(s) -> ');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('--json --slim composes with --threshold (slim describes survivors of the band-filter)', async () => {
+    // --threshold is applied BEFORE the slim emit; the slim shape
+    // describes the survivors, not the raw retrieve() set. Pin the
+    // composition so a future regression that ran --slim against
+    // the raw hits would surface immediately.
+    retrieveMock.mockResolvedValue([
+      { path: '/strong.md', namespace: 'memory', score: 0.92, chunk: { text: '' } },
+      { path: '/medium.md', namespace: 'memory', score: 0.55, chunk: { text: '' } },
+      { path: '/weak.md', namespace: 'memory', score: 0.10, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--slim', '-t', '0.5']);
+    const out = JSON.parse(stdout.join('')) as { path: string; score: number; rank: number }[];
+    // Only strong + medium survived the threshold; the ranks
+    // re-index from 1 (not from the pre-filter position).
+    expect(out).toEqual([
+      { rank: 1, path: '/strong.md', score: 0.92, namespace: 'memory' },
+      { rank: 2, path: '/medium.md', score: 0.55, namespace: 'memory' },
+    ]);
+  });
+});
+
 describe('search reads the query from stdin when the argument is "-"', () => {
   let stdout: string[];
   let stderr: string[];
