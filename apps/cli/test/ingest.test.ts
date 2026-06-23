@@ -363,4 +363,84 @@ describe('ingest cli --dry-run', () => {
     const out = JSON.parse(stdout.join(''));
     expect(out.processed).toBe(1);
   });
+
+  // ---------------------------------------------------------------
+  // --json --slim tests — cron-dashboard shape for incremental-
+  // refresh panels polling "how many files will the next ingest
+  // refresh tick touch". Mirrors `reindex --dry-run --json --slim`
+  // byte-for-byte (the two commands share the destructive-adjacent
+  // dry-run contract). Single-line JSON, no per-file detail.
+  // ---------------------------------------------------------------
+
+  it('exposes --slim on the command surface', () => {
+    const flags = ingestCommand().options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--dry-run --json --slim emits {count, since, dryRun} single-line shape', async () => {
+    // The canonical cron panel: count the files, echo the cutoff
+    // (null when absent), explicit dryRun safety contract. No
+    // per-path list, no root, no indentation.
+    mockDiscovered = ['/tmp/workspace/a.md', '/tmp/workspace/b.ts', '/tmp/workspace/c.json'];
+    await ingestCommand().parseAsync(['node', 'cli', '--dry-run', '--json', '--slim']);
+    const raw = stdout.join('');
+    // Single-line JSON: no indentation newlines mid-document.
+    expect(raw.split('\n').filter((l) => l.length > 0)).toHaveLength(1);
+    const parsed = JSON.parse(raw);
+    expect(parsed).toEqual({ count: 3, since: null, dryRun: true });
+    // Critical: NO `files`, NO `root` — the slim shape strips them.
+    expect(parsed.files).toBeUndefined();
+    expect(parsed.root).toBeUndefined();
+    // Critically: no live ingest helper got called — dry-run holds.
+    expect(lastIngestPathsArg).toBeNull();
+    expect(lastIngestRootArg).toBeNull();
+  });
+
+  it('--dry-run --json --slim --since echoes the cutoff and counts the survivors', async () => {
+    // Compose with --since: the slim count describes the survivors
+    // of the mtime filter, the `since` field echoes the cutoff
+    // anchor — same family-wide contract as reindex --json --slim.
+    mockDiscovered = ['/tmp/workspace/new.md', '/tmp/workspace/old.md'];
+    mockMtimes = {
+      '/tmp/workspace/new.md': Date.parse('2026-06-15T00:00:00Z'),
+      '/tmp/workspace/old.md': Date.parse('2026-05-01T00:00:00Z'),
+    };
+    const cutoff = '2026-06-01T00:00:00Z';
+    await ingestCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--since', cutoff, '--json', '--slim',
+    ]);
+    const parsed = JSON.parse(stdout.join(''));
+    expect(parsed).toEqual({ count: 1, since: cutoff, dryRun: true });
+  });
+
+  it('--dry-run --json --slim with zero matches emits count=0 cleanly', async () => {
+    // Edge: empty discovery yields {count: 0, since: null, dryRun: true}.
+    // A downstream `jq .count` consumer can branch on emptiness
+    // without re-running the command.
+    mockDiscovered = [];
+    await ingestCommand().parseAsync(['node', 'cli', '--dry-run', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join(''));
+    expect(parsed).toEqual({ count: 0, since: null, dryRun: true });
+  });
+
+  it('--paths-only wins over --slim when all four flags are set', async () => {
+    // The pipeline-friendly contract (--paths-only) wins over the
+    // dashboard contract (--slim). Same precedence as reindex.
+    mockDiscovered = ['/tmp/workspace/a.md', '/tmp/workspace/b.ts'];
+    await ingestCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--paths-only', '--json', '--slim',
+    ]);
+    expect(stdout.join('')).toBe('/tmp/workspace/a.md\n/tmp/workspace/b.ts\n');
+  });
+
+  it('--slim is ignored without --json (--dry-run --slim falls through to text mode)', async () => {
+    // The slim flag is gated on --json; without --json the text
+    // path is unchanged. The yellow header still fires so a future
+    // regression that hijacked text mode under --slim would surface.
+    mockDiscovered = ['/tmp/workspace/a.md'];
+    await ingestCommand().parseAsync(['node', 'cli', '--dry-run', '--slim']);
+    const out = stdout.join('');
+    expect(out).toContain('would ingest 1 file(s) under /tmp/workspace');
+    expect(out).toContain('/tmp/workspace/a.md');
+  });
 });

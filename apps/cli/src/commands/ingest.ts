@@ -14,7 +14,8 @@ export function ingestCommand() {
     .option('--since <iso-date>', 'only ingest files whose filesystem mtime is at-or-after this ISO date. The natural cron use is `clawmind ingest --since "$(date -u -d "1 hour ago" +%FT%TZ)"` to do an incremental refresh from cron without re-walking every file. Filtering happens AFTER the discovery walk (same .clawmindignore + include/exclude globs apply) but BEFORE the per-file ingest decision, so the operator pays exactly one stat() per discovered file and the per-file hash/manifest dedupe path still kicks in for anything that did get touched but did not actually change. Parse failures abort cleanly with a non-zero exit code so a typo like --since 2026-13-01 does not silently degrade into "no filter" and re-ingest everything.')
     .option('--dry-run', 'preview the set of files that WOULD be ingested without reading, hashing, or upserting anything. Composes with --since so the preview matches the actual refresh that the same flags would do. Output shapes: --paths-only (xargs-safe, one path per line, no header), --json ({root, count, files}), default text (yellow count header + gray path list + rerun nudge). The natural cron flow is `clawmind ingest --since <iso> --dry-run --paths-only > preview.txt` to snapshot what the next refresh will touch BEFORE authorising the live run — saves a wall-clock-equivalent rehearsal cycle for the operator. Mirrors `reindex --dry-run` so the muscle memory is the same across the two destructive-adjacent commands.')
     .option('--paths-only', 'with --dry-run: emit just the paths one per line, no header, no count summary. Mirrors the --paths-only contract used by search/forget/related/stale/reindex. Ignored without --dry-run (a live ingest emits the regular ingest report instead). Composes naturally for shell pipelines: `clawmind ingest --since <iso> --dry-run --paths-only | wc -l` counts the about-to-refresh set without parsing the human report.')
-    .action(async (root: string | undefined, opts: { json?: boolean; since?: string; dryRun?: boolean; pathsOnly?: boolean }) => {
+    .option('--slim', 'with --dry-run --json: emit a slim `{count, since, dryRun}` shape carrying ONLY the file count, the --since anchor (or null when absent), and dryRun=true — instead of the full `{root, count, files: [...]}` payload with the per-path list. Mirrors `reindex --dry-run --json --slim` byte-for-byte (the two commands share the muscle memory for the destructive-adjacent dry-run preview, and the slim shape extends that contract uniformly). The classic cron use is an incremental-refresh dashboard polling `clawmind ingest --since <iso> --dry-run --json --slim` every minute to answer "how many files will the next 1-hour refresh tick touch" without paying the per-file path list. On a workspace with thousands of files matching the cutoff, the full --json payload can be hundreds of kilobytes; the slim shape is ~80 bytes regardless. Composes with --since: the slim count describes the SURVIVORS of the mtime filter. Without --since the slim payload still works (`since: null`). Ignored without --dry-run + --json (live ingest emits the regular processed/chunks/skipped report; --paths-only short-circuits before reaching here). Wins over the full --json payload when set with --dry-run + --json. The --paths-only flag still wins over --slim when both are set with --dry-run + --json + --paths-only + --slim because --paths-only is the pipeline contract and --slim is the dashboard contract.')
+    .action(async (root: string | undefined, opts: { json?: boolean; since?: string; dryRun?: boolean; pathsOnly?: boolean; slim?: boolean }) => {
       const rt = await buildRuntime();
       const target = root ? expand(root) : rt.workspace;
       // --since <iso-date> is the incremental-refresh gate. Without
@@ -102,6 +103,44 @@ export function ingestCommand() {
           return;
         }
         if (opts.json) {
+          // --slim wins over the full --json payload when set. The
+          // slim shape is `{count, since, dryRun}` — mirrors
+          // `reindex --dry-run --json --slim` byte-for-byte (the
+          // two commands share the destructive-adjacent dry-run
+          // contract). Only the integers a dashboard panel needs,
+          // no per-file path list. The classic cron use:
+          //   clawmind ingest --since <iso> --dry-run --json --slim
+          // answers "how many files will the next 1-hour refresh
+          // tick touch" with a single-line ~80-byte payload,
+          // regardless of how many paths matched.
+          //
+          // Why this shape (not {root, count}):
+          //   - the natural cron poll is "how many files would
+          //     the next refresh touch" — count is the only
+          //     integer a dashboard needs to branch on
+          //   - `since` echoes the cutoff (or null when absent)
+          //     so a multi-cutoff dashboard polling several scopes
+          //     can identify which row it's reading without cross-
+          //     referencing cron state
+          //   - `dryRun: true` is the explicit safety contract:
+          //     this payload describes a PREVIEW, not a real
+          //     ingest; mirrors `forget --json --slim` byte-for-
+          //     byte
+          //   - `root` is intentionally dropped: a dashboard
+          //     polling a single workspace already knows the
+          //     root from cron config (~80-byte saving per
+          //     snapshot, meaningful at NDJSON-append scale)
+          //
+          // The single-line JSON.stringify (no indent) keeps the
+          // NDJSON-snapshot diff clean across cron ticks.
+          if (opts.slim) {
+            process.stdout.write(JSON.stringify({
+              count: dryFiles.length,
+              since: opts.since ?? null,
+              dryRun: true,
+            }) + '\n');
+            return;
+          }
           process.stdout.write(
             JSON.stringify({ root: target, count: dryFiles.length, files: dryFiles }, null, 2) + '\n',
           );
