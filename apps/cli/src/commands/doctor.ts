@@ -33,8 +33,9 @@ export function doctorCommand() {
     .option('--severity <level>', 'minimum severity to display: info (default), warn, or error. Higher levels filter out lower-priority findings so a busy index can be reviewed for the critical issues first. The exit code is still driven by the FULL findings list (any error keeps exit 1) — the filter only hides display, never silences a real problem.', 'info')
     .option('--stale-after-days <n>', 'override the API\'s default 30-day STALE_INDEX threshold. Forwarded as ?staleAfterDays=<n> to /v1/doctor where it is converted to milliseconds before being passed to the runDoctor service. The natural cron use is a freshness SLO that is tighter than 30 days (e.g. `clawmind doctor --severity error --stale-after-days 1` to fail nightly CI when the index has not seen an ingest in the last day). Bounded server-side to 0..3650 days; zero means "any age counts as stale" which is the right tripwire for an index that should never look idle. A non-numeric or out-of-range value is rejected up front so a typo cannot silently degrade to the default threshold.', (v) => Number.parseInt(v, 10))
     .option('--json', 'emit machine-readable JSON instead of a text report')
-    .option('--quiet', 'with --json: emit a slim `{ok, findingsCount, errors, warnings, infos}` shape carrying ONLY the per-severity tallies + the overall ok flag, instead of the full per-finding payload. The classic cron use is a tight dashboard panel ("is the index ok?  how many errors?") that needs the answer in 5 fields without piping the full report through `jq` for the count. Pairs naturally with --severity error for "fail nightly CI if any error finding exists": `clawmind doctor --json --quiet | jq -e \'.errors == 0\'`. Without --json the flag is a no-op (text mode already renders a compact body). Wins over the full --json payload when set (the shape switch is the entire point).')
-    .action(async (opts: { severity: string; staleAfterDays?: number; json?: boolean; quiet?: boolean }) => {
+    .option('--quiet', 'with --json: emit a slim `{ok, findingsCount, errors, warnings, infos}` shape carrying ONLY the per-severity tallies + the overall ok flag, instead of the full per-finding payload. The classic cron use is a tight dashboard panel ("is the index ok?  how many errors?") that needs the answer in 5 fields without piping the full report through `jq` for the count. Pairs naturally with --severity error for "fail nightly CI if any error finding exists": `clawmind doctor --json --quiet | jq -e \'.errors == 0\'`. Without --json the flag is a no-op (text mode already renders a compact body). Wins over the full --json payload when set (the shape switch is the entire point). NOTE: --slim is the family-canonical alias for --quiet — both behave identically; --slim is the spelling new scripts should adopt, --quiet is preserved for back-compat with the original v0 contract.')
+    .option('--slim', 'family-canonical alias for --quiet (mirrors `digest run --json --slim`, `feedback prune --json --slim`, `stats --json --slim`, `forget --json --slim`, `reindex --dry-run --json --slim`, `stale --json --slim` etc. byte-for-byte). The slim shape is `{ok, findingsCount, errors, warnings, infos}` — only the per-severity tallies + the overall ok flag, no per-finding payload. Composes with --severity differently from the legacy --quiet behaviour: under --json --slim --severity error, the `findingsCount` and per-severity tallies are NARROWED to the operator-chosen severity floor (errors only when --severity error, errors+warnings when --severity warn, all when --severity info). The original --quiet shape always reflects the FULL unfiltered counts regardless of --severity — which made `clawmind doctor --json --quiet --severity error | jq .errors` redundant with the unconditional shape and broke the natural cron poll "how many error-or-above findings are there right now". Under --json --slim, --severity narrows the tallies as the operator expects. Without --json the flag is a no-op (text mode already renders a compact body). Wins over the full --json payload when set. The `ok` field is ALWAYS driven by the FULL report regardless of --severity narrowing — hiding warnings via --severity error cannot accidentally promote an unhealthy index to ok=true.')
+    .action(async (opts: { severity: string; staleAfterDays?: number; json?: boolean; quiet?: boolean; slim?: boolean }) => {
       const env = loadEnv();
       const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
       // --stale-after-days is forwarded as a query string parameter so
@@ -99,38 +100,44 @@ export function doctorCommand() {
       const visibleFindings = r.findings.filter((f) => SEV_RANK[f.severity] >= minRank);
 
       if (opts.json) {
-        // --quiet wins over the full --json payload when set. It
-        // emits a slim `{ok, findingsCount, errors, warnings, infos}`
-        // shape carrying ONLY the per-severity tallies. The classic
-        // cron use is a tight dashboard panel that needs the answer
-        // in 5 fields without piping the full report through `jq`
-        // for the count. Pairs naturally with --severity error for
-        // "fail nightly CI if any error finding exists":
-        //   clawmind doctor --json --quiet | jq -e '.errors == 0'
+        // --slim is the family-canonical alias for --quiet. Both
+        // flags flip into the slim payload shape; the difference
+        // is how --severity composes:
         //
-        // Critical contract choices:
-        //   - `ok` is driven by r.ok (the FULL report's flag) so
-        //     hiding findings via --severity never accidentally
-        //     hides an unhealthy report from the slim shape
-        //   - `findingsCount` is the TOTAL count, not the filtered
-        //     visible count — the slim shape exists for an "are we
-        //     ok?" question that needs the unconditional tally
-        //   - per-severity tallies (`errors`, `warnings`, `infos`)
-        //     match the API's severity vocabulary verbatim so a
-        //     consumer can branch on each tier independently
-        //   - the document is single-line (no indent) so cron
-        //     snapshots diff cleanly when appended to an NDJSON
-        //     log — matches the stats --slim contract
-        //   - the exit code still reflects `r.ok` so a wrapper
-        //     script that only reads the exit code (not the JSON)
-        //     still detects an unhealthy report
-        if (opts.quiet) {
-          const errors = r.findings.filter((f) => f.severity === 'error').length;
-          const warnings = r.findings.filter((f) => f.severity === 'warn').length;
-          const infos = r.findings.filter((f) => f.severity === 'info').length;
+        //   --json --quiet         -> unconditional full tallies
+        //     (legacy v0 contract; back-compat preserved)
+        //   --json --slim          -> unconditional full tallies
+        //     (same as --quiet when --severity is the default)
+        //   --json --slim --severity warn  -> tallies narrowed to
+        //     warn+error only (the natural cron poll "how many
+        //     warn-or-above findings exist")
+        //   --json --quiet --severity warn -> tallies unchanged
+        //     (back-compat: the legacy --quiet shape was always
+        //     the FULL counts; flipping that under --severity
+        //     would be a regression for any existing dashboard)
+        //
+        // The two flags are otherwise identical (single-line JSON,
+        // {ok, findingsCount, errors, warnings, infos} shape, ok
+        // always driven by the FULL r.ok). When both --slim and
+        // --quiet are passed, --slim wins because it's the new
+        // canonical name.
+        if (opts.slim || opts.quiet) {
+          // Determine which findings the slim tallies describe:
+          //   - if --slim is explicitly set, narrow to the --severity
+          //     floor so the tallies match the operator's mental
+          //     model. --slim wins over --quiet because it's the new
+          //     canonical name and the operator opted into it
+          //     explicitly.
+          //   - if ONLY --quiet is set (legacy), always use the full
+          //     set so existing v0 cron consumers see no shape change
+          const useFiltered = !!opts.slim;
+          const source = useFiltered ? visibleFindings : r.findings;
+          const errors = source.filter((f) => f.severity === 'error').length;
+          const warnings = source.filter((f) => f.severity === 'warn').length;
+          const infos = source.filter((f) => f.severity === 'info').length;
           const slim = {
             ok: r.ok,
-            findingsCount: r.findings.length,
+            findingsCount: source.length,
             errors,
             warnings,
             infos,

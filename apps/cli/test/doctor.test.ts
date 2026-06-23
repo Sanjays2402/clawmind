@@ -410,4 +410,191 @@ describe('doctor cli', () => {
     // The finding body still rendered (not a slim payload).
     expect(out).toContain('A');
   });
+
+  // ---------------------------------------------------------------
+  // --slim family-canonical alias tests — --slim is the new spelling
+  // adopted across the cli (mirrors digest/stats/feedback/forget/
+  // reindex/stale --json --slim byte-for-byte). The key behaviour
+  // difference vs the legacy --quiet:
+  //   --slim --severity narrows the per-severity tallies
+  //   --quiet --severity does NOT narrow (back-compat preserved)
+  // The `ok` flag is ALWAYS driven by the full report regardless.
+  // ---------------------------------------------------------------
+
+  it('exposes --slim on the command surface', () => {
+    const flags = doctorCommand().options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--json --slim emits the same shape as --json --quiet when no --severity is set', async () => {
+    // Without --severity narrowing, --slim and --quiet are observably
+    // identical: same single-line JSON, same key set, same values.
+    const report = {
+      ok: true,
+      counts: { manifestDocs: 1, manifestChunks: 2, bm25Chunks: 2, lanceChunks: 2 },
+      findings: [
+        { severity: 'info', code: 'A', message: 'a' },
+        { severity: 'warn', code: 'B', message: 'b' },
+        { severity: 'error', code: 'C', message: 'c' },
+      ],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--json', '--slim']);
+    const fromSlim = stdoutChunks.join('');
+    stdoutChunks.length = 0;
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--json', '--quiet']);
+    const fromQuiet = stdoutChunks.join('');
+    expect(fromSlim).toBe(fromQuiet);
+    const parsed = JSON.parse(fromSlim);
+    expect(parsed).toEqual({
+      ok: true, // r.ok was true even though one finding is severity 'error' (the api decides ok flag)
+      findingsCount: 3,
+      errors: 1,
+      warnings: 1,
+      infos: 1,
+    });
+  });
+
+  it('--json --slim --severity error narrows the tallies to errors only', async () => {
+    // The key contract: under --slim, --severity narrows the slim
+    // tallies. This is what makes `clawmind doctor --json --slim
+    // --severity error | jq .findingsCount` a useful poll for
+    // "how many error-or-above findings are there right now".
+    const report = {
+      ok: false,
+      counts: { manifestDocs: 1, manifestChunks: 2, bm25Chunks: 2, lanceChunks: 2 },
+      findings: [
+        { severity: 'info', code: 'A', message: 'a' },
+        { severity: 'warn', code: 'B', message: 'b' },
+        { severity: 'warn', code: 'C', message: 'c' },
+        { severity: 'error', code: 'D', message: 'd' },
+      ],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--json', '--slim', '--severity', 'error']);
+    const parsed = JSON.parse(stdoutChunks.join(''));
+    // Narrowed to errors only: 1 error survives the floor.
+    expect(parsed.findingsCount).toBe(1);
+    expect(parsed.errors).toBe(1);
+    expect(parsed.warnings).toBe(0);
+    expect(parsed.infos).toBe(0);
+    // ok is STILL driven by the full report.ok, NOT recomputed
+    // from the narrowed view.
+    expect(parsed.ok).toBe(false);
+    // Exit code reflects r.ok.
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('--json --slim --severity warn narrows to warn+error tallies', async () => {
+    // --severity warn keeps warn AND error (errors are >= warn rank).
+    // Mirrors the same SEV_RANK >= floor predicate used in text mode.
+    const report = {
+      ok: false,
+      counts: { manifestDocs: 1, manifestChunks: 2, bm25Chunks: 2, lanceChunks: 2 },
+      findings: [
+        { severity: 'info', code: 'A', message: 'a' },
+        { severity: 'info', code: 'B', message: 'b' },
+        { severity: 'warn', code: 'C', message: 'c' },
+        { severity: 'error', code: 'D', message: 'd' },
+      ],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--json', '--slim', '--severity', 'warn']);
+    const parsed = JSON.parse(stdoutChunks.join(''));
+    expect(parsed.findingsCount).toBe(2); // warn + error
+    expect(parsed.errors).toBe(1);
+    expect(parsed.warnings).toBe(1);
+    expect(parsed.infos).toBe(0); // dropped by the warn floor
+  });
+
+  it('--json --quiet --severity error does NOT narrow the tallies (back-compat preserved)', async () => {
+    // Critical regression check: the legacy --quiet shape was always
+    // unconditional full tallies, regardless of --severity. Any
+    // existing v0 cron consumer that relied on `findingsCount` being
+    // the full count would have been silently broken by re-targeting
+    // --quiet. The --slim alias is opt-in for the new semantic;
+    // --quiet retains the legacy behaviour.
+    const report = {
+      ok: false,
+      counts: { manifestDocs: 1, manifestChunks: 2, bm25Chunks: 2, lanceChunks: 2 },
+      findings: [
+        { severity: 'info', code: 'A', message: 'a' },
+        { severity: 'warn', code: 'B', message: 'b' },
+        { severity: 'error', code: 'C', message: 'c' },
+      ],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--json', '--quiet', '--severity', 'error']);
+    const parsed = JSON.parse(stdoutChunks.join(''));
+    // --quiet keeps the FULL counts: 3 total, 1 of each severity.
+    // --severity is observed for the EXIT CODE / EXIT path but not
+    // for the slim shape.
+    expect(parsed.findingsCount).toBe(3);
+    expect(parsed.errors).toBe(1);
+    expect(parsed.warnings).toBe(1);
+    expect(parsed.infos).toBe(1);
+  });
+
+  it('--slim wins over --quiet when both are passed (--slim is the new canonical name)', async () => {
+    // When both flags are passed, --slim semantics apply — the
+    // operator opts into the new --severity-narrowing behaviour.
+    const report = {
+      ok: false,
+      counts: { manifestDocs: 1, manifestChunks: 2, bm25Chunks: 2, lanceChunks: 2 },
+      findings: [
+        { severity: 'info', code: 'A', message: 'a' },
+        { severity: 'warn', code: 'B', message: 'b' },
+        { severity: 'error', code: 'C', message: 'c' },
+      ],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync([
+      'node', 'cli', '--json', '--slim', '--quiet', '--severity', 'error',
+    ]);
+    const parsed = JSON.parse(stdoutChunks.join(''));
+    // --slim semantics: tallies narrowed to errors only.
+    expect(parsed.findingsCount).toBe(1);
+    expect(parsed.errors).toBe(1);
+    expect(parsed.warnings).toBe(0);
+  });
+
+  it('--json --slim --severity error keeps ok flag driven by full report (never promotes unhealthy to ok)', async () => {
+    // Safety property: hiding warnings via --severity error MUST
+    // NOT promote an unhealthy report to ok=true. The ok flag is
+    // always r.ok from the API, regardless of slim narrowing.
+    const report = {
+      ok: false, // API decided the report is unhealthy
+      counts: { manifestDocs: 1, manifestChunks: 2, bm25Chunks: 2, lanceChunks: 2 },
+      findings: [
+        // Note: no error-severity findings, but r.ok is false anyway
+        // (e.g. STALE_INDEX could be a warn but the api considers it
+        // a deployment blocker for this hypothetical workspace).
+        { severity: 'warn', code: 'STALE', message: 's' },
+      ],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--json', '--slim', '--severity', 'error']);
+    const parsed = JSON.parse(stdoutChunks.join(''));
+    // No errors in the filtered view — but ok is still false from r.ok.
+    expect(parsed.findingsCount).toBe(0);
+    expect(parsed.errors).toBe(0);
+    expect(parsed.ok).toBe(false); // critical: NOT silently promoted to true
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('--slim without --json is a no-op (text mode unchanged)', async () => {
+    // --slim is a JSON-only contract just like --quiet. Without --json
+    // the regular text body still renders.
+    const report = {
+      ok: true,
+      counts: { manifestDocs: 1, manifestChunks: 2, bm25Chunks: 2, lanceChunks: 2 },
+      findings: [{ severity: 'info', code: 'A', message: 'a' }],
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(report), { status: 200 })) as never;
+    await doctorCommand().parseAsync(['node', 'cli', '--slim']);
+    const out = stdoutChunks.join('');
+    expect(out).toContain('ClawMind doctor');
+    expect(out).toContain('A');
+  });
 });
