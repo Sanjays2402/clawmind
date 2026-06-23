@@ -17,7 +17,10 @@ export function watchCommand() {
     .option('--paths-only', 'with --once: pure preview — emit the deduplicated list of files that WOULD be ingested (one path per line, no styling, no header) WITHOUT touching the lance/bm25/manifest. Mirrors `ingest --dry-run --paths-only` and `reindex --dry-run --paths-only` byte-for-byte (same xargs-safe contract) but lives on the `watch` command surface so the cron muscle memory carries: `watch --once --since X --paths-only` is the natural \"what would this scheduled refresh tick touch?\" probe. Composes naturally with --since: the preview list is exactly the post-cutoff survivors. Skips ingestPaths() entirely (the file scan happens, the mtime filter applies, but nothing is read/hashed/embedded/upserted). Empty discovery (or every file pre-dating the cutoff) yields a clean empty stream — `wc -l` sees exactly 0, no header, no \"nothing to do\" hint that would poison `xargs ls`. Wins over --json (a downstream `xargs` consumer wants path-per-line, NOT a JSON document with a paths array) — matches the precedent set by forget/search/related --paths-only short-circuiting over --json. Ignored without --once (no live-watch preview semantics; the live watcher emits per-event NDJSON which is the preview shape for that surface).')
     .option('--preview-json', 'with --once: pure preview — emit a structured `{root, count, files:[...]}` JSON wrapper of the files that WOULD be ingested WITHOUT touching the lance/bm25/manifest. The dashboard-friendly twin of --paths-only: where --paths-only short-circuits --json for xargs callers, --preview-json is the explicit "give me the JSON wrapper" path for dashboard / web-UI callers who want the structured count + root context alongside the file list. Same byte layout as `ingest --dry-run --json` and `reindex --dry-run --json` so a multi-command dashboard can use one parser across all three preview surfaces. Composes naturally with --since: the files array is exactly the post-cutoff survivors. Skips ingestPaths() entirely (the file scan happens, the mtime filter applies, but nothing is read/hashed/embedded/upserted). Empty discovery yields `{root, count: 0, files: []}` (NOT an empty stream — the JSON shape is preserved so a `jq .count` consumer always gets an integer). --paths-only wins over --preview-json when both are passed (xargs callers should still get the path-per-line stream; --preview-json is the opt-in for the JSON consumer). Ignored without --once (no live-watch preview semantics).')
     .option('--slim', 'with --once --preview-json: emit a slimmed `{count, since}` 2-key shape that drops the `root` and `files[]` array entirely. The classic cron use is `clawmind watch --once --since <iso> --preview-json --slim` polled every minute as a "is the watcher seeing anything" probe without paying the per-file path list. On a workspace with thousands of files matching the cutoff, the full --preview-json payload can be hundreds of kilobytes (every path is its own string); the slim shape is ~40 bytes regardless. Mirrors `ingest --dry-run --json --slim`, `reindex --dry-run --json --slim`, `digest run --json --slim`, `compact --json --slim`, and the family-wide cron-dashboard slim contract byte-for-byte: single-line JSON, no per-row detail, only the integers a dashboard panel needs. `count` is the integer the dashboard branches on (`count > 0` = "the next scheduled refresh will touch something"); `since` echoes the cutoff (or null when absent) so a multi-cutoff dashboard polling several scopes can identify which row it is reading without out-of-band tracking. `root` is intentionally dropped (a dashboard polling a single workspace already knows the root from cron config) and `files[]` is the whole point of the slim shape (we are dropping it). Composes naturally with --since (slim count describes the post-cutoff survivors). Ignored without --once + --preview-json. --paths-only still wins over --slim when both are set with --once + --paths-only + --preview-json + --slim (the pipeline-friendly path-per-line stream is the older, simpler contract for xargs callers — same precedent as --paths-only winning over --preview-json without --slim).')
-    .action(async (root: string | undefined, opts: { json?: boolean; debounce?: number; quiet?: boolean; once?: boolean; since?: string; pathsOnly?: boolean; previewJson?: boolean; slim?: boolean }) => {
+    .option('--only-add', 'live-watch event-kind filter: emit ONLY `add` events on stdout, suppressing `change` and `unlink` entirely. Port of the `digest show --paths-only --diff --only-added/--only-removed` pattern to the live watch event stream — applies to BOTH text mode (the gray `add /foo.md` lines) AND --json mode (the per-event NDJSON documents). The natural cron use is a tight "ingest the new files only" downstream pipe that does not want `change` / `unlink` chatter: `clawmind watch --json --only-add | jq -r .path | xargs clawmind ingest`. Composes with --only-change / --only-unlink as a flag triplet. "All = none" semantic: when ALL THREE flags are set together (or NONE are set), every event kind emits — the natural reading of "give me adds AND changes AND unlinks" is "give me every kind", so the triple-on shape collapses back to the bare-watch behaviour. Composes with -q / --quiet (--quiet suppresses everything; the --only-* filters narrow what would have been emitted before --quiet decides). Composes with --debounce (the debounce shapes the cadence; --only-* shapes the kinds). Ignored on the --once path (the one-shot ingest report is a different shape that does not carry per-event chatter). The filter is applied INSIDE the onEvent callback (after the watcher decided to fire) so the underlying ingest still happens for every event — only the operator-facing stdout stream is narrowed. This means the index stays consistent (a forgotten `unlink` would not silently leave a stale entry in BM25); the filter shapes what the cron pipeline sees, not what the index does.')
+    .option('--only-change', 'live-watch event-kind filter: emit ONLY `change` events on stdout. Mirror of --only-add byte-for-byte (see --only-add for full semantics). Useful for the "re-embed the just-modified files" downstream pipe that does not want `add` / `unlink` noise.')
+    .option('--only-unlink', 'live-watch event-kind filter: emit ONLY `unlink` events on stdout. Mirror of --only-add byte-for-byte (see --only-add for full semantics). Useful for the "forget the just-deleted files" downstream pipe paired with `xargs clawmind forget --apply`. When ALL THREE --only-* flags are set together (or NONE are set), every event kind emits — the natural "give me adds AND changes AND unlinks = give me every kind" reading.')
+    .action(async (root: string | undefined, opts: { json?: boolean; debounce?: number; quiet?: boolean; once?: boolean; since?: string; pathsOnly?: boolean; previewJson?: boolean; slim?: boolean; onlyAdd?: boolean; onlyChange?: boolean; onlyUnlink?: boolean }) => {
       // --debounce forwards directly to the watcher's `debounceMs`
       // wiring (which already exists in WatcherOptions; this just
       // exposes it on the cli). Reject zero / negative / NaN values
@@ -296,6 +299,40 @@ export function watchCommand() {
           // logrotate, journalctl --since=last-restart, etc. expect
           // their restart-aware peers to behave.
           if (opts.quiet) return;
+          // --only-add / --only-change / --only-unlink: live-watch
+          // event-kind filter triplet. Port of the digest --only-added
+          // / --only-removed pattern to the live watch event stream.
+          // Applies to BOTH text mode AND --json mode (the filter is
+          // upstream of the format choice).
+          //
+          // "All = none" semantic: when ALL THREE flags are set
+          // together (or NONE are set), every event kind emits — the
+          // natural reading of "give me adds AND changes AND unlinks
+          // = give me every kind" is "emit everything". This mirrors
+          // the digest --only-added + --only-removed "both = none"
+          // contract byte-for-byte (the operator who explicitly opts
+          // into every kind has asked for the unfiltered stream).
+          //
+          // Computed inline so a single boolean per-event drives the
+          // emit decision. No early-return when the filter is silent
+          // — we still need to fall through to the emit branches.
+          //
+          // Composes with --debounce naturally: the debounce shapes
+          // the cadence (which events fire); --only-* shapes the
+          // kinds (which fired events reach stdout). The underlying
+          // ingest happens for EVERY event the watcher decided to
+          // fire — the filter shapes what the cron pipeline sees,
+          // not what the index does. This matters: filtering ingest
+          // by kind would silently leave stale entries in BM25 on
+          // a forgotten `unlink`. The split keeps the index
+          // consistent while still narrowing the operator stream.
+          const anyOnly = opts.onlyAdd || opts.onlyChange || opts.onlyUnlink;
+          const allOnly = opts.onlyAdd && opts.onlyChange && opts.onlyUnlink;
+          if (anyOnly && !allOnly) {
+            if (k === 'add' && !opts.onlyAdd) return;
+            if (k === 'change' && !opts.onlyChange) return;
+            if (k === 'unlink' && !opts.onlyUnlink) return;
+          }
           if (opts.json) {
             process.stdout.write(
               JSON.stringify({ kind: k, path: p, ts: new Date().toISOString() }) + '\n',

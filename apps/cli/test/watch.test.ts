@@ -1214,3 +1214,206 @@ describe('watch cli --once --preview-json --slim', () => {
     expect(stdout.join('')).toBe('');
   });
 });
+
+// =====================================================================
+// --only-add / --only-change / --only-unlink: live-watch event-kind
+// filter triplet. Port of the digest --only-added / --only-removed
+// "both = none" pattern to the watch event stream. Applies to BOTH
+// text mode AND --json mode so a downstream pipe like
+//   clawmind watch --json --only-add | jq -r .path | xargs clawmind ingest
+// gets exactly the additions and nothing else. "All = none": if all
+// three flags are set together, every event kind emits (the natural
+// reading of "give me adds AND changes AND unlinks = give me every
+// kind"). The filter is INSIDE onEvent so the underlying ingest still
+// fires for every event — only the operator stream is narrowed.
+// =====================================================================
+
+describe('watch cli --only-add / --only-change / --only-unlink', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    lastWatcherOpts = null;
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes all three --only-* flags on the command surface', () => {
+    const flags = watchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--only-add');
+    expect(flags).toContain('--only-change');
+    expect(flags).toContain('--only-unlink');
+  });
+
+  it('--only-add suppresses change and unlink events (text mode)', async () => {
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--only-add']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    expect(typeof onEvent).toBe('function');
+    onEvent!('add', '/tmp/r/a.md');
+    onEvent!('change', '/tmp/r/b.md');
+    onEvent!('unlink', '/tmp/r/c.md');
+    const out = stdout.join('');
+    expect(out).toContain('add /tmp/r/a.md');
+    expect(out).not.toContain('change /tmp/r/b.md');
+    expect(out).not.toContain('unlink /tmp/r/c.md');
+  });
+
+  it('--only-change suppresses add and unlink events (text mode)', async () => {
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--only-change']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('add', '/tmp/r/a.md');
+    onEvent!('change', '/tmp/r/b.md');
+    onEvent!('unlink', '/tmp/r/c.md');
+    const out = stdout.join('');
+    expect(out).not.toContain('add /tmp/r/a.md');
+    expect(out).toContain('change /tmp/r/b.md');
+    expect(out).not.toContain('unlink /tmp/r/c.md');
+  });
+
+  it('--only-unlink suppresses add and change events (text mode)', async () => {
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--only-unlink']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('add', '/tmp/r/a.md');
+    onEvent!('change', '/tmp/r/b.md');
+    onEvent!('unlink', '/tmp/r/c.md');
+    const out = stdout.join('');
+    expect(out).not.toContain('add /tmp/r/a.md');
+    expect(out).not.toContain('change /tmp/r/b.md');
+    expect(out).toContain('unlink /tmp/r/c.md');
+  });
+
+  it('--only-add applies to --json mode too (NDJSON per-event documents narrowed)', async () => {
+    // Critical: --only-* is upstream of the format choice. A
+    // `clawmind watch --json --only-add | jq -r .path | xargs
+    // ingest` pipeline relies on the NDJSON stream being narrowed
+    // exactly like the text stream.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--json', '--only-add']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('add', '/tmp/r/a.md');
+    onEvent!('change', '/tmp/r/b.md');
+    onEvent!('unlink', '/tmp/r/c.md');
+    const lines = stdout.join('').trim().split('\n').filter(Boolean);
+    expect(lines).toHaveLength(1);
+    const doc = JSON.parse(lines[0]!);
+    expect(doc.kind).toBe('add');
+    expect(doc.path).toBe('/tmp/r/a.md');
+  });
+
+  it('--only-add + --only-change compose (additive: both kinds emit, unlink suppressed)', async () => {
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--only-add', '--only-change']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('add', '/tmp/r/a.md');
+    onEvent!('change', '/tmp/r/b.md');
+    onEvent!('unlink', '/tmp/r/c.md');
+    const out = stdout.join('');
+    expect(out).toContain('add /tmp/r/a.md');
+    expect(out).toContain('change /tmp/r/b.md');
+    expect(out).not.toContain('unlink /tmp/r/c.md');
+  });
+
+  it('all three --only-* set together collapses to the unfiltered stream ("all = none" semantic)', async () => {
+    // Mirrors the digest --only-added + --only-removed "both = none"
+    // contract byte-for-byte. The natural reading: "give me adds AND
+    // changes AND unlinks = give me every kind".
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--only-add', '--only-change', '--only-unlink']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('add', '/tmp/r/a.md');
+    onEvent!('change', '/tmp/r/b.md');
+    onEvent!('unlink', '/tmp/r/c.md');
+    const out = stdout.join('');
+    // Every event makes it through — equivalent to passing NO --only-* flag.
+    expect(out).toContain('add /tmp/r/a.md');
+    expect(out).toContain('change /tmp/r/b.md');
+    expect(out).toContain('unlink /tmp/r/c.md');
+  });
+
+  it('NO --only-* flag set (legacy default) emits every event kind (regression: filter must not be the default)', async () => {
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('add', '/tmp/r/a.md');
+    onEvent!('change', '/tmp/r/b.md');
+    onEvent!('unlink', '/tmp/r/c.md');
+    const out = stdout.join('');
+    expect(out).toContain('add /tmp/r/a.md');
+    expect(out).toContain('change /tmp/r/b.md');
+    expect(out).toContain('unlink /tmp/r/c.md');
+  });
+
+  it('--only-add composes with --quiet (--quiet wins; nothing emits)', async () => {
+    // --quiet is the absolute suppression. --only-* narrows what
+    // WOULD have been emitted; --quiet then drops it. The two
+    // compose to "absolute silence" — same as --quiet alone.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--only-add', '--quiet']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('add', '/tmp/r/a.md');
+    onEvent!('change', '/tmp/r/b.md');
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('--only-add composes with --debounce (debounce shapes cadence, --only-* shapes kinds)', async () => {
+    // Orthogonal flags: --debounce ms still arrives at the
+    // watcher; --only-add still narrows the stream when events fire.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--only-add', '--debounce', '500']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    expect(lastWatcherOpts?.debounceMs).toBe(500);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('add', '/tmp/r/a.md');
+    onEvent!('change', '/tmp/r/b.md');
+    const out = stdout.join('');
+    expect(out).toContain('add /tmp/r/a.md');
+    expect(out).not.toContain('change /tmp/r/b.md');
+  });
+
+  it('--only-add + --only-unlink (additive: skip changes, emit adds and unlinks)', async () => {
+    // Useful pipeline: "narrow to additions and deletions only,
+    // skip the modification noise" for a forget+ingest split pipe.
+    await expect(
+      watchCommand().parseAsync(['node', 'cli', '/tmp/r', '--only-add', '--only-unlink']),
+    ).rejects.toBeInstanceOf(StopWatchSentinel);
+    stdout.length = 0;
+    const onEvent = lastWatcherOpts?.onEvent as ((k: string, p: string) => void) | undefined;
+    onEvent!('add', '/tmp/r/a.md');
+    onEvent!('change', '/tmp/r/b.md');
+    onEvent!('unlink', '/tmp/r/c.md');
+    const out = stdout.join('');
+    expect(out).toContain('add /tmp/r/a.md');
+    expect(out).not.toContain('change /tmp/r/b.md');
+    expect(out).toContain('unlink /tmp/r/c.md');
+  });
+});
