@@ -295,4 +295,92 @@ describe('reindex cli --dry-run', () => {
     // No error to stderr — the stat-failure path is deliberately quiet.
     expect(stderr.join('')).toBe('');
   });
+
+  // ---------------------------------------------------------------
+  // --json --slim tests — cron-dashboard shape for partial-reindex
+  // panels polling "how many files would the next refresh touch".
+  // Mirrors `digest run --json --slim`, `feedback prune --json --slim`,
+  // `stats --json --slim`, `forget --json --slim`, and
+  // `doctor --json --quiet` byte-for-byte: single-line JSON,
+  // no per-file detail, ~80 bytes regardless of workspace size.
+  // ---------------------------------------------------------------
+
+  it('exposes --slim on the command surface', () => {
+    const flags = reindexCommand().options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--dry-run --json --slim emits {count, since, dryRun} single-line shape', async () => {
+    // The canonical cron panel: count the files, echo the cutoff,
+    // explicit dryRun safety contract. No per-path list, no root,
+    // no indentation.
+    mockFiles = ['/tmp/workspace/a.md', '/tmp/workspace/b.ts', '/tmp/workspace/c.json'];
+    await reindexCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--json', '--slim',
+    ]);
+    const raw = stdout.join('');
+    // Single-line JSON: no indentation newlines mid-document.
+    expect(raw.split('\n').filter((l) => l.length > 0)).toHaveLength(1);
+    const parsed = JSON.parse(raw);
+    expect(parsed).toEqual({ count: 3, since: null, dryRun: true });
+    // Critical: NO `files`, NO `root` — the slim shape strips them.
+    expect(parsed.files).toBeUndefined();
+    expect(parsed.root).toBeUndefined();
+  });
+
+  it('--dry-run --json --slim --since echoes the cutoff and counts the survivors', async () => {
+    // Compose with --since: the slim count describes the survivors of
+    // the mtime filter, the `since` field echoes the cutoff anchor.
+    mockFiles = ['/tmp/workspace/old.md', '/tmp/workspace/new.md'];
+    mockMtimes = {
+      '/tmp/workspace/old.md': 1000,
+      '/tmp/workspace/new.md': 3000,
+    };
+    const cutoff = new Date(2000).toISOString();
+    await reindexCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--since', cutoff, '--json', '--slim',
+    ]);
+    const parsed = JSON.parse(stdout.join(''));
+    expect(parsed).toEqual({ count: 1, since: cutoff, dryRun: true });
+  });
+
+  it('--dry-run --json --slim with zero matches emits count=0 cleanly', async () => {
+    // Edge: empty discovery yields {count: 0, since: null, dryRun: true}.
+    // Mirrors `forget --json --slim` zero-match contract — a downstream
+    // `jq .count` consumer can branch on emptiness without re-running.
+    mockFiles = [];
+    await reindexCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--json', '--slim',
+    ]);
+    const parsed = JSON.parse(stdout.join(''));
+    expect(parsed).toEqual({ count: 0, since: null, dryRun: true });
+  });
+
+  it('--paths-only wins over --slim when all three of --dry-run --json --paths-only --slim are set', async () => {
+    // The pipeline-friendly contract (--paths-only) is the more
+    // destructive precedent to break (xargs consumers depend on it);
+    // the dashboard contract (--slim) is a secondary shape. When both
+    // are set, --paths-only short-circuits before --json so --slim
+    // never gets a chance to fire — the test pins that precedence.
+    mockFiles = ['/tmp/workspace/a.md', '/tmp/workspace/b.ts'];
+    await reindexCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--paths-only', '--json', '--slim',
+    ]);
+    // --paths-only stream, no JSON.
+    expect(stdout.join('')).toBe('/tmp/workspace/a.md\n/tmp/workspace/b.ts\n');
+  });
+
+  it('--slim is ignored without --json (--dry-run --slim falls through to text mode)', async () => {
+    // The slim flag is gated on --json; without --json the text path
+    // is unchanged. We assert the yellow header still fires so a
+    // future regression that hijacked text mode under --slim would
+    // surface immediately.
+    mockFiles = ['/tmp/workspace/a.md'];
+    await reindexCommand().parseAsync([
+      'node', 'cli', '--dry-run', '--slim',
+    ]);
+    const out = stdout.join('');
+    expect(out).toContain('would reindex 1 file(s) under /tmp/workspace');
+    expect(out).toContain('/tmp/workspace/a.md');
+  });
 });
