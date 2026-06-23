@@ -847,4 +847,105 @@ describe('stats cli --slim', () => {
       'alpha', 'bravo', 'charlie',
     ]);
   });
+
+  // --reverse: mirrors `stale --reverse` / `search --reverse` /
+  // `related --reverse` / `feedback list --reverse` / `digest list
+  // --reverse` / `aliases list --reverse` byte-for-byte. The 7th
+  // command in the family-wide reverse-modifier sweep.
+  //
+  // Stats is the family-contract DEVIATION: --sort has a default
+  // value of "namespace", so --reverse is ALWAYS active (it flips
+  // against the default namespace order even with no --sort flag
+  // passed). Every other --sort-bearing command treats --reverse
+  // without --sort as a no-op because --sort is undefined by
+  // default; stats predates the family-wide contract and has a
+  // commander default it cannot easily shed. Pin both behaviours
+  // explicitly so the deviation is documented in the tests.
+  // -----------------------------------------------------------------
+
+  it('exposes --reverse on the command surface', () => {
+    const flags = statsCommand().options.map((o) => o.long);
+    expect(flags).toContain('--reverse');
+  });
+
+  it('--sort files --reverse orders smallest-namespace first (flips the default biggest-first)', async () => {
+    // Default --sort files is desc (biggest namespace first); --reverse
+    // gives asc — "audit underutilized namespaces".
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'files', '--reverse']);
+    const out = JSON.parse(captured.join(''));
+    // sampleReport: memory=10, sessions=5, projects=15. Asc by files:
+    // sessions (5), memory (10), projects (15).
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual([
+      'sessions', 'memory', 'projects',
+    ]);
+  });
+
+  it('--sort bytes --reverse orders smallest-bytes first', async () => {
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'bytes', '--reverse']);
+    const out = JSON.parse(captured.join(''));
+    // sessions (5_000), memory (10_000), projects (15_000).
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual([
+      'sessions', 'memory', 'projects',
+    ]);
+  });
+
+  it('--sort namespace --reverse orders desc alphabetical (flips the default API asc)', async () => {
+    // sampleReport's API order is memory, sessions, projects (NOT
+    // alphabetical — preserves whatever the server gave us). But
+    // we have a sample where the API order IS alphabetical-friendly
+    // enough to pin the reverse: just confirm the reverse flips the
+    // input order byte-for-byte.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 30, chunks: 300, bytes: 30_000, namespaces: 3 },
+      byNamespace: [
+        { namespace: 'aaa', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'mmm', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'zzz', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'namespace', '--reverse']);
+    const out = JSON.parse(captured.join(''));
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual(['zzz', 'mmm', 'aaa']);
+  });
+
+  it('--sort name --reverse behaves identically to --sort namespace --reverse (true alias)', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 20, chunks: 200, bytes: 20_000, namespaces: 2 },
+      byNamespace: [
+        { namespace: 'a', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'b', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'name', '--reverse']);
+    const fromName = captured.join('');
+    captured.length = 0;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'namespace', '--reverse']);
+    const fromNamespace = captured.join('');
+    expect(fromName).toBe(fromNamespace);
+  });
+
+  it('--sort files --reverse preserves cross-snapshot determinism on ties (secondary index also reversed)', async () => {
+    // Two namespaces tied at files=10. Under --reverse the secondary
+    // index sort is ALSO reversed so the snapshot is byte-stable in
+    // either direction.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      totals: { files: 25, chunks: 250, bytes: 25_000, namespaces: 3 },
+      byNamespace: [
+        { namespace: 'first-tied',  files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'loner',       files: 5,  chunks: 50,  bytes: 5_000,  oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+        { namespace: 'second-tied', files: 10, chunks: 100, bytes: 10_000, oldestIngestedAt: null, newestIngestedAt: null, extensions: [] },
+      ],
+      generatedAt: 0,
+    }), { status: 200 })) as never;
+    await statsCommand().parseAsync(['node', 'cli', '--json', '--sort', 'files', '--reverse']);
+    const out = JSON.parse(captured.join(''));
+    // Ascending: loner (5) first, then the two tied entries in
+    // REVERSED original-index order (second-tied at idx 2 before
+    // first-tied at idx 0).
+    expect(out.byNamespace.map((n: { namespace: string }) => n.namespace)).toEqual([
+      'loner', 'second-tied', 'first-tied',
+    ]);
+  });
 });

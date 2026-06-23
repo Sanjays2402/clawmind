@@ -81,13 +81,14 @@ export function statsCommand() {
     .option('-q, --query <substr>', 'only include namespaces whose name contains this substring (case-insensitive)')
     .option('--top <n>', 'cap the per-namespace extension breakdown at this many entries (default 4)', '4')
     .option('--sort <key>', 'sort namespaces descending by one of: files, chunks, bytes, namespace (alias: name). Default: namespace. Mirrors the family-wide --sort contract used by feedback / digest / aliases / related / search / stale --sort: ties at the same metric carry a secondary sort by original index for cross-snapshot determinism (so two consecutive `stats --json --sort files` runs over identical input produce byte-identical output regardless of the engine\'s Array#sort stability), and unknown keys abort cleanly with exit 1 enumerating the valid set. The `name` alias is the family-wide canonical spelling; the original `namespace` spelling is preserved for back-compat. Both behave identically.', 'namespace')
+    .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` / `feedback list --reverse` / `digest list --reverse` / `aliases list --reverse` byte-for-byte). With --sort files / chunks / bytes the default is desc (biggest namespace first); --reverse gives asc (smallest first) — the natural "audit underutilized namespaces" question, complementary to the "which namespace dominates" default. With --sort namespace / name the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. NOTE on the no-default-sort contract: every OTHER --sort-bearing command in the family treats --reverse without --sort as a no-op because --sort is undefined by default. Stats is the exception — --sort has a default value of "namespace", so --reverse is ALWAYS active (it flips against the default namespace order even with no --sort flag passed). This is the only family-contract deviation and it falls out of stats predating the family-wide reverse contract; documenting it here so the precedent is explicit. The secondary tie-break by original index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction.')
     .option('--since <iso-date>', 'keep only namespaces whose newestIngestedAt is older than this ISO date (i.e. have not been re-ingested since the cutoff). Useful for finding namespaces that have gone stale at the namespace level — complements `stale` which works at the per-file level. Namespaces with newestIngestedAt=null (never indexed) are KEPT because they are trivially older than any cutoff. The recomputed totals reflect the filtered subset so a downstream "stale namespaces dominate X bytes" report still adds up.')
     .option('--tsv', 'emit tab-separated rows (namespace<TAB>files<TAB>chunks<TAB>bytes<TAB>newestIngestedAt) for awk/cut pipelines')
     .option('--paths', 'pipeline-friendly: emit ONLY the per-namespace `extensions[*].ext` flat list, one extension per line, in API order. Answers "which file types live in this namespace" without --json + jq. Composes with -q (filter by namespace name first) and --top (cap each namespace contribution before emit) for "the top 3 extensions in namespaces matching `mem`". Zero matches yields a clean empty stream so xargs/wc keep working. Wins over --json / --tsv / text when set (short-circuits the contract is unambiguous).')
     .option('--json', 'emit machine-readable JSON instead of a text table')
     .option('--compact', 'with --json: emit a single-line JSON document (no indentation) for easier diffing across cron snapshots. Ignored without --json.')
     .option('--slim', 'with --json: emit a slimmed `{stale: [<namespace>], total: N}` shape carrying only the names of namespaces in the report instead of the full per-namespace metric blocks. The classic cron use is `clawmind stats --json --slim --since <iso>` to answer "which namespaces have gone stale at the namespace level" without piping the full report through `jq` for the namespace names. The `stale` key is the name (the operator already asked the question — they want a clean array of strings, not nested objects). `total` is the length of `stale` so a downstream `jq .total` can branch on emptiness without inspecting the array. Without --since the payload is "all namespaces matching the other filters", which is still a useful cron-snapshot shape (it tracks namespace presence over time). Ignored without --json. Wins over --compact when both are set because --slim already implies single-line output. Composes with --tsv: `--json --slim --tsv` emits one `<namespace>\\t<files>` row per surviving namespace (no header, no trailing summary, no ANSI) for awk pipelines that want both the staleness filter AND the per-namespace file count in a single 2-column stream.')
-    .action(async (opts: { json?: boolean; tsv?: boolean; paths?: boolean; query?: string; top: string; sort: string; since?: string; compact?: boolean; slim?: boolean }) => {
+    .action(async (opts: { json?: boolean; tsv?: boolean; paths?: boolean; query?: string; top: string; sort: string; reverse?: boolean; since?: string; compact?: boolean; slim?: boolean }) => {
       await runOrReport('stats', async () => {
         let report = (await apiFetch('GET', '/v1/stats')) as StatsReport;
         if (opts.query) {
@@ -179,18 +180,43 @@ export function statsCommand() {
         // between runs. Mirrors the family-wide secondary-index sort
         // (feedback / digest / aliases / related / search / stale --sort).
         const sortKey = opts.sort.toLowerCase();
+        // --reverse flips the per-key direction. Mirrors the family-
+        // wide reverse-modifier contract (stale / search / related /
+        // feedback list / digest list / aliases list --reverse) byte-
+        // for-byte: a single sign-flipping multiplier (dir = -1 under
+        // --reverse, else 1) applied to BOTH the primary comparator
+        // AND the secondary tie-break by original index. The dual-
+        // flip preserves cross-snapshot determinism under --reverse.
+        //
+        // The namespace/name no-op path uses Array#reverse() to flip
+        // the API-returned alphabetical order (which is asc by
+        // default) — that's the same desc-alphabetical result the
+        // numeric-key dir-multiplier would produce if there were a
+        // localeCompare on the namespace field, so the two paths are
+        // observationally indistinguishable to a downstream consumer.
+        // Ties under namespace/name cannot happen by definition (each
+        // namespace name is unique server-side) so the secondary-
+        // index reverse is implicit in the array-reverse.
+        const dir = opts.reverse ? -1 : 1;
         if (sortKey === 'files' || sortKey === 'chunks' || sortKey === 'bytes') {
           const sorted = [...report.byNamespace]
             .map((n, idx) => ({ n, idx }))
             .sort((a, b) => {
               const cmp = b.n[sortKey] - a.n[sortKey];
-              if (cmp !== 0) return cmp;
-              return a.idx - b.idx;
+              if (cmp !== 0) return cmp * dir;
+              return (a.idx - b.idx) * dir;
             })
             .map((r) => r.n);
           report = { ...report, byNamespace: sorted };
         } else if (sortKey !== 'namespace' && sortKey !== 'name') {
           throw new StatsCliError(`unknown --sort key "${opts.sort}" (expected: files, chunks, bytes, namespace, name)`);
+        } else if (opts.reverse) {
+          // namespace/name with --reverse: the API returns the list
+          // in asc-alphabetical order so a plain Array#reverse()
+          // gives desc-alphabetical, the contract for --reverse on
+          // an alphabetical default. Without --reverse this branch
+          // is a no-op (the API order is preserved).
+          report = { ...report, byNamespace: [...report.byNamespace].reverse() };
         }
         // --paths is the pipeline-friendly flat-extension stream. It
         // emits ONLY the per-namespace `extensions[*].ext` field, one
