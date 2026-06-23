@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-22 13:41 PDT (current)
+### Tick 2026-06-22 16:53 PDT (current)
+
+- [x] feat(stale): --reverse modifier flips --sort direction (establishes family-wide reverse contract) (cec9160)
+- [x] feat(search): --reverse modifier flips --sort direction (mirrors stale --reverse) (c3ab531)
+- [x] feat(related): --reverse modifier flips --sort direction (completes the queued reverse-modifier family-sweep) (d600337)
+- [x] feat(digest): show --paths-only --diff splits emit into +/- direction streams (4b76cb1)
+- [x] feat(feedback): prune --json --slim drops paths array for cron-dashboard counts (b524cb3)
+
+### Tick 2026-06-22 13:41 PDT
 
 - [x] feat(search): --sort <score|path|namespace> orders survivors of -t/--threshold (5e57ff3)
 - [x] feat(stale): --sort <age|path|size> orders survivors of -q / --since / --days (a8fd3d9)
@@ -181,12 +189,14 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(forget): add list-by-pattern shim (forget --dry-run --paths-only is the closest, but a dedicated `forget list <pattern>` for "preview what forget would touch" without typing --dry-run + --paths-only every time would be the more natural ergonomic shape). Open question: does the API need a new endpoint or can the cli pre-flight against the existing /v1/sources list?
 - [ ] feat(status): add a `cycle: 0` pin for the first --watch --json snapshot (currently asserted as 1-indexed; pin that the indexing convention is 1-based explicitly, not just "monotonically increasing" — a regression to 0-indexed would silently change the contract for downstream parsers reading the first snapshot).
 - [ ] feat(ask): add --stream-json --no-citations --threshold composition byte-layout pin under the SKIP path (sources event count-only, skipped doc, no token events, exit 1). The 3-flag intersection is already pinned for the happy-path; the SKIP path through emitStreamDoc is structurally different (no token / done events fire) and the byte-layout under that path has not been pinned.
-- [ ] feat(digest): add `show --paths-only --diff` to split the emit into separate "added" and "removed" streams (currently --paths-only is a flat merge of newSources + removedSources per row — for an operator who wants to feed `xargs ingest` with ONLY the new paths, the existing merge means they have to post-process with `comm` or pipe --json through jq. A --diff modifier or a `--new-only` / `--removed-only` flag pair would close this gap, mirroring the `git diff` add/del shape).
-- [ ] feat(stale): add --sort age --reverse (or equivalently --sort -age) for "youngest stale files first" — the natural use is investigating which files crossed the stale threshold MOST RECENTLY (the "what just went stale" question, complementary to the existing "oldest first / biggest first" defaults). Currently the operator has to pipe --json through `jq` for this. The family-wide --sort contract has no reverse modifier yet; this would establish the precedent.
-- [ ] feat(search): add --sort path --reverse for descending alphabetical (the cron use is "what's at the END of the alphabetical run?" — useful for diff snapshots where the operator wants the FIRST change at the bottom of the visible window for a `tail -f`-style log scrape). Same precedent question as the stale entry above; whichever lands first establishes the reverse-modifier shape for the rest of the family.
-- [ ] feat(related): add --sort path --reverse + --sort namespace --reverse — for symmetry with the other sort-bearing commands once the reverse-modifier shape is established. Currently `related --sort namespace` groups alphabetically; descending namespace order is useful for cron snapshots that want the most-recent (alphabetically-last) namespace at the top.
-- [ ] feat(feedback): add `feedback prune --json --slim` shape: `{matched, cleared, errors, dryRun}` — drops the `paths` array (which can be megabytes on a large workspace) for cron dashboards that only need the counts. Mirrors `doctor --json --quiet` / `digest run --json --slim` precedent. Pairs naturally with --apply for tight cron-budget snapshots.
 - [ ] feat(stats): add --slim --paths --json composition byte-layout pin: when --slim, --paths, and --json are all set, which one wins? The current code path is undocumented in the cli help; --paths short-circuits BEFORE --json which short-circuits BEFORE --slim. Pin the precedence so a future refactor that changed the order would surface immediately.
+- [ ] feat(feedback): port the --reverse family-wide modifier shape to `feedback list --sort` (the family-wide contract is now established on stale / search / related; feedback list, digest list, aliases list, tags list, stats are the next batch of --sort-bearing commands that could carry the modifier). Mirror byte-for-byte: a single sign-flipping multiplier (dir = -1 under --reverse, else 1) applied to BOTH the primary comparator AND the secondary tie-break by original index. Silent-ignored without --sort.
+- [ ] feat(digest): port --reverse to `digest list --sort` — same family-wide contract as the feedback one above. The natural cron use: `digest list --sort lastRunTs --reverse` for "the most-RECENTLY-run digests first" (the inverse of the default overdue-first ordering).
+- [ ] feat(aliases): port --reverse to `aliases list --sort` — same family-wide contract. The natural use: `--sort createdAt --reverse` for the "what got removed/oldest first" question, complementary to the existing "newest first" snapshot pair with --since.
+- [ ] feat(stats): port --reverse to `stats --sort` — same family-wide contract. The natural use: `--sort files --reverse` for "smallest namespaces first" when the operator wants to audit underutilized namespaces.
+- [ ] feat(digest): extend show --paths-only --diff with `--only-added` / `--only-removed` exclusive emit modes (the `--diff` shape requires post-processing with `grep "^+ " | cut -c3-` for the single-direction stream; a dedicated flag pair would skip that step. Open question: do both flags compose naturally, or should `--only-added --only-removed` be a no-op equivalent to plain `--paths-only` (since the union is the flat shape)? Or should it abort because the two are semantically exclusive?).
+- [ ] feat(stale): add the `--reverse` family-wide modifier to the `--sort` keys that have NO meaningful default direction (currently `--sort path` is asc by default; `--sort age` and `--sort size` are desc). Document the rule clearly in the help text: "--reverse flips the default DIRECTION for the key, not the SEMANTIC direction" — so a user who wants "oldest first" under `--sort age` does NOT need --reverse (they get it by default), and `--reverse` gives them "youngest first" which is a different semantic question. The help text on `--reverse` should reference the default direction for each `--sort` key so the user knows what reversing means before they try it. (No code change; pure docs clarification with a test pin that the help string contains the per-key default-direction notes.)
+- [ ] feat(feedback): port the --slim shape pattern from `prune --json --slim` to `feedback list --json --slim` for the same cron-dashboard reason — a list shape that drops the per-entry path/ups/downs blocks and emits just `{count, neutralCount, upDominantCount, downDominantCount}` for the headline dashboard. The full list payload can be tens of kilobytes on a workspace with hundreds of votes; a dashboard polling once a minute does not need that detail. Open question: which buckets to expose? The simplest cut is "above 1.0 / below 1.0 / equal 1.0" but the more interesting one might be the histogram by --above/--below thresholds.
 
 ## Conventions
 
@@ -2015,3 +2025,157 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   are smaller deltas (single-flag composition pins, error-path
   byte-layout pins, --slim shape additions) rather than
   family-wide completions.
+
+- 2026-06-22 16:53 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: cec9160, c3ab531, d600337, 4b76cb1, b524cb3. Test gate:
+  `@clawmind/cli` 599/599 vitest pass (up from 564). 35 net new
+  tests spread across 4 files: stale.test.ts (+7 -> 38 — --reverse),
+  search.test.ts (+7 -> 53 — --reverse), related.test.ts (+7 -> 40
+  — --reverse), feedback-digest.test.ts (+14 -> 126 — 7 digest show
+  --paths-only --diff + 7 feedback prune --json --slim).
+  `@clawmind/cli` typecheck: clean. Status of pre-existing reds
+  outside cli (telemetry OpenTelemetry 1.x/2.x peer mismatch +
+  rag/hybrid alpha-blend drift) unchanged from prior 10 ticks.
+  Notable: first test run was clean on the first attempt (status
+  --check-after flake did not fire this tick), so 599/599 on a
+  single pass. No retry needed.
+
+  Theme: queued-sweep tick — knocked out 5 items from the queued
+  list, every one a clean cron-friendly capability close. After
+  this tick the queued list shrinks from 9 to 4 items (the 5
+  closed-out items) plus 6 new ones that surfaced from the patterns
+  this batch established (port --reverse to feedback/digest/aliases/
+  stats; extend digest --diff with --only-added/--only-removed;
+  feedback list --json --slim; stale --reverse help-text
+  documentation clarification).
+
+    1. stale --reverse (establishes the family-wide reverse-modifier
+       shape). The first --sort-bearing command in the cli's family
+       to expose a --reverse modifier. The three per-key reverse
+       questions answered:
+         --sort age --reverse   -> youngest-stale first ("what just
+                                   crossed the staleness threshold")
+         --sort path --reverse  -> desc alphabetical (the queued use:
+                                   "what's at the END of the
+                                   alphabetical run" for diff
+                                   snapshots / tail -f-style scrapes)
+         --sort size --reverse  -> smallest first ("bulk-clear the
+                                   small files when the budget can
+                                   afford to skip the big ones")
+       Implementation: a single sign-flipping multiplier (dir = -1
+       under --reverse, else 1) applied to BOTH the primary
+       comparator AND the secondary tie-break by original index. The
+       dual-flip is the critical determinism property — without it,
+       ties would silently shift on every other run because the
+       primary returned 0 but the secondary kept ascending while
+       the visible ordering of every other row was descending.
+       Pinned by a "two consecutive runs over identical-ties input
+       produce byte-identical output" property test.
+       Silent-ignored without --sort (the default API ordering is a
+       fixed contract, not a sort-direction choice — mirrors the
+       --header-without-tsv silent-ignore precedent).
+       Cross-mode consistency: --sort path --reverse on --tsv mode
+       produces the same desc-alphabetical row order the --json
+       mode sees, pinned by a "TSV body == JSON body order" test.
+
+    2. search --reverse (mirrors stale --reverse byte-for-byte).
+       The second --sort-bearing command in the family. The three
+       direction-flip cases on search:
+         --sort score --reverse    -> weakest-first ("hits that
+                                      BARELY passed the threshold,
+                                      ordered worst-first" — useful
+                                      for tuning the threshold dial)
+         --sort path --reverse     -> desc alphabetical (the queued
+                                      use)
+         --sort namespace --reverse -> namespaces in desc grouping
+       Crucial composition with --paths-only: the dedupe walks AFTER
+       the sort+reverse so `--sort path --reverse --paths-only`
+       emits paths in desc alphabetical order with duplicates
+       collapsed to the first occurrence in the post-reverse walk.
+
+    3. related --reverse (completes the queued reverse-modifier
+       family-sweep). The third --sort-bearing command. After this
+       commit the family-wide reverse-modifier contract is complete
+       across all THREE commands the queued list explicitly called
+       out (stale, search, related). The three direction-flip cases:
+         --sort score --reverse     -> weakest-first ("neighbours
+                                       about to drop out of the
+                                       related set the next time
+                                       the rerank shuffles")
+         --sort path --reverse      -> desc alphabetical
+         --sort namespace --reverse -> namespaces in desc grouping
+       Crucial composition with --above (band-filter narrows, sort
+       orders the survivors desc): "the alphabetically-last
+       neighbour that survived --above 0.5" in a single call.
+
+    4. digest show --paths-only --diff. Splits the flat-merge emit
+       into a `git diff`-style stream where every new-path line is
+       prefixed with `+ ` and every removed-path line with `- `.
+       The default --paths-only walks newSources then removedSources
+       for each row, deduped against a SINGLE Set — which is the
+       right shape for "feed xargs ingest with every path the
+       digest touched" but NOT for the symmetric "feed xargs
+       ingest with only the NEW paths" use. The operator was forced
+       to post-process with `comm` or pipe --json through `jq`
+       for that. --diff closes the symmetric gap with the prefix
+       shape operators already know from `git diff`.
+       Critical design property: TWO SEPARATE dedupe sets, one per
+       direction. A path that appears in newSources of one row AND
+       removedSources of another row surfaces TWICE — once with
+       each prefix — because semantically those are two different
+       events (the path was added at one ts, removed at another).
+       Pinned by an explicit fixture where /shared.md appears as
+       newSource in ts=3 and removedSource in ts=2; the test
+       asserts both prefixed lines surface.
+       Empty-stream contract preserved: zero matches under
+       --since-future yields a clean empty stream — no orphan
+       `+ ` or `- ` lines that would poison `| grep ^+ | xargs`
+       consumers.
+
+    5. feedback prune --json --slim. Drops the `paths` array for
+       cron dashboards that only care about the headline counts.
+       Mirrors the `doctor --json --quiet` and `digest run --json
+       --slim` precedent. The full prune --json report includes
+       the `paths` array of every matched entry, which on a large
+       workspace can be megabytes — almost never needed by a cron
+       dashboard. --slim drops the array for tight cron-budget
+       snapshots; the count-only shape diffs cleanly across cron
+       snapshots (no path-array churn flooding the diff).
+       Critical design property: errors[] is PRESERVED under
+       --slim. Per-path failures are exactly what a cron dashboard
+       needs to surface — dropping them would hide the only signal
+       that something broke. Pinned by a test that forces one
+       DELETE to fail and asserts errors[0].path survives in the
+       slim shape AND that exit 1 propagates (the cron exit-code
+       contract is unchanged under --slim).
+       Also pinned: both `threshold` and `thresholdAbove` survive
+       under --slim. A future regression that collapsed them into a
+       single field would lie about which predicate the cron
+       actually ran.
+       Implementation: a single destructure-and-drop
+       (`const { paths: _drop, ...slim } = report`) inside the
+       existing --json branch.
+
+  Push: 540b5b6..b524cb3 main -> main. All five commits authored
+  as `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+  Verify-gate note: ran `pnpm --filter @clawmind/cli test` once
+  (clean 599/599 on first attempt — no status --check-after flake
+  this tick), `pnpm --filter @clawmind/cli typecheck` clean. No
+  new pre-existing reds introduced; the telemetry + rag/hybrid
+  pair remains queued unchanged.
+
+  Theme connector: this is the tenth consecutive ship-from-patterns
+  tick. The --reverse family-wide modifier contract is now
+  established on the THREE commands the queued list explicitly
+  called out (stale + search + related). The pattern (single dir
+  multiplier on BOTH the primary and secondary comparator) is
+  trivially portable to the other 5 --sort-bearing commands
+  (feedback list, digest list, aliases list, tags list, stats) and
+  is queued as 4 follow-up items for future ticks. Plus two
+  brand-new cron-friendly primitives this tick: the `git diff`-
+  style `+ `/`- ` split on `digest show --paths-only --diff`
+  (closes the symmetric ingest/forget pipe gap) and the count-only
+  `--slim` shape on `feedback prune --json` (closes the cron-
+  dashboard volume gap; pairs with `doctor --json --quiet` and
+  `digest run --json --slim` as the third command to expose the
+  count-only shape).
