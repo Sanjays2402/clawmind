@@ -460,4 +460,123 @@ describe('aliases cli', () => {
     expect(stdout.join('')).toBe('');
     expect(stderr.join('')).toBe('');
   });
+
+  // -----------------------------------------------------------------
+  // aliases list --json --slim: drop the per-entry createdBy /
+  // createdAt / path blocks and emit a `{count, names}` shape. The
+  // natural cron use is a dashboard panel polling "is the alias set
+  // stable" once a minute. Mirrors `doctor --json --quiet`, `digest
+  // run --json --slim`, `feedback prune --json --slim`, `feedback
+  // list --json --slim`, `search --json --slim`, `related --json
+  // --slim`, and `stats --json --slim`.
+  // -----------------------------------------------------------------
+
+  it('exposes --slim on the aliases list subcommand surface', () => {
+    const list = aliasesCommand().commands.find((c) => c.name() === 'list');
+    expect(list).toBeDefined();
+    const flags = list!.options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--json --slim emits {count, names} and drops the per-entry blocks', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'notes', path: '/Users/me/.openclaw/workspace/notes', createdAt: 1700000000000, createdBy: 'me' },
+          { name: 'work',  path: '/Users/me/work', createdAt: 1700000001000, createdBy: 'me' },
+          { name: 'wiki',  path: '/Volumes/data/wiki', createdAt: 1700000002000, createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as Record<string, unknown>;
+    // Top-level: exactly count + names.
+    expect(Object.keys(parsed).sort()).toEqual(['count', 'names']);
+    expect(parsed.count).toBe(3);
+    expect(parsed.names).toEqual(['notes', 'work', 'wiki']);
+    // No per-entry block leaks: no items[], no createdBy, no
+    // createdAt, no path.
+    const raw = stdout.join('');
+    expect(raw).not.toContain('items');
+    expect(raw).not.toContain('createdBy');
+    expect(raw).not.toContain('createdAt');
+    expect(raw).not.toContain('/Users/me/.openclaw/workspace/notes');
+  });
+
+  it('--json --slim emits the names array in WHICHEVER ORDER the prior filter+sort pipeline produced (--sort honoured)', async () => {
+    // --sort name --reverse gives desc-alphabetical; --slim emits
+    // the post-sort order, not the API natural order. Mirrors the
+    // full-shape behaviour where --slim and full --json see the
+    // same item order — switching --slim on/off must not flip
+    // the ordering.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'a', path: '/a', createdAt: 1, createdBy: 'me' },
+          { name: 'b', path: '/b', createdAt: 2, createdBy: 'me' },
+          { name: 'c', path: '/c', createdAt: 3, createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim', '--sort', 'name', '--reverse']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; names: string[] };
+    // Desc alphabetical.
+    expect(parsed.names).toEqual(['c', 'b', 'a']);
+    expect(parsed.count).toBe(3);
+  });
+
+  it('--json --slim composes with --since: slim count + names describe survivors of the cutoff', async () => {
+    // The canonical "names added at-or-after the cutoff" cron poll.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'old',   path: '/old.md',   createdAt: Date.parse('2026-01-01'), createdBy: 'me' },
+          { name: 'mid',   path: '/mid.md',   createdAt: Date.parse('2026-05-01'), createdBy: 'me' },
+          { name: 'fresh', path: '/fresh.md', createdAt: Date.parse('2026-06-21'), createdBy: 'me' },
+        ],
+        count: 3,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim', '--since', '2026-04-01']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; names: string[] };
+    // mid + fresh survived (>= 2026-04-01).
+    expect(parsed.names).toEqual(['mid', 'fresh']);
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--json --slim emits single-line JSON (NDJSON-friendly snapshot stream)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        items: [
+          { name: 'a', path: '/a', createdAt: 1, createdBy: 'me' },
+          { name: 'b', path: '/b', createdAt: 2, createdBy: 'me' },
+        ],
+        count: 2,
+      }), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const out = stdout.join('');
+    // Single-line: no internal newlines, just the trailing one.
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1).includes('\n')).toBe(false);
+    // No indentation noise.
+    expect(out).not.toMatch(/\n  /);
+  });
+
+  it('--slim WITHOUT --json is silently ignored (text mode unchanged)', async () => {
+    // --slim only matters in --json mode. Mirrors the `feedback
+    // prune --slim without --json silent-ignore` precedent.
+    const payload = {
+      items: [{ name: 'notes', path: '/n', createdAt: 0, createdBy: 'me' }],
+      count: 1,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list']);
+    const baseline = stdout.join('');
+    stdout.length = 0;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await aliasesCommand().parseAsync(['node', 'cli', 'list', '--slim']);
+    expect(stdout.join('')).toBe(baseline);
+  });
 });
+

@@ -86,8 +86,9 @@ export function aliasesCommand() {
     .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` / `feedback list --reverse` / `digest list --reverse` byte-for-byte). With --sort name the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. With --sort createdAt the default is desc (newest-first); --reverse gives asc (oldest-first) — pairs with --since for "the alias that was added at-or-after this cutoff with the LONGEST track record" question, complementary to the "freshest first" default that --since alone surfaces. Ignored without --sort (the API ordering is a fixed contract). The secondary tie-break by original index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction (two consecutive --sort + --reverse runs over identical-ties input produce byte-identical output).')
     .option('--paths', 'emit only the alias target paths, one per line, with no styling (pipe-friendly)')
     .option('--paths-only', 'family-wide canonical alias for --paths. Mirrors `stale --paths-only` / `tags paths --paths-only` (which also expose both spellings) so the muscle-memory contract is uniform across every list-style command. Both flags emit the byte-identical stream; passing either or both produces the same output. The `--paths` spelling stays for backwards compatibility with existing scripts.')
+    .option('--slim', 'with --json: emit a slimmed `{count, names}` shape that drops the per-entry createdBy / createdAt / path blocks. The `names` array is the alphabetically-ordered list of alias names (the API natively returns aliases sorted by name, and --sort overrides client-side; --slim emits whichever ordering was applied). Mirrors the `doctor --json --quiet`, `digest run --json --slim`, `feedback prune --json --slim`, `feedback list --json --slim`, `search --json --slim`, `related --json --slim`, and `stats --json --slim` precedent. The natural cron use is a dashboard panel polling "is the alias set stable" once a minute: the full --json payload includes the per-entry createdBy/createdAt metadata (24+ bytes per entry) which is almost never needed by a dashboard that only cares about which names currently exist. --slim cuts the payload to a count + a name array that diffs cleanly across cron snapshots (no createdAt churn flooding the diff when the timestamps tick forward). Composes naturally with --since for "names added recently as a slim shape": `aliases list --since "$(date -u -d \'1 day ago\' +%FT%TZ)" --json --slim` is "the names of aliases added in the last 24h as a count + list" in a single integer-and-array poll. Composes with -q (server-side substring narrowing reflects in the slim names list) and --sort / --reverse (slim emits the post-sort name order). Within --json mode, --slim wins over the full shape; the existing --json > --paths precedence is unchanged so the pipeline-friendly --paths / --paths-only emit shapes are NOT reachable from a --json invocation (mirrors the pre-slim behaviour). Silently ignored without --json (text mode for humans stays unchanged). Single-line JSON.stringify (no indent) for NDJSON snapshot streams.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; sort?: string; reverse?: boolean; paths?: boolean; pathsOnly?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; sort?: string; reverse?: boolean; paths?: boolean; pathsOnly?: boolean; slim?: boolean; json?: boolean }) => {
       await runOrReport('aliases list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/aliases${qs}`)) as {
@@ -167,6 +168,63 @@ export function aliasesCommand() {
           out = { ...out, items: ranked };
         }
         if (opts.json) {
+          // --slim emits a {count, names} shape that drops the per-
+          // entry createdBy / createdAt / path blocks. Mirrors
+          // `doctor --json --quiet`, `digest run --json --slim`,
+          // `feedback prune --json --slim`, `feedback list --json
+          // --slim`, `search --json --slim`, `related --json --slim`,
+          // and `stats --json --slim` byte-for-byte.
+          //
+          // The natural cron use is a dashboard panel polling "is
+          // the alias set stable" once a minute. The full --json
+          // payload includes per-entry createdBy/createdAt
+          // metadata (24+ bytes per entry on top of the path which
+          // can be hundreds of bytes for a deep workspace path) —
+          // a dashboard that only cares about WHICH names exist
+          // pays for what it does not need.
+          //
+          // The `names` array is the alphabetically-ordered list of
+          // alias names IN WHICHEVER ORDER the prior filter+sort
+          // pipeline produced. The API natively returns aliases
+          // sorted by name asc, so the default slim shape is
+          // alphabetical by name. --sort name --reverse gives the
+          // desc-alphabetical names array; --sort createdAt gives
+          // the newest-first names array; etc. The slim shape
+          // mirrors the full shape's item order exactly so an
+          // operator switching --slim on/off does not see the
+          // order change.
+          //
+          // `count` mirrors the full shape's `count` field (post-
+          // filter survivors length). The two fields together
+          // expose the same information as `{items.length, items.
+          // map(it => it.name)}` from the full payload — but in a
+          // form a dashboard can poll without paying per-entry
+          // metadata cost.
+          //
+          // --since composition: the slim shape describes the
+          // SURVIVORS of --since (recompute happens above this
+          // branch), so `aliases list --since X --json --slim` is
+          // "names of aliases added at-or-after X as a count + list".
+          //
+          // Single-line JSON.stringify (no indent) so an NDJSON
+          // snapshot stream like
+          //   while true; do clawmind aliases list --json --slim; sleep 60; done
+          // produces clean NDJSON that diffs cleanly between ticks
+          // (multi-line indent would force every diff to walk
+          // indentation noise — and the names array diff is what
+          // a dashboard wants to see).
+          //
+          // Note on the --json > --paths precedence: the existing
+          // aliases code already has `if (opts.json) { ... }`
+          // BEFORE the `if (opts.paths || opts.pathsOnly) { ... }`
+          // branch. --slim lives INSIDE the --json branch so the
+          // existing precedence is unchanged — passing both --json
+          // and --paths still emits JSON (slim or full per --slim).
+          if (opts.slim) {
+            const names = out.items.map((it) => it.name);
+            process.stdout.write(JSON.stringify({ count: out.items.length, names }) + '\n');
+            return;
+          }
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
           return;
         }
