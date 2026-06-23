@@ -31,8 +31,9 @@ export function tagsCommand() {
     .option('--sort <key>', 'sort key for the tag list: `count` (descending by source count, ties broken alphabetically by tag — the API default) or `tag` (ascending alphabetical by tag name, useful for diff-stable cron snapshots). Mirrors the `--sort` family on `stats` and the verbosity-knob philosophy that the cli should expose the ordering the operator wants without forcing a downstream `jq ... | sort`. Ties at the same primary key now carry a secondary sort by original-input index for cross-snapshot determinism — two consecutive `tags list --sort count --json` runs over identical input produce byte-identical output regardless of V8\'s Array#sort stability guarantees. Mirrors the family-wide secondary-index sort (feedback / digest / aliases / related / search / stale / stats --sort).', 'count')
     .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` / `feedback list --reverse` / `digest list --reverse` / `aliases list --reverse` / `stats --reverse` byte-for-byte). With --sort count the default is desc (loudest tags first); --reverse gives asc (rarest tags first) — the "audit underused labels" question, complementary to the "which labels dominate" default. With --sort tag the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. The secondary tie-break by original-input index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction (two consecutive --sort + --reverse runs over identical-ties input produce byte-identical output). Note: like `stats --reverse`, `tags list --reverse` is ALWAYS active because --sort has a commander default value (`count`) — the rest of the family treats --reverse without --sort as a no-op because opts.sort is undefined. Tags and stats are the only two commands in the family with this deviation; documented here so the precedent is explicit. Composes with --top: the cap applies to the head of the post-reverse ordering, so `--sort count --reverse --top 5` is "the 5 rarest tags" (not the 5 most common).')
     .option('--top <n>', 'cap the list at this many entries AFTER sorting and -q filtering. The natural use is "the top 10 tags by source count" — pairs with `--sort count` (the default) to answer "which labels dominate my index" in a single invocation. Composes with -q: the substring filter narrows the candidate set first, then --top picks the head. Mirrors `stats --top` byte-for-byte (clamped to a sensible positive integer; non-positive or NaN values fall back to "no cap" so a typo like --top 0 still yields a useful response rather than an empty table).', (v) => Number.parseInt(v, 10))
+    .option('--slim', 'with --json: emit a slimmed `{count, tags}` shape that drops the per-entry `count` field (the per-tag source count). Mirrors `aliases list --json --slim` byte-for-byte but with the tag-name axis (the array is named `tags` not `names` because the operator already knows these are tag identifiers). The full --json payload includes the per-tag source count which doubles the payload size for every tag — a dashboard panel polling "is the tag set stable" once a minute only cares about which labels EXIST, not how loud each one is. The `tags` array is the tag-name list IN WHICHEVER ORDER the prior --sort + --reverse + --top pipeline produced. Composes with -q (server-side narrowing) / --sort / --reverse / --top: the slim count + tags describe SURVIVORS of every narrowing step. `count === tags.length` always. Ignored without --json (text mode unchanged).')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; sort: string; reverse?: boolean; top?: number; json?: boolean }) => {
+    .action(async (opts: { q?: string; sort: string; reverse?: boolean; top?: number; slim?: boolean; json?: boolean }) => {
       const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
       const apiOut = (await apiFetch('GET', `/v1/tags${qs}`)) as {
         items: { tag: string; count: number }[];
@@ -95,6 +96,46 @@ export function tagsCommand() {
       }
       const out = { items, count: items.length };
       if (opts.json) {
+        // --slim emits a `{count, tags}` shape that drops the
+        // per-entry `count` field (the per-tag source count).
+        // Mirrors `aliases list --json --slim` byte-for-byte but
+        // with the tag-name axis (the array is named `tags` not
+        // `names` because the operator already knows these are
+        // tag identifiers — naming the array `names` would be
+        // ambiguous next to the queued `tags paths --json --slim`
+        // shape which uses `paths`).
+        //
+        // The natural cron use is a dashboard panel polling "is
+        // the tag set stable" once a minute. The full --json
+        // payload includes the per-tag source count which doubles
+        // the payload size for every tag — a dashboard polling
+        // "which labels exist" pays for what it does not need.
+        // The slim shape drops the per-tag count and keeps just
+        // the names.
+        //
+        // The `tags` array is the tag-name list IN WHICHEVER
+        // ORDER the prior --sort + --reverse + --top pipeline
+        // produced. -q narrows server-side; --sort / --reverse
+        // re-order client-side; --top slices the head. The slim
+        // shape emits whichever order survived (matches the
+        // aliases / digest / feedback slim ordering contract).
+        //
+        // `count` mirrors the full shape's `count` field (post-
+        // filter recomputation). The sum-equals-total invariant
+        // holds: count === tags.length.
+        //
+        // Single-line JSON.stringify (no indent) so an NDJSON
+        // snapshot stream like
+        //   while true; do clawmind tags list --json --slim; sleep 60; done
+        // produces clean NDJSON that diffs cleanly between ticks.
+        if (opts.slim) {
+          const slim = {
+            count: out.items.length,
+            tags: out.items.map((it) => it.tag),
+          };
+          process.stdout.write(JSON.stringify(slim) + '\n');
+          return;
+        }
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
         return;
       }

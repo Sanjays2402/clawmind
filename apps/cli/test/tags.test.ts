@@ -399,4 +399,119 @@ describe('tags list --sort / --top', () => {
     const out = JSON.parse(tick1) as { items: { tag: string }[] };
     expect(out.items.map((i) => i.tag)).toEqual(['alpha', 'bravo', 'charlie']);
   });
+
+  // -----------------------------------------------------------------
+  // tags list --json --slim: drop the per-entry `count` field (the
+  // per-tag source count) and emit a `{count, tags}` shape. The
+  // natural cron use is a dashboard panel polling "is the tag set
+  // stable" once a minute. Mirrors `aliases list --json --slim` but
+  // with the tag-name axis (the array is named `tags` not `names`).
+  // -----------------------------------------------------------------
+
+  it('exposes --slim on the tags list subcommand surface', () => {
+    const list = tagsCommand().commands.find((c) => c.name() === 'list');
+    expect(list).toBeDefined();
+    const flags = list!.options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--json --slim emits {count, tags} and drops the per-entry count', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { tag: 'alpha', count: 5 },
+        { tag: 'bravo', count: 3 },
+        { tag: 'charlie', count: 1 },
+      ],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as Record<string, unknown>;
+    // Top-level: exactly count + tags.
+    expect(Object.keys(parsed).sort()).toEqual(['count', 'tags']);
+    expect(parsed.count).toBe(3);
+    expect(parsed.tags).toEqual(['alpha', 'bravo', 'charlie']);
+    // No per-entry items[] or per-tag count leaks.
+    const raw = stdout.join('');
+    expect(raw).not.toContain('items');
+    // We expect "count" once (the top-level), no per-tag count
+    // sub-objects.
+    expect((raw.match(/"count"/g) ?? []).length).toBe(1);
+  });
+
+  it('--json --slim emits tags in WHICHEVER ORDER --sort + --reverse produced', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { tag: 'alpha', count: 1 },
+        { tag: 'bravo', count: 2 },
+        { tag: 'charlie', count: 3 },
+      ],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    // --sort tag is asc alphabetical; --reverse gives desc.
+    await tagsCommand().parseAsync([
+      'node', 'cli', 'list', '--json', '--slim', '--sort', 'tag', '--reverse',
+    ]);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; tags: string[] };
+    expect(parsed.tags).toEqual(['charlie', 'bravo', 'alpha']);
+    expect(parsed.count).toBe(3);
+  });
+
+  it('--json --slim composes with --top: slim count + tags describe the post-top survivors', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { tag: 'alpha', count: 5 },
+        { tag: 'bravo', count: 3 },
+        { tag: 'charlie', count: 1 },
+      ],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    // --sort count desc (default), --top 2 keeps loudest two.
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim', '--top', '2']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; tags: string[] };
+    expect(parsed.tags).toEqual(['alpha', 'bravo']);
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--json --slim emits single-line JSON (NDJSON-friendly snapshot stream)', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { tag: 'alpha', count: 1 },
+        { tag: 'bravo', count: 1 },
+      ],
+      count: 2,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const out = stdout.join('');
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1).includes('\n')).toBe(false);
+    expect(out).not.toMatch(/\n  /);
+  });
+
+  it('--slim WITHOUT --json is silently ignored (text mode unchanged)', async () => {
+    const payload = {
+      items: [{ tag: 'alpha', count: 5 }],
+      count: 1,
+    };
+    globalThis.fetch = (async () => new Response(JSON.stringify(payload), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'list']);
+    const baseline = stdout.join('');
+    stdout.length = 0;
+    globalThis.fetch = (async () => new Response(JSON.stringify(payload), {
+      status: 200, headers: { 'content-type': 'application/json' },
+    })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--slim']);
+    expect(stdout.join('')).toBe(baseline);
+  });
+
+  it('--json --slim with zero matches yields {count: 0, tags: []}', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [], count: 0,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; tags: string[] };
+    expect(parsed.count).toBe(0);
+    expect(parsed.tags).toEqual([]);
+  });
 });
