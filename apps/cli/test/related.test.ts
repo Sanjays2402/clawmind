@@ -978,4 +978,139 @@ describe('related cli', () => {
     expect(parsed.items.map((it) => it.path)).toEqual(['zeta.md', 'beta.md']);
     expect(parsed.count).toBe(2);
   });
+
+  // -----------------------------------------------------------------
+  // related --json --slim: drop the per-neighbour `hits` count AND
+  // the multi-paragraph `excerpt` body (both dominate payload size)
+  // and reduce each item to `{path, score, namespace}`. Preserve
+  // sourceChunkCount + count + path at the top level. Mirrors the
+  // `doctor --json --quiet`, `digest run --json --slim`, `feedback
+  // prune --json --slim`, `feedback list --json --slim`, `search
+  // --json --slim`, and `stats --json --slim` precedent.
+  // -----------------------------------------------------------------
+
+  it('exposes --slim on the related command surface', () => {
+    const flags = relatedCommand().options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--json --slim drops `hits` and `excerpt` per item, keeps {path, score, namespace} only', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 5,
+        items: [
+          { path: 'b.md', namespace: 'memory', score: 0.91, hits: 3, excerpt: 'MUST_NOT_LEAK body for b' },
+          { path: 'a.md', namespace: 'memory', score: 0.74, hits: 1, excerpt: 'MUST_NOT_LEAK body for a' },
+        ],
+        count: 2,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as { items: Record<string, unknown>[]; sourceChunkCount: number; count: number; path: string };
+    // Per-item shape: exactly three fields.
+    for (const it of parsed.items) {
+      expect(Object.keys(it).sort()).toEqual(['namespace', 'path', 'score']);
+    }
+    expect(parsed.items[0]).toEqual({ path: 'b.md', namespace: 'memory', score: 0.91 });
+    expect(parsed.items[1]).toEqual({ path: 'a.md', namespace: 'memory', score: 0.74 });
+    // Top-level: path, sourceChunkCount, count, items.
+    expect(Object.keys(parsed).sort()).toEqual(['count', 'items', 'path', 'sourceChunkCount']);
+    expect(parsed.path).toBe('foo.md');
+    expect(parsed.sourceChunkCount).toBe(5);
+    expect(parsed.count).toBe(2);
+    // Excerpts and hits MUST NOT leak.
+    const raw = stdout.join('');
+    expect(raw).not.toContain('MUST_NOT_LEAK');
+    expect(raw).not.toContain('hits');
+    expect(raw).not.toContain('excerpt');
+  });
+
+  it('--json --slim PRESERVES sourceChunkCount verbatim (property of the source, not the returned set)', async () => {
+    // Critical contract: sourceChunkCount describes how many chunks
+    // the source itself contributes to the index, NOT how many
+    // neighbours survived the filter. Even if --threshold / --above
+    // narrows the returned set to zero, sourceChunkCount stays at
+    // the API value — the dashboard wants to know "foo.md has 47
+    // chunks but ZERO neighbours pass my threshold" as TWO separate
+    // numbers.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 47,
+        items: [
+          { path: 'weak.md', namespace: 'memory', score: 0.10, hits: 1, excerpt: '' },
+        ],
+        count: 1,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--slim', '--threshold', '0.5']);
+    const parsed = JSON.parse(stdout.join('')) as { sourceChunkCount: number; count: number; items: unknown[] };
+    // Threshold dropped the single weak neighbour; count goes to 0;
+    // but sourceChunkCount STAYS at 47.
+    expect(parsed.sourceChunkCount).toBe(47);
+    expect(parsed.count).toBe(0);
+    expect(parsed.items).toEqual([]);
+  });
+
+  it('--json --slim emits single-line JSON (NDJSON-friendly snapshot stream)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 3,
+        items: [
+          { path: 'a.md', namespace: 'memory', score: 0.91, hits: 1, excerpt: 'long body' },
+        ],
+        count: 1,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--slim']);
+    const out = stdout.join('');
+    // Single-line: no internal newlines, just the trailing one.
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1).includes('\n')).toBe(false);
+    // No indentation noise (full --json uses 2-space indent;
+    // --slim deliberately does NOT).
+    expect(out).not.toMatch(/\n  /);
+  });
+
+  it('--paths-only wins over --slim (--paths-only is the EVEN-leaner emit shape)', async () => {
+    // Precedence: --paths-only > --slim > full --json. --paths-only
+    // is the EVEN-leaner shape (no JSON wrapper at all). Pin that
+    // --slim does NOT inject JSON into the path-per-line stream
+    // when both are set.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        path: 'foo.md',
+        sourceChunkCount: 3,
+        items: [
+          { path: 'a.md', namespace: 'memory', score: 0.91, hits: 1, excerpt: '' },
+          { path: 'b.md', namespace: 'memory', score: 0.55, hits: 2, excerpt: '' },
+        ],
+        count: 2,
+      }), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--paths-only', '--json', '--slim']);
+    expect(stdout.join('')).toBe('a.md\nb.md\n');
+  });
+
+  it('--slim WITHOUT --json is silently ignored (text mode unchanged)', async () => {
+    // --slim only matters in --json mode (text mode for humans is
+    // already the human-readable rendering). Mirrors the `feedback
+    // prune --slim without --json silent-ignore` precedent.
+    const payload = {
+      path: 'foo.md',
+      sourceChunkCount: 3,
+      items: [
+        { path: 'a.md', namespace: 'memory', score: 0.91, hits: 1, excerpt: 'body for a' },
+      ],
+      count: 1,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md']);
+    const baseline = stdout.join('');
+    stdout.length = 0;
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--slim']);
+    expect(stdout.join('')).toBe(baseline);
+  });
 });
+

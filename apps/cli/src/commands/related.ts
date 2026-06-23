@@ -17,10 +17,11 @@ export function relatedCommand() {
     .option('--paths-only', 'pipeline-friendly: emit ONLY the neighbour paths, one per line, in rank order. No styling, no header, no "no related sources" hint. Zero matches yields a clean empty stream so xargs/wc keep working. Mirrors the contract used by search --paths-only, forget --paths-only, and the pins/mutes/aliases/tags --paths family.')
     .option('--sort <key>', 'sort survivors of --threshold / --above / --below by one of: score (desc — highest-score-first, matches the default API ordering; useful as a no-op for symmetry with other commands), path (asc alphabetical, for stable cross-snapshot diffs of `related --json`), namespace (asc alphabetical, groups neighbours by namespace so diffs against a known set are visually clean). Applied AFTER --threshold / --above / --below so the sort orders the SURVIVORS of any band-filter. Mirrors the `feedback list --sort` / `digest list --sort` / `aliases list --sort` family contract: ties carry a secondary sort by original index for cross-snapshot determinism, unknown keys abort cleanly with exit 1.')
     .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` and `search --reverse` byte-for-byte). With --sort path the default is asc alphabetical; --reverse gives desc — the cron use is "the alphabetically-last neighbour first" for symmetry with cross-command tail-style log scrapes. With --sort namespace the default is asc grouping; --reverse gives desc — the alphabetically-last namespace at the top, useful for cron snapshots that want the freshest namespace first (the canonical "most-recent neighbour" question). With --sort score the default is desc; --reverse gives asc (weakest-first) — useful for "the neighbours about to drop out of the related set the next time the rerank shuffles". Ignored without --sort (the default API ordering is a fixed contract). The secondary tie-break by original index is ALSO reversed so cross-snapshot determinism holds in either direction. Composes with --paths-only — the dedupe walks the post-reverse order.')
+    .option('--slim', 'with --json: emit a slimmed `{path, score, namespace, sourceChunkCount, count}` shape where each item is `{path, score, namespace}` only. Drops the per-neighbour `hits` count AND the multi-paragraph `excerpt` body — both dominate the payload size for a polling consumer. Mirrors the `doctor --json --quiet`, `digest run --json --slim`, `feedback prune --json --slim`, `feedback list --json --slim`, `search --json --slim`, and `stats --json --slim` precedent. The natural use is a per-source neighbour-diff dashboard polling `clawmind related foo.md --json --slim` once a minute to track "which sources are semantically near foo.md" without paying the per-neighbour excerpt cost (the excerpt is the multi-paragraph body of the related chunk and dominates payload size). The top-level `sourceChunkCount` is preserved verbatim (it is a property of the source the operator queried, not of the returned set) and `count` reflects the filtered survivors so a downstream `jq .count` consumer sees the right number — both top-level fields stay so the operator can audit "how many chunks did foo.md contribute, and how many neighbours survived my filter". Composes with --threshold / --above / --below (slim describes the band-filter survivors), --sort / --reverse (slim emits the post-sort order), -k (slim respects the top-k cap), and -n (slim describes the post-namespace-filter survivors). --paths-only wins over --slim because --paths-only is the EVEN-leaner shape (no JSON wrapper at all); the precedence is --paths-only > --slim > full --json. Single-line JSON.stringify (no indent) so NDJSON snapshot streams diff cleanly between ticks. Silently ignored without --json (text mode for humans stays unchanged).')
     .option('--json', 'emit results as JSON for scripting')
     .description('Find sources semantically similar to a given indexed path');
 
-  cmd.action(async (path: string, opts: { k: number; namespaces?: string; threshold?: string; above?: number; below?: number; sort?: string; reverse?: boolean; pathsOnly?: boolean; json?: boolean }) => {
+  cmd.action(async (path: string, opts: { k: number; namespaces?: string; threshold?: string; above?: number; below?: number; sort?: string; reverse?: boolean; pathsOnly?: boolean; slim?: boolean; json?: boolean }) => {
     const env = loadEnv();
     const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
     const url = new URL(`${base}/v1/related`);
@@ -186,6 +187,65 @@ export function relatedCommand() {
       return;
     }
     if (opts.json) {
+      // --slim emits a deeper-cut payload: drops the per-neighbour
+      // `hits` count AND the multi-paragraph `excerpt` body (both
+      // dominate payload size for a polling consumer) and reduces
+      // each item to `{path, score, namespace}`. Mirrors `doctor
+      // --json --quiet`, `digest run --json --slim`, `feedback
+      // prune --json --slim`, `feedback list --json --slim`,
+      // `search --json --slim`, and `stats --json --slim` byte-for-
+      // byte.
+      //
+      // The natural use is a per-source neighbour-diff dashboard
+      // polling `clawmind related foo.md --json --slim` once a
+      // minute to track "which sources are semantically near
+      // foo.md" without paying the per-neighbour excerpt cost.
+      //
+      // What the slim shape keeps and what it drops:
+      //   item       -> {path, score, namespace} only
+      //   sourceChunkCount -> PRESERVED verbatim (it is a property
+      //                       of the source the operator queried,
+      //                       not of the returned set — dropping
+      //                       it would lie to the dashboard about
+      //                       the source's index footprint)
+      //   count      -> PRESERVED, reflects the filtered survivors
+      //                 (matches the full-shape behaviour above
+      //                 where count = sortedItems.length)
+      //   path       -> the top-level source path the operator
+      //                 queried, also preserved (an audit row in a
+      //                 dashboard wants to know what the slim
+      //                 numbers describe)
+      //
+      // Composes with --threshold / --above / --below (slim
+      // describes the band-filter survivors — the filter ran above
+      // before the sort), --sort / --reverse (slim emits the post-
+      // sort order — sortedItems is already sorted before this
+      // branch), -k (slim respects the top-k cap via the API), and
+      // -n (slim describes the post-namespace-filter survivors).
+      //
+      // Precedence: --paths-only > --slim > full --json. --paths-
+      // only is the EVEN-leaner shape (no JSON wrapper at all) so
+      // it already won above; within --json, --slim cuts deeper
+      // than the full shape.
+      //
+      // Single-line JSON.stringify (no indent) so an NDJSON
+      // snapshot stream like
+      //   while true; do clawmind related foo.md --json --slim; sleep 60; done
+      // produces clean NDJSON that diffs cleanly between ticks.
+      if (opts.slim) {
+        const slim = {
+          path: out.path,
+          sourceChunkCount: out.sourceChunkCount,
+          count: out.count,
+          items: out.items.map((it) => ({
+            path: it.path,
+            score: it.score,
+            namespace: it.namespace,
+          })),
+        };
+        process.stdout.write(JSON.stringify(slim) + '\n');
+        return;
+      }
       process.stdout.write(JSON.stringify(out, null, 2) + '\n');
       return;
     }
