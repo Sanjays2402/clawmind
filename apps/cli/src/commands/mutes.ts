@@ -86,8 +86,9 @@ export function mutesCommand() {
     .option('--by <user>', 'keep only mutes whose mutedBy matches this user id EXACTLY. Mirrors `pins list --by` byte-for-byte — the symmetry is intentional because a cron operator scripting per-user snapshots wants the same flag on both sides of the pin/mute pair. Exact-match semantics so overlapping user-id prefixes do not bleed. Composes with -q and --since as an intersection. Filter applies BEFORE --paths / --json / text rendering so every output mode sees the same subset and the recomputed count reflects the filtered length.')
     .option('--paths', 'emit only the muted paths, one per line, with no styling or reasons (pipe-friendly)')
     .option('--paths-only', 'family-wide canonical alias for --paths. Mirrors `stale --paths-only` / `tags paths --paths-only` (which also expose both spellings) so the muscle-memory contract is uniform across every list-style command. Both flags emit the byte-identical stream; passing either or both produces the same output. The `--paths` spelling stays for backwards compatibility with existing scripts.')
+    .option('--slim', 'with --json: emit a slimmed `{count, paths}` shape that drops the per-entry mutedAt / mutedBy / reason blocks. Mirrors `pins list --json --slim` byte-for-byte — the symmetry is intentional because a cron operator scripting per-side audits (pin-set stability vs mute-set stability) wants the SAME slim shape on both halves of the pin/mute pair. The full --json payload includes mutedAt (a creation timestamp), mutedBy (per-creator attribution), and the optional reason body (a free-form string that can be arbitrarily long); the slim shape drops all three. The `paths` array is the path list IN WHICHEVER ORDER the prior filter pipeline produced (API returns mutes newest-first sorted by mutedAt desc). Composes with -q / --since / --by: the slim count + paths describe SURVIVORS of every narrowing filter. `count === paths.length` always. Ignored without --json (text mode unchanged).')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; by?: string; paths?: boolean; pathsOnly?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; by?: string; paths?: boolean; pathsOnly?: boolean; slim?: boolean; json?: boolean }) => {
       await runOrReport('mutes list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/mutes${qs}`)) as {
@@ -128,6 +129,46 @@ export function mutesCommand() {
           out = { ...out, items, count: items.length };
         }
         if (opts.json) {
+          // --slim emits a `{count, paths}` shape that drops the
+          // per-entry mutedAt / mutedBy / reason blocks. Mirrors
+          // `pins list --json --slim` byte-for-byte — the symmetry
+          // is intentional because a cron operator scripting per-
+          // side audits (pin-set stability vs mute-set stability)
+          // wants the SAME slim shape on both halves of the pin/
+          // mute pair.
+          //
+          // The natural cron use is a dashboard panel polling
+          // "is the mute set stable" once a minute. The full --json
+          // payload includes mutedAt (creation timestamp), mutedBy
+          // (per-creator attribution), and the optional reason body
+          // (a free-form string that can be arbitrarily long). A
+          // dashboard that only cares about HOW MANY mutes exist +
+          // WHICH paths are muted pays for what it does not need
+          // — the slim shape drops all three per-entry blocks.
+          //
+          // The `paths` array is the path list IN WHICHEVER ORDER
+          // the prior filter pipeline produced. The API natively
+          // returns mutes newest-first sorted by mutedAt desc, so
+          // the default slim shape is newest-first. -q narrows
+          // server-side; --since and --by narrow client-side; the
+          // slim shape emits whichever order survived.
+          //
+          // `count` mirrors the full shape's `count` field (post-
+          // filter recomputation, NOT the API natural total). The
+          // sum-equals-total invariant holds: count === paths.length.
+          //
+          // Single-line JSON.stringify (no indent) so an NDJSON
+          // snapshot stream like
+          //   while true; do clawmind mutes list --json --slim; sleep 60; done
+          // produces clean NDJSON that diffs cleanly between ticks.
+          if (opts.slim) {
+            const slim = {
+              count: out.items.length,
+              paths: out.items.map((it) => it.path),
+            };
+            process.stdout.write(JSON.stringify(slim) + '\n');
+            return;
+          }
           process.stdout.write(JSON.stringify(out, null, 2) + '\n');
           return;
         }

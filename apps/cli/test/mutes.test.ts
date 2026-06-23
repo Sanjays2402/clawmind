@@ -277,4 +277,133 @@ describe('mutes cli', () => {
     expect(stdout.join('')).toBe('');
     expect(stderr.join('')).toBe('');
   });
+
+  // -----------------------------------------------------------------
+  // mutes list --json --slim: drop the per-entry mutedAt / mutedBy /
+  // reason blocks and emit a `{count, paths}` shape. Mirrors `pins
+  // list --json --slim` byte-for-byte — the symmetry is intentional
+  // because a cron operator scripting per-side audits (pin-set
+  // stability vs mute-set stability) wants the SAME slim shape on
+  // both halves of the pin/mute pair.
+  // -----------------------------------------------------------------
+
+  it('exposes --slim on the mutes list subcommand surface', () => {
+    const list = mutesCommand().commands.find((c) => c.name() === 'list');
+    expect(list).toBeDefined();
+    const flags = list!.options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--json --slim emits {count, paths} and drops the per-entry blocks', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', reason: 'noise', mutedAt: 1700000000000, mutedBy: 'me' },
+        { path: '/b.md', mutedAt: 1700000001000, mutedBy: 'other' },
+        { path: '/c.md', reason: 'stale', mutedAt: 1700000002000, mutedBy: 'me' },
+      ],
+      count: 3,
+    });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as Record<string, unknown>;
+    // Top-level: exactly count + paths.
+    expect(Object.keys(parsed).sort()).toEqual(['count', 'paths']);
+    expect(parsed.count).toBe(3);
+    expect(parsed.paths).toEqual(['/a.md', '/b.md', '/c.md']);
+    // No per-entry block leaks.
+    const raw = stdout.join('');
+    expect(raw).not.toContain('items');
+    expect(raw).not.toContain('mutedAt');
+    expect(raw).not.toContain('mutedBy');
+    expect(raw).not.toContain('reason');
+    expect(raw).not.toContain('noise');
+    expect(raw).not.toContain('stale');
+  });
+
+  it('--json --slim composes with --since: slim count + paths describe survivors of the cutoff', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', mutedAt: 3000, mutedBy: 'me' },
+        { path: '/b.md', mutedAt: 2000, mutedBy: 'me' },
+        { path: '/c.md', mutedAt: 1000, mutedBy: 'me' },
+      ],
+      count: 3,
+    });
+    await mutesCommand().parseAsync([
+      'node', 'cli', 'list', '--json', '--slim', '--since', new Date(2000).toISOString(),
+    ]);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; paths: string[] };
+    expect(parsed.paths).toEqual(['/a.md', '/b.md']);
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--json --slim composes with --by: slim shape describes the per-creator subset', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', mutedAt: 1, mutedBy: 'sanjay' },
+        { path: '/b.md', mutedAt: 2, mutedBy: 'other' },
+        { path: '/c.md', mutedAt: 3, mutedBy: 'sanjay' },
+      ],
+      count: 3,
+    });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim', '--by', 'sanjay']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; paths: string[] };
+    expect(parsed.paths).toEqual(['/a.md', '/c.md']);
+    expect(parsed.count).toBe(2);
+  });
+
+  it('--json --slim emits single-line JSON (NDJSON-friendly snapshot stream)', async () => {
+    stubFetch({
+      items: [
+        { path: '/a.md', mutedAt: 1, mutedBy: 'me' },
+        { path: '/b.md', mutedAt: 2, mutedBy: 'me' },
+      ],
+      count: 2,
+    });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const out = stdout.join('');
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1).includes('\n')).toBe(false);
+    expect(out).not.toMatch(/\n  /);
+  });
+
+  it('mutes --json --slim mirrors pins --json --slim shape byte-for-byte (symmetry pin)', async () => {
+    // The symmetry of the pin/mute pair extends to the slim shape:
+    // both emit {count, paths} with exactly the same key order and
+    // single-line JSON layout. A cron operator running per-side
+    // audits should see the same shape on both halves so the same
+    // jq filter / dashboard parser works against either.
+    stubFetch({
+      items: [
+        { path: '/a.md', mutedAt: 1, mutedBy: 'me' },
+        { path: '/b.md', mutedAt: 2, mutedBy: 'me' },
+      ],
+      count: 2,
+    });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as Record<string, unknown>;
+    // Same key set as pins slim (count + paths, sorted alphabetically).
+    expect(Object.keys(parsed).sort()).toEqual(['count', 'paths']);
+  });
+
+  it('--slim WITHOUT --json is silently ignored (text mode unchanged)', async () => {
+    const payload = {
+      items: [{ path: '/a.md', mutedAt: 1700000000000, mutedBy: 'me' }],
+      count: 1,
+    };
+    stubFetch(payload);
+    await mutesCommand().parseAsync(['node', 'cli', 'list']);
+    const baseline = stdout.join('');
+    stdout.length = 0;
+    stubFetch(payload);
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--slim']);
+    expect(stdout.join('')).toBe(baseline);
+  });
+
+  it('--json --slim with zero matches yields {count: 0, paths: []}', async () => {
+    stubFetch({ items: [], count: 0 });
+    await mutesCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; paths: string[] };
+    expect(parsed.count).toBe(0);
+    expect(parsed.paths).toEqual([]);
+  });
 });
