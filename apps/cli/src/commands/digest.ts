@@ -396,8 +396,9 @@ export function digestCommand() {
     .option('--since <iso-date>', 'bound the history window by absolute date; keep only rows whose ts is at-or-after the cutoff. Pairs naturally with -q for "what did saved-search X surface about path Y after date Z" queries from cron. Composes with -q (intersection: row must both touch a matching path AND be at-or-after the cutoff). Parse failures abort cleanly.')
     .option('--last <n>', 'cap the history rows returned to the newest N. Applied AFTER -q / --since so the cap is "the newest N rows that pass the other filters". Useful as a sliding-window companion to --since for cron snapshots ("the 5 most recent runs in the last week") and as a quick "tail" for big histories without --json | jq slicing. A non-positive or non-numeric value is rejected cleanly.', (v) => Number.parseInt(v, 10))
     .option('--paths-only', 'emit ONLY the paths that appear in the filtered history rows (one path per line, deduplicated in walk order: rows are walked newest-first as returned by the API, and within each row the newSources are emitted first, then removedSources). Pipeline-friendly twin of the rest of the --paths-only family — pairs naturally with --last 1 to feed `xargs ingest` after a digest surfaces a wave of new sources: `clawmind digest show s1 --paths-only --last 1 | xargs clawmind ingest --paths -` is the one-liner. Composes with -q (substring filter narrows the rows first) and --since (date-bounded window narrows the rows first), so `clawmind digest show s1 --paths-only --since "$(date -u -d \'1 week ago\' +%FT%TZ)"` is "every path the saved search touched in the last week, deduped, ready for xargs". Zero matches yields a clean empty stream (no `query:` header, no empty-state hint) so xargs/wc keep working. Wins over --json when both are set (short-circuits BEFORE the --json emit, mirroring search/forget/related --paths-only precedent).')
+    .option('--diff', 'with --paths-only: split the flat-merge emit into a `git diff`-style stream where every new-path line is prefixed with `+ ` and every removed-path line with `- `. The default --paths-only walks newSources first then removedSources for each row, deduped against a SINGLE Set — which is the right shape for "feed xargs ingest with EVERY path the digest touched" but NOT for the symmetric "feed xargs ingest with only the NEW paths" cron use. --diff closes that gap with prefixes operators already know from `git diff`. The walk order within each direction is preserved: rows newest-first, within each row the API order. Two SEPARATE dedupe sets (one per direction) so a path that appears in both newSources of one row AND removedSources of another row surfaces TWICE — once with `+ `, once with `- ` — because semantically those are two different events (the path was added at one ts, removed at another); collapsing them would lose the symmetric history. The canonical cron pipes this enables:\n         clawmind digest show s1 --paths-only --diff --last 1 | grep "^+ " | cut -c3- | xargs ingest\n         clawmind digest show s1 --paths-only --diff --last 1 | grep "^- " | cut -c3- | xargs forget --apply\n     close the symmetric gap that the previous flat emit forced operators to bridge with `comm` or `jq`. Silently ignored without --paths-only (the JSON / text modes already have their own well-defined shapes; the prefix-stream lives only inside --paths-only).')
     .option('--json', 'emit the history as JSON for scripting')
-    .action(async (id: string, opts: { q?: string; since?: string; last?: number; pathsOnly?: boolean; json?: boolean }) => {
+    .action(async (id: string, opts: { q?: string; since?: string; last?: number; pathsOnly?: boolean; diff?: boolean; json?: boolean }) => {
      await runAction('digest show', async () => {
       const out = (await apiFetch('GET', `/v1/digests/${id}`)) as {
         state: { query: string; history: { ts: number; newSources: { path: string }[]; removedSources: string[]; totalSources: number }[] };
@@ -498,6 +499,32 @@ export function digestCommand() {
       // "no history rows match" hint to stdout — that would
       // poison `| xargs` consumers.
       if (opts.pathsOnly) {
+        // --diff splits the emit by direction with `+ ` / `- ` prefixes
+        // (the `git diff` add/del shape). Two SEPARATE dedupe sets so a
+        // path that appears in newSources of one row AND removedSources
+        // of another row surfaces TWICE — once with each prefix —
+        // because semantically those are two different events (the
+        // path was added at one ts, removed at another). Walk order
+        // within each direction is preserved: rows newest-first,
+        // within each row the API order. Silently ignored without
+        // --paths-only (handled by the outer if).
+        if (opts.diff) {
+          const seenAdded = new Set<string>();
+          const seenRemoved = new Set<string>();
+          for (const h of filteredHistory) {
+            for (const s of h.newSources) {
+              if (seenAdded.has(s.path)) continue;
+              seenAdded.add(s.path);
+              process.stdout.write(`+ ${s.path}\n`);
+            }
+            for (const p of h.removedSources) {
+              if (seenRemoved.has(p)) continue;
+              seenRemoved.add(p);
+              process.stdout.write(`- ${p}\n`);
+            }
+          }
+          return;
+        }
         const seen = new Set<string>();
         for (const h of filteredHistory) {
           for (const s of h.newSources) {

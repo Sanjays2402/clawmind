@@ -2164,4 +2164,101 @@ describe('digest cli', () => {
     await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--since', '1970-01-01T00:00:00.002Z']);
     expect(captured.join('')).toBe('/n1.md\n');
   });
+
+  // -----------------------------------------------------------------
+  // digest show --paths-only --diff: split the flat-merge emit into
+  // a `git diff`-style stream where every new-path line is prefixed
+  // with `+ ` and every removed-path line with `- `. Two separate
+  // dedupe sets so a path that appears in both newSources of one row
+  // AND removedSources of another row surfaces twice (once per
+  // direction). Silently ignored without --paths-only.
+  // -----------------------------------------------------------------
+
+  it('exposes --diff on the show command surface', () => {
+    const showCmd = digestCommand().commands.find((c) => c.name() === 'show');
+    expect(showCmd).toBeDefined();
+    const flags = showCmd!.options.map((o) => o.long);
+    expect(flags).toContain('--diff');
+  });
+
+  it('show --paths-only --diff prefixes new paths with `+ ` and removed paths with `- `', async () => {
+    // Default fixture (newest-first):
+    //   ts=2: newSources=[/n1.md], removedSources=[]
+    //   ts=1: newSources=[/p1.md], removedSources=[old]
+    // Expected stream: + /n1.md, + /p1.md, - old.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff']);
+    expect(captured.join('')).toBe('+ /n1.md\n+ /p1.md\n- old\n');
+  });
+
+  it('show --paths-only --diff splits a path that appears in BOTH directions across rows (surfaces twice, once per prefix)', async () => {
+    // Override the fixture with /shared.md appearing as a newSource
+    // in ts=3 AND a removedSource in ts=2. Under the default flat
+    // --paths-only, /shared.md surfaces ONCE (the dedupe Set
+    // collapses it). Under --diff, the two dedupe sets are
+    // SEPARATE so /shared.md surfaces TWICE: once with `+ `
+    // (from ts=3 newSources), once with `- ` (from ts=2
+    // removedSources). This is the critical "two different events"
+    // contract — collapsing them would lose the symmetric history.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 3, newSources: [{ path: '/shared.md' }, { path: '/only-new.md' }], removedSources: [], totalSources: 3 },
+          { ts: 2, newSources: [{ path: '/older-new.md' }], removedSources: ['/shared.md'], totalSources: 2 },
+          { ts: 1, newSources: [{ path: '/shared.md' }], removedSources: [], totalSources: 1 },
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff']);
+    // Walk:
+    //   ts=3: + /shared.md, + /only-new.md  (both seen by seenAdded)
+    //   ts=2: + /older-new.md, - /shared.md (shared seen by seenRemoved now)
+    //   ts=1: + /shared.md SKIPPED (already in seenAdded)
+    expect(captured.join('')).toBe('+ /shared.md\n+ /only-new.md\n+ /older-new.md\n- /shared.md\n');
+  });
+
+  it('show --paths-only --diff emits a clean empty stream when filters narrow to zero rows', async () => {
+    // Empty history under --since-future: no rows to walk, no prefix
+    // lines. Critical for `--paths-only --diff | grep "^+ " | xargs`
+    // — leaking ANY line (even a stray `+ ` or `- ` orphan) would
+    // poison the pipe.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--since', '2999-01-01T00:00:00Z']);
+    expect(captured.join('')).toBe('');
+  });
+
+  it('show --diff without --paths-only is silently ignored (default text mode unchanged)', async () => {
+    // --diff lives only inside --paths-only. The other output modes
+    // (text, JSON) have their own well-defined shapes. Mirror the
+    // --header-without-tsv silent-ignore precedent: a modifier that
+    // has no axis to operate on does nothing. The default text mode
+    // emits the query: header and per-row sections — pin that
+    // --diff does NOT inject `+`/`-` prefixes into the text output.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--diff']);
+    const out = captured.join('');
+    // Text mode has the query: line at the top.
+    expect(out).toContain('query:');
+    // Text mode does NOT have `+ ` or `- ` line-leading prefixes
+    // (the text rendering of newSources/removedSources uses its
+    // own colored format, not the diff prefixes).
+    expect(out.split('\n').filter((l) => l.startsWith('+ ') || l.startsWith('- '))).toHaveLength(0);
+  });
+
+  it('show --paths-only --diff composes with --last 1 (most-recent run only, split by direction)', async () => {
+    // Same shape as the existing --paths-only --last 1 test, but
+    // with --diff: only the ts=2 row's paths surface, each with
+    // its direction prefix.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--last', '1']);
+    // Only ts=2 row: newSources=[/n1.md], removedSources=[].
+    expect(captured.join('')).toBe('+ /n1.md\n');
+  });
+
+  it('show --paths-only --diff short-circuits --json (--diff inherits the --paths-only precedence)', async () => {
+    // The --paths-only contract already wins over --json. --diff is a
+    // modifier of --paths-only, not a competing emit mode, so the
+    // precedence is unchanged: pipeline-friendly trumps machine-
+    // readable, and within pipeline-friendly the --diff prefix
+    // contract applies.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--json']);
+    expect(captured.join('')).toBe('+ /n1.md\n+ /p1.md\n- old\n');
+  });
 });
