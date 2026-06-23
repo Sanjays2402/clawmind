@@ -1593,6 +1593,125 @@ describe('digest cli', () => {
     expect(parsed.items.map((it) => it.savedSearchId)).toEqual(['loner', 'second-tie', 'first-tie']);
   });
 
+  // -----------------------------------------------------------------
+  // digest list --json --slim: drop the per-entry blocks and emit a
+  // 3-integer count-only shape {count, overdueCount, neverRunCount}.
+  // The natural cron use is a dashboard panel polling "are my
+  // digests current" once a minute. Mirrors `doctor --json --quiet`,
+  // `digest run --json --slim`, `feedback prune --json --slim`,
+  // `feedback list --json --slim`, `search --json --slim`, `related
+  // --json --slim`, `aliases list --json --slim`, and `stats --json
+  // --slim`.
+  // -----------------------------------------------------------------
+
+  it('exposes --slim on the digest list subcommand surface', () => {
+    const list = digestCommand().commands.find((c) => c.name() === 'list');
+    expect(list).toBeDefined();
+    const flags = list!.options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('digest list --json --slim emits {count, overdueCount, neverRunCount} and drops the per-entry blocks', async () => {
+    // Fixture: 2 entries with lastRunTs (timestamped, overdue-style)
+    // + 1 entry with lastRunTs === null (never-run). Slim should
+    // carry count=3, overdueCount=2, neverRunCount=1.
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [
+      { savedSearchId: 's-a', title: 'A', query: 'a', lastRunTs: Date.parse('2026-06-01'), lastNewCount: 0, lastRemovedCount: 0, runs: 3 },
+      { savedSearchId: 's-b', title: 'B', query: 'b', lastRunTs: Date.parse('2026-05-01'), lastNewCount: 1, lastRemovedCount: 2, runs: 5 },
+      { savedSearchId: 's-never', title: 'Never', query: 'never', lastRunTs: null, lastNewCount: 0, lastRemovedCount: 0, runs: 0 },
+    ] }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const parsed = JSON.parse(captured.join('')) as Record<string, unknown>;
+    // Top-level: exactly the three slim counts.
+    expect(Object.keys(parsed).sort()).toEqual(['count', 'neverRunCount', 'overdueCount']);
+    expect(parsed.count).toBe(3);
+    expect(parsed.overdueCount).toBe(2);
+    expect(parsed.neverRunCount).toBe(1);
+    // No per-entry block leaks: no items[], no savedSearchId, no
+    // title, no query, no lastNewCount/lastRemovedCount/runs.
+    const raw = captured.join('');
+    expect(raw).not.toContain('items');
+    expect(raw).not.toContain('savedSearchId');
+    expect(raw).not.toContain('title');
+    expect(raw).not.toContain('query');
+    expect(raw).not.toContain('lastNewCount');
+    expect(raw).not.toContain('runs');
+  });
+
+  it('digest list --json --slim ALWAYS satisfies count === overdueCount + neverRunCount (sum-invariant)', async () => {
+    // The critical invariant: a downstream `jq .neverRunCount /
+    // .count` ratio is auditable as "fraction of digests that are
+    // brand-new" because the two buckets always sum to count. Pin
+    // it across several fixtures.
+    const fixtures = [
+      // All never-run.
+      [
+        { savedSearchId: 'a', title: 'A', query: 'a', lastRunTs: null, lastNewCount: 0, lastRemovedCount: 0, runs: 0 },
+        { savedSearchId: 'b', title: 'B', query: 'b', lastRunTs: null, lastNewCount: 0, lastRemovedCount: 0, runs: 0 },
+      ],
+      // All timestamped.
+      [
+        { savedSearchId: 'c', title: 'C', query: 'c', lastRunTs: 1000, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        { savedSearchId: 'd', title: 'D', query: 'd', lastRunTs: 2000, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+        { savedSearchId: 'e', title: 'E', query: 'e', lastRunTs: 3000, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      ],
+      // Empty.
+      [] as { savedSearchId: string; title: string; query: string; lastRunTs: number | null; lastNewCount: number; lastRemovedCount: number; runs: number }[],
+    ];
+    for (const items of fixtures) {
+      globalThis.fetch = (async () => new Response(JSON.stringify({ items }), { status: 200 })) as never;
+      captured.length = 0;
+      await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+      const parsed = JSON.parse(captured.join('')) as { count: number; overdueCount: number; neverRunCount: number };
+      expect(parsed.overdueCount + parsed.neverRunCount).toBe(parsed.count);
+    }
+  });
+
+  it('digest list --json --slim composes with --since: counts describe the post-cutoff survivors', async () => {
+    // The canonical cron overdue audit:
+    //   clawmind digest list --since "..." --json --slim
+    // Fixture: 1 old (ran 2026-01-01) + 1 fresh (ran 2026-06-21)
+    // + 1 never. With --since 2026-06-15:
+    //   - old survives (lastRunTs < cutoff)            -> overdue
+    //   - fresh dropped (lastRunTs >= cutoff)          -> NOT survivor
+    //   - never survives (always kept under --since)   -> never-run
+    // Expected slim: count=2, overdueCount=1, neverRunCount=1.
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [
+      { savedSearchId: 'old', title: 'Old', query: 'o', lastRunTs: Date.parse('2026-01-01'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      { savedSearchId: 'fresh', title: 'Fresh', query: 'f', lastRunTs: Date.parse('2026-06-21'), lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+      { savedSearchId: 'never', title: 'Never', query: 'n', lastRunTs: null, lastNewCount: 0, lastRemovedCount: 0, runs: 0 },
+    ] }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim', '--since', '2026-06-15']);
+    const parsed = JSON.parse(captured.join('')) as { count: number; overdueCount: number; neverRunCount: number };
+    expect(parsed.count).toBe(2);
+    expect(parsed.overdueCount).toBe(1);
+    expect(parsed.neverRunCount).toBe(1);
+  });
+
+  it('digest list --json --slim emits single-line JSON (NDJSON-friendly snapshot stream)', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [
+      { savedSearchId: 'a', title: 'A', query: 'a', lastRunTs: 1000, lastNewCount: 0, lastRemovedCount: 0, runs: 1 },
+    ] }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim']);
+    const out = captured.join('');
+    // Single-line: no internal newlines, just the trailing one.
+    expect(out.endsWith('\n')).toBe(true);
+    expect(out.slice(0, -1).includes('\n')).toBe(false);
+    // No indentation noise.
+    expect(out).not.toMatch(/\n  /);
+  });
+
+  it('digest list --slim WITHOUT --json is silently ignored (text mode unchanged)', async () => {
+    // --slim only matters in --json mode (text mode for humans is
+    // already the human-readable rendering). Mirrors the `feedback
+    // prune --slim without --json silent-ignore` precedent.
+    await digestCommand().parseAsync(['node', 'cli', 'list']);
+    const baseline = captured.join('');
+    captured.length = 0;
+    await digestCommand().parseAsync(['node', 'cli', 'list', '--slim']);
+    expect(captured.join('')).toBe(baseline);
+  });
+
   it('run with id prints diffs', async () => {
     await digestCommand().parseAsync(['node', 'cli', 'run', 's1']);
     const out = captured.join('');

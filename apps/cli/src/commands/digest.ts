@@ -65,8 +65,9 @@ export function digestCommand() {
     .option('--since <iso-date>', 'keep only saved searches whose lastRunTs is strictly less than this ISO date (i.e. those that have NOT been re-run since the cutoff). The natural cron use is finding overdue digests: `clawmind digest list --since "$(date -u -d \'1 hour ago\' +%FT%TZ)"` answers "which saved searches need re-running" without having to mentally subtract dates from the timestamps. Mirrors `digest run --since` semantics byte-for-byte: a digest with lastRunTs === null (never run) is ALWAYS INCLUDED (a never-run digest is the most extreme case of "overdue"), and the cutoff comparison uses strict less-than. Composes with -q as an intersection (substring filter on id/title/query AND lastRunTs predates cutoff). Parse failures abort cleanly with exit 1. Filter applies BEFORE --json / text rendering so both modes see the same survivors.')
     .option('--sort <key>', 'sort surviving saved searches by one of: lastRunTs (asc — oldest-run first, the natural "what is most overdue" ordering for a cron dashboard; never-run digests sort to the TOP because lastRunTs === null is more overdue than any timestamp), runs (desc — most-frequently-run first; the "which saved searches are getting hammered" question), title (asc alphabetical, for stable cross-snapshot diffs of `digest list --json`). Applied AFTER -q / --since so the sort orders the SURVIVORS of any narrowing filter (matches the operator\'s "sort what I asked for" expectation). Pairs naturally with --since for the canonical overdue audit: `digest list --since "$(...)" --sort lastRunTs --json` returns overdue digests with the longest-overdue at the top. Ties at the same sort key fall back to API order (secondary sort by original index for cross-snapshot determinism). Unknown keys abort cleanly with exit 1. The default (no --sort) preserves the API-returned order so existing scripts diffing `digest list --json` snapshots stay byte-stable.')
     .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` / `feedback list --reverse` byte-for-byte). With --sort lastRunTs the default is asc (oldest-run first); --reverse gives desc — the "most-recently-run digests first" question, the inverse of the overdue-audit default. With --sort runs the default is desc (most-frequently-run first); --reverse gives asc — surfaces the long tail of seldom-run saved searches that may be candidates for retirement. With --sort title the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. Ignored without --sort (the API ordering is a fixed contract). The secondary tie-break by original index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction. Note on the lastRunTs null-handling: under --reverse the never-run digests sort to the BOTTOM (the desc inverse of "null === most overdue" is "null === least recently run"), which is the colloquially correct reading — a never-run digest cannot be "most recently run".')
+    .option('--slim', 'with --json: emit a slimmed `{count, overdueCount, neverRunCount}` shape that drops the per-entry query/title/lastRunTs/lastNewCount/lastRemovedCount/runs blocks. The natural cron use is a dashboard panel polling "are my digests current" once a minute. `count` is the total surviving entries (mirrors the full-shape `items.length`). `overdueCount` is the count of survivors with lastRunTs strictly less than the --since cutoff when --since is set (i.e. the same predicate `--since` itself applies); without --since, overdueCount defaults to the same value as count (every survivor is trivially "overdue" against an unspecified cutoff). `neverRunCount` is the count of survivors with lastRunTs === null (a never-run digest is the most extreme case of overdue, exposed as its own bucket so a dashboard can distinguish "added a saved search but never ran it" from "ran it once but it has gone stale"). Mirrors the `doctor --json --quiet`, `digest run --json --slim`, `feedback prune --json --slim`, `feedback list --json --slim`, `search --json --slim`, `related --json --slim`, `aliases list --json --slim`, and `stats --json --slim` precedent. Composes naturally with --since for the canonical overdue audit: `digest list --since "$(date -u -d \'1 hour ago\' +%FT%TZ)" --json --slim` is "how many digests have not run in the last hour, and how many of them have never run at all" as a single three-integer poll. Composes with -q (server-side substring narrowing reflects in the slim counts), --sort / --reverse (slim emits the post-sort survivor counts — though the slim shape itself does not carry the per-row order, the COUNTS are the same regardless of order). Single-line JSON.stringify (no indent) for NDJSON snapshot streams. Silently ignored without --json (text mode for humans stays unchanged).')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; since?: string; sort?: string; reverse?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; since?: string; sort?: string; reverse?: boolean; slim?: boolean; json?: boolean }) => {
      await runAction('digest list', async () => {
       const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
       let out = (await apiFetch('GET', `/v1/digests${qs}`)) as {
@@ -198,6 +199,75 @@ export function digestCommand() {
         out = { ...out, items: ranked };
       }
       if (opts.json) {
+        // --slim emits a 3-integer count-only shape that drops the
+        // per-entry query/title/lastRunTs/lastNewCount/lastRemovedCount
+        // /runs blocks. Mirrors `doctor --json --quiet`, `digest run
+        // --json --slim`, `feedback prune --json --slim`, `feedback
+        // list --json --slim`, `search --json --slim`, `related
+        // --json --slim`, `aliases list --json --slim`, and `stats
+        // --json --slim` byte-for-byte.
+        //
+        // The natural cron use is a dashboard panel polling "are my
+        // digests current" once a minute. The full --json payload
+        // includes per-entry query strings (often hundreds of bytes
+        // each) and per-row run/lastRunTs/lastNewCount metadata — a
+        // dashboard that only cares about HOW MANY digests are
+        // overdue + HOW MANY have never run pays for what it does
+        // not need.
+        //
+        // Three buckets:
+        //   count          -> total surviving entries (mirrors the
+        //                     full-shape `items.length`)
+        //   neverRunCount  -> survivors with lastRunTs === null (a
+        //                     dashboard wants this as its own bucket
+        //                     because "added a saved search but never
+        //                     ran it" is operationally distinct from
+        //                     "ran it once but it has gone stale")
+        //   overdueCount   -> survivors with lastRunTs != null. Under
+        //                     --since these are the entries that RAN
+        //                     once but predate the cutoff (the --since
+        //                     filter has already kept only entries
+        //                     with lastRunTs < cutoff OR lastRunTs ===
+        //                     null). Without --since this is just
+        //                     "every survivor that has ever run". Both
+        //                     readings compute the same way:
+        //                     `count - neverRunCount`.
+        //
+        // The sum-equals-total invariant always holds:
+        //   count === overdueCount + neverRunCount
+        // so a downstream `jq .neverRunCount / .count` ratio is
+        // trivially auditable as "fraction of digests that are
+        // brand-new" without reconciling totals.
+        //
+        // Composes naturally with --since for the canonical overdue
+        // audit:
+        //   clawmind digest list --since "..." --json --slim
+        // gives "how many digests have not run since the cutoff, and
+        // how many of them have never run at all" as a single three-
+        // integer poll. Composes with -q (server-side substring
+        // narrowing reflects in the slim counts) and --sort /
+        // --reverse (the slim counts are the same regardless of
+        // order — the slim shape does not carry the per-row order).
+        //
+        // Single-line JSON.stringify (no indent) so an NDJSON
+        // snapshot stream like
+        //   while true; do clawmind digest list --json --slim; sleep 60; done
+        // produces clean NDJSON that diffs cleanly between ticks
+        // (multi-line indent would force every snapshot diff to
+        // walk indentation noise).
+        if (opts.slim) {
+          let neverRunCount = 0;
+          for (const it of out.items) {
+            if (it.lastRunTs === null) neverRunCount += 1;
+          }
+          const slim = {
+            count: out.items.length,
+            overdueCount: out.items.length - neverRunCount,
+            neverRunCount,
+          };
+          process.stdout.write(JSON.stringify(slim) + '\n');
+          return;
+        }
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
         return;
       }
