@@ -2854,4 +2854,202 @@ describe('digest cli', () => {
     await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--json']);
     expect(captured.join('')).toBe('+ /n1.md\n+ /p1.md\n- old\n');
   });
+
+  // -----------------------------------------------------------------
+  // digest show --paths-only --diff --only-added / --only-removed:
+  // single-direction emit modes that close the gap the bare --diff
+  // shape forced operators to bridge with `grep "^+ " | cut -c3-`.
+  // The "both = none" semantic: passing BOTH flags yields the bare
+  // --diff stream (unfiltered) because the AND of "additions only"
+  // AND "removals only" is "everything".
+  // -----------------------------------------------------------------
+
+  it('exposes --only-added and --only-removed on the show command surface', () => {
+    const showCmd = digestCommand().commands.find((c) => c.name() === 'show');
+    expect(showCmd).toBeDefined();
+    const flags = showCmd!.options.map((o) => o.long);
+    expect(flags).toContain('--only-added');
+    expect(flags).toContain('--only-removed');
+  });
+
+  it('show --paths-only --diff --only-added emits ONLY the `+ `-prefixed new-paths stream', async () => {
+    // Default fixture (newest-first):
+    //   ts=2: newSources=[/n1.md], removedSources=[]
+    //   ts=1: newSources=[/p1.md], removedSources=[old]
+    // With --only-added, the `- old` line must be suppressed.
+    // Expected: + /n1.md, + /p1.md (no `- old`).
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--only-added']);
+    expect(captured.join('')).toBe('+ /n1.md\n+ /p1.md\n');
+    // Pin: no `- ` prefix anywhere in the output (the canonical
+    // cron pipe `clawmind digest show s1 --paths-only --diff
+    // --only-added | xargs ingest` cannot afford a stray `- `
+    // line slipping past xargs as a flag).
+    expect(captured.join('')).not.toContain('- ');
+  });
+
+  it('show --paths-only --diff --only-removed emits ONLY the `- `-prefixed removed-paths stream', async () => {
+    // Mirror of --only-added: the `+ /n1.md` and `+ /p1.md` lines
+    // must be suppressed. Expected: - old.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--only-removed']);
+    expect(captured.join('')).toBe('- old\n');
+    // Pin: no `+ ` prefix anywhere (canonical cron pipe
+    // `clawmind digest show s1 --paths-only --diff --only-removed
+    // | xargs forget --apply` cannot afford a stray `+ ` line
+    // slipping past xargs as a flag).
+    expect(captured.join('')).not.toContain('+ ');
+  });
+
+  it('show --paths-only --diff --only-added --only-removed = unfiltered --diff (both = none semantic)', async () => {
+    // The "both = none" contract: AND of "additions only" AND
+    // "removals only" is "everything". Equivalent byte-for-byte
+    // to the bare --paths-only --diff invocation.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--only-added', '--only-removed']);
+    expect(captured.join('')).toBe('+ /n1.md\n+ /p1.md\n- old\n');
+    // Independent assertion: identical to the bare --diff form.
+    const dualEmit = captured.join('');
+    captured.length = 0;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff']);
+    expect(captured.join('')).toBe(dualEmit);
+  });
+
+  it('show --paths-only --diff --only-added with a fixture where ONLY removals exist yields an empty stream', async () => {
+    // Override the fixture with a history that has ONLY
+    // removals. --only-added's direction has nothing to emit,
+    // so the stream must be empty (no leaked `- ` lines, no
+    // empty-state hint). Critical for `--only-added | xargs ingest`
+    // on a quiet saved-search whose recent run only removed paths.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 2, newSources: [], removedSources: ['/gone.md', '/also-gone.md'], totalSources: 0 },
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--only-added']);
+    expect(captured.join('')).toBe('');
+  });
+
+  it('show --paths-only --diff --only-removed with a fixture where ONLY additions exist yields an empty stream', async () => {
+    // Mirror: history with ONLY additions, --only-removed
+    // direction has nothing to emit. Critical for `--only-removed
+    // | xargs forget --apply` on a saved-search whose recent run
+    // only added paths.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 2, newSources: [{ path: '/new1.md' }, { path: '/new2.md' }], removedSources: [], totalSources: 2 },
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--only-removed']);
+    expect(captured.join('')).toBe('');
+  });
+
+  it('show --paths-only --diff --only-added composes with --last 1 (most-recent run additions only)', async () => {
+    // The canonical "one-shot xargs ingest" pipe combines --last 1
+    // (newest run only) with --only-added (additions only). With
+    // the default fixture, --last 1 narrows to the ts=2 row
+    // (newSources=[/n1.md]) — the only addition surfacing is /n1.md.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--only-added', '--last', '1']);
+    expect(captured.join('')).toBe('+ /n1.md\n');
+  });
+
+  it('show --paths-only --diff --only-removed composes with --last 1 (most-recent run removals only)', async () => {
+    // Mirror: with --last 1 narrowing to the ts=2 row, which has
+    // NO removals, the stream is empty. The canonical pipe is
+    // `--paths-only --diff --only-removed --last 1 | xargs forget
+    // --apply` for the daily-digest-driven retirement flow.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--only-removed', '--last', '1']);
+    expect(captured.join('')).toBe('');
+  });
+
+  it('show --paths-only --diff --only-added composes with -q (substring filter narrows rows BEFORE the direction split)', async () => {
+    // -q "n1" keeps only the ts=2 row (which contains /n1.md);
+    // --diff --only-added then emits + /n1.md from that row.
+    // The ts=1 row's /p1.md doesn't survive because -q narrows
+    // BEFORE the direction-split.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--only-added', '-q', 'n1']);
+    expect(captured.join('')).toBe('+ /n1.md\n');
+  });
+
+  it('show --paths-only --diff --only-added composes with --since (date-bounded window narrows rows BEFORE the direction split)', async () => {
+    // --since cutoff between ts=1 and ts=2 keeps only the ts=2
+    // row; --diff --only-added then emits + /n1.md from that row.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--only-added', '--since', '1970-01-01T00:00:00.002Z']);
+    expect(captured.join('')).toBe('+ /n1.md\n');
+  });
+
+  it('show --paths-only --diff --only-added preserves the dual-set semantic for shared paths (added survives, removed dropped)', async () => {
+    // Override fixture: /shared.md appears as a newSource in ts=3
+    // AND a removedSource in ts=2. Under bare --diff, /shared.md
+    // surfaces TWICE (once per direction). Under --only-added,
+    // only the `+ /shared.md` survives — the `- /shared.md`
+    // direction is suppressed. The dual-set walk is preserved:
+    // the `+ ` emission is NOT polluted by removal events even
+    // when the path overlaps.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 3, newSources: [{ path: '/shared.md' }, { path: '/only-new.md' }], removedSources: [], totalSources: 3 },
+          { ts: 2, newSources: [{ path: '/older-new.md' }], removedSources: ['/shared.md'], totalSources: 2 },
+          { ts: 1, newSources: [{ path: '/shared.md' }], removedSources: [], totalSources: 1 },
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--only-added']);
+    // Walk: ts=3 + /shared.md, + /only-new.md (both seen by seenAdded)
+    //       ts=2 + /older-new.md (shared.md skipped because already in seenAdded)
+    //       ts=1 + /shared.md SKIPPED (already in seenAdded)
+    // No `- /shared.md` line because --only-added suppresses the
+    // removal direction entirely.
+    expect(captured.join('')).toBe('+ /shared.md\n+ /only-new.md\n+ /older-new.md\n');
+    expect(captured.join('')).not.toContain('- ');
+  });
+
+  it('show --paths-only --diff --only-removed preserves the dual-set semantic (removed survives, added dropped)', async () => {
+    // Mirror of the dual-set --only-added test. Under --only-removed,
+    // only the `- /shared.md` (from ts=2) surfaces — the `+ /shared.md`
+    // additions from ts=3 and ts=1 are suppressed.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 3, newSources: [{ path: '/shared.md' }, { path: '/only-new.md' }], removedSources: [], totalSources: 3 },
+          { ts: 2, newSources: [{ path: '/older-new.md' }], removedSources: ['/shared.md'], totalSources: 2 },
+          { ts: 1, newSources: [{ path: '/shared.md' }], removedSources: [], totalSources: 1 },
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--diff', '--only-removed']);
+    expect(captured.join('')).toBe('- /shared.md\n');
+    expect(captured.join('')).not.toContain('+ ');
+  });
+
+  it('show --paths-only --only-added without --diff is silently ignored (the bare --paths-only flat stream emits)', async () => {
+    // --only-added lives INSIDE --diff. Without --diff, the bare
+    // --paths-only flat-merge stream emits (no prefixes, single
+    // dedupe set). Same precedent as --diff without --paths-only:
+    // a modifier with no axis to operate on is silently ignored.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--paths-only', '--only-added']);
+    // Bare --paths-only output (no `+ ` prefixes).
+    expect(captured.join('')).toBe('/n1.md\n/p1.md\nold\n');
+    // No diff-style prefixes — the bare --paths-only emits raw paths.
+    expect(captured.join('')).not.toContain('+ ');
+    expect(captured.join('')).not.toContain('- ');
+  });
+
+  it('show --only-added without --paths-only --diff is silently ignored (default text mode unchanged)', async () => {
+    // --only-added is a deeply-nested --paths-only --diff modifier.
+    // Without --paths-only it has no axis at all — the default text
+    // mode emits its query: header and per-row sections unchanged.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--only-added']);
+    const out = captured.join('');
+    expect(out).toContain('query:');
+    // Text mode has no `+ ` / `- ` prefixes (the text rendering of
+    // newSources/removedSources uses its own colored format).
+    expect(out.split('\n').filter((l) => l.startsWith('+ ') || l.startsWith('- '))).toHaveLength(0);
+  });
 });

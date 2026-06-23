@@ -486,9 +486,11 @@ export function digestCommand() {
     .option('--since <iso-date>', 'bound the history window by absolute date; keep only rows whose ts is at-or-after the cutoff. Pairs naturally with -q for "what did saved-search X surface about path Y after date Z" queries from cron. Composes with -q (intersection: row must both touch a matching path AND be at-or-after the cutoff). Parse failures abort cleanly.')
     .option('--last <n>', 'cap the history rows returned to the newest N. Applied AFTER -q / --since so the cap is "the newest N rows that pass the other filters". Useful as a sliding-window companion to --since for cron snapshots ("the 5 most recent runs in the last week") and as a quick "tail" for big histories without --json | jq slicing. A non-positive or non-numeric value is rejected cleanly.', (v) => Number.parseInt(v, 10))
     .option('--paths-only', 'emit ONLY the paths that appear in the filtered history rows (one path per line, deduplicated in walk order: rows are walked newest-first as returned by the API, and within each row the newSources are emitted first, then removedSources). Pipeline-friendly twin of the rest of the --paths-only family — pairs naturally with --last 1 to feed `xargs ingest` after a digest surfaces a wave of new sources: `clawmind digest show s1 --paths-only --last 1 | xargs clawmind ingest --paths -` is the one-liner. Composes with -q (substring filter narrows the rows first) and --since (date-bounded window narrows the rows first), so `clawmind digest show s1 --paths-only --since "$(date -u -d \'1 week ago\' +%FT%TZ)"` is "every path the saved search touched in the last week, deduped, ready for xargs". Zero matches yields a clean empty stream (no `query:` header, no empty-state hint) so xargs/wc keep working. Wins over --json when both are set (short-circuits BEFORE the --json emit, mirroring search/forget/related --paths-only precedent).')
-    .option('--diff', 'with --paths-only: split the flat-merge emit into a `git diff`-style stream where every new-path line is prefixed with `+ ` and every removed-path line with `- `. The default --paths-only walks newSources first then removedSources for each row, deduped against a SINGLE Set — which is the right shape for "feed xargs ingest with EVERY path the digest touched" but NOT for the symmetric "feed xargs ingest with only the NEW paths" cron use. --diff closes that gap with prefixes operators already know from `git diff`. The walk order within each direction is preserved: rows newest-first, within each row the API order. Two SEPARATE dedupe sets (one per direction) so a path that appears in both newSources of one row AND removedSources of another row surfaces TWICE — once with `+ `, once with `- ` — because semantically those are two different events (the path was added at one ts, removed at another); collapsing them would lose the symmetric history. The canonical cron pipes this enables:\n         clawmind digest show s1 --paths-only --diff --last 1 | grep "^+ " | cut -c3- | xargs ingest\n         clawmind digest show s1 --paths-only --diff --last 1 | grep "^- " | cut -c3- | xargs forget --apply\n     close the symmetric gap that the previous flat emit forced operators to bridge with `comm` or `jq`. Silently ignored without --paths-only (the JSON / text modes already have their own well-defined shapes; the prefix-stream lives only inside --paths-only).')
+    .option('--diff', 'with --paths-only: split the flat-merge emit into a `git diff`-style stream where every new-path line is prefixed with `+ ` and every removed-path line with `- `. The default --paths-only walks newSources first then removedSources for each row, deduped against a SINGLE Set — which is the right shape for "feed xargs ingest with EVERY path the digest touched" but NOT for the symmetric "feed xargs ingest with only the NEW paths" cron use. --diff closes that gap with prefixes operators already know from `git diff`. The walk order within each direction is preserved: rows newest-first, within each row the API order. Two SEPARATE dedupe sets (one per direction) so a path that appears in both newSources of one row AND removedSources of another row surfaces TWICE — once with `+ `, once with `- ` — because semantically those are two different events (the path was added at one ts, removed at another); collapsing them would lose the symmetric history. The canonical cron pipes this enables:\n         clawmind digest show s1 --paths-only --diff --last 1 | grep "^+ " | cut -c3- | xargs ingest\n         clawmind digest show s1 --paths-only --diff --last 1 | grep "^- " | cut -c3- | xargs forget --apply\n     close the symmetric gap that the previous flat emit forced operators to bridge with `comm` or `jq`. Silently ignored without --paths-only (the JSON / text modes already have their own well-defined shapes; the prefix-stream lives only inside --paths-only). Pairs naturally with --only-added / --only-removed to skip the grep step entirely for single-direction pipelines.')
+    .option('--only-added', 'with --paths-only --diff: emit ONLY the `+ `-prefixed new-paths stream, suppressing the `- `-prefixed removed-paths entirely. Closes the gap that the bare `--diff` shape forced operators to bridge with `grep "^+ " | cut -c3-`: a dedicated flag pair lets the cron pipe become `clawmind digest show s1 --paths-only --diff --only-added --last 1 | xargs ingest` (one less pipeline stage, one less subprocess fork, one less place a regex typo can swallow a path). Composes with --diff naturally (it is a --diff modifier). Composes with --only-removed: when BOTH are set, the result is the FLAT shape (every line emitted, BOTH prefixes survive) — i.e. equivalent to plain --paths-only --diff WITHOUT the --only-* flags (the union of both directions is identical to the unfiltered diff stream). This "both = none" semantic is the natural reading: --only-added asks "give me the additions only", --only-removed asks "give me the removals only", their AND is "give me what is added AND what is removed" = everything. Composes with -q / --since / --last (the filters narrow the rows BEFORE the direction-split). Ignored without --diff. Empty after filter yields a clean empty stream (xargs/wc-safe).')
+    .option('--only-removed', 'with --paths-only --diff: emit ONLY the `- `-prefixed removed-paths stream, suppressing the `+ `-prefixed new-paths entirely. Mirror of --only-added byte-for-byte (see --only-added for the full semantics). The canonical cron pipe becomes `clawmind digest show s1 --paths-only --diff --only-removed --last 1 | xargs forget --apply` (the digest-driven forget-the-stale-set automation flow). When passed together with --only-added, both flags emit (= unfiltered --diff stream — see --only-added). Ignored without --diff.')
     .option('--json', 'emit the history as JSON for scripting')
-    .action(async (id: string, opts: { q?: string; since?: string; last?: number; pathsOnly?: boolean; diff?: boolean; json?: boolean }) => {
+    .action(async (id: string, opts: { q?: string; since?: string; last?: number; pathsOnly?: boolean; diff?: boolean; onlyAdded?: boolean; onlyRemoved?: boolean; json?: boolean }) => {
      await runAction('digest show', async () => {
       const out = (await apiFetch('GET', `/v1/digests/${id}`)) as {
         state: { query: string; history: { ts: number; newSources: { path: string }[]; removedSources: string[]; totalSources: number }[] };
@@ -599,18 +601,48 @@ export function digestCommand() {
         // within each row the API order. Silently ignored without
         // --paths-only (handled by the outer if).
         if (opts.diff) {
+          // --only-added / --only-removed: single-direction emit modes
+          // that close the gap the bare --diff shape forced operators
+          // to bridge with `grep "^+ " | cut -c3-`. The dedicated flag
+          // pair lets `clawmind digest show s1 --paths-only --diff
+          // --only-added | xargs ingest` become a clean one-liner (no
+          // grep, no cut, no regex-typo risk swallowing a path).
+          //
+          // "both = none" semantic: when --only-added AND --only-removed
+          // are BOTH set, both directions emit (= the unfiltered --diff
+          // stream). The natural reading: --only-added asks "give me
+          // the additions only", --only-removed asks "give me the
+          // removals only", their AND is "give me what is added AND
+          // what is removed" = everything. Equivalent to passing
+          // neither flag (the bare --diff shape).
+          //
+          // The flags are computed BEFORE the walk so a single bool
+          // pair drives both branches inside the loop. When neither
+          // is set, both emit (the bare --diff legacy behaviour). When
+          // exactly one is set, only that direction emits. When both
+          // are set, both emit (the "both = none" semantic).
+          const emitAdded = !opts.onlyAdded && !opts.onlyRemoved
+            ? true
+            : opts.onlyAdded === true;
+          const emitRemoved = !opts.onlyAdded && !opts.onlyRemoved
+            ? true
+            : opts.onlyRemoved === true;
           const seenAdded = new Set<string>();
           const seenRemoved = new Set<string>();
           for (const h of filteredHistory) {
-            for (const s of h.newSources) {
-              if (seenAdded.has(s.path)) continue;
-              seenAdded.add(s.path);
-              process.stdout.write(`+ ${s.path}\n`);
+            if (emitAdded) {
+              for (const s of h.newSources) {
+                if (seenAdded.has(s.path)) continue;
+                seenAdded.add(s.path);
+                process.stdout.write(`+ ${s.path}\n`);
+              }
             }
-            for (const p of h.removedSources) {
-              if (seenRemoved.has(p)) continue;
-              seenRemoved.add(p);
-              process.stdout.write(`- ${p}\n`);
+            if (emitRemoved) {
+              for (const p of h.removedSources) {
+                if (seenRemoved.has(p)) continue;
+                seenRemoved.add(p);
+                process.stdout.write(`- ${p}\n`);
+              }
             }
           }
           return;
