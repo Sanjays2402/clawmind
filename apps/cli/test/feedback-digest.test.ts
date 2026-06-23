@@ -883,6 +883,153 @@ describe('feedback prune cli', () => {
     expect(fetchCalls.filter((c) => c.method === 'DELETE')).toHaveLength(0);
     expect(process.exitCode).toBeFalsy();
   });
+
+  // -----------------------------------------------------------------
+  // prune --json --slim: drop the `paths` array for cron dashboards
+  // that only care about the headline counts. Mirrors the
+  // `doctor --json --quiet` and `digest run --json --slim` precedent.
+  // Critical: errors[] is PRESERVED because per-path failures are
+  // exactly what a dashboard needs to surface.
+  // -----------------------------------------------------------------
+
+  it('exposes --slim on the prune subcommand surface', () => {
+    const prune = feedbackCommand().commands.find((c) => c.name() === 'prune');
+    expect(prune).toBeDefined();
+    const flags = prune!.options.map((o) => o.long);
+    expect(flags).toContain('--slim');
+  });
+
+  it('--json --slim drops the `paths` array, keeps every other field byte-identical to non-slim', async () => {
+    // First run: capture the full --json shape. Second run: --slim.
+    // Every field present in the slim shape must be IDENTICAL to the
+    // full shape (no shape divergence beyond the `paths` drop).
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '1.0', '--apply', '--json']);
+    const full = JSON.parse(stdout.join('')) as Record<string, unknown>;
+    stdout.length = 0;
+    process.exitCode = 0;
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '1.0', '--apply', '--json', '--slim']);
+    const slim = JSON.parse(stdout.join('')) as Record<string, unknown>;
+    // paths MUST be absent in slim.
+    expect(slim).not.toHaveProperty('paths');
+    // Every other key MUST match the full shape exactly.
+    expect(slim.threshold).toEqual(full.threshold);
+    expect(slim.thresholdAbove).toEqual(full.thresholdAbove);
+    expect(slim.dryRun).toEqual(full.dryRun);
+    expect(slim.matched).toEqual(full.matched);
+    expect(slim.cleared).toEqual(full.cleared);
+    expect(slim.errors).toEqual(full.errors);
+    // Key set is exactly the slim contract — no other fields leaked.
+    // Note: undefined fields (thresholdAbove with only --below) are
+    // dropped by JSON.stringify so they don't appear in the parsed
+    // Object.keys() list. The slim contract is "every defined field
+    // except paths".
+    expect(Object.keys(slim).sort()).toEqual([
+      'cleared', 'dryRun', 'errors', 'matched', 'threshold',
+    ]);
+  });
+
+  it('--json --slim under --apply with --above: cron cap-recalibration snapshot shape', async () => {
+    // The canonical cron use: `prune --above 1.45 --apply --json --slim`
+    // after lowering MAX_BOOST. The output is the one-line-per-snapshot
+    // health check that "the cap recalibration cleared N entries".
+    // Fixture: --above 1.2 matches /strong-up.md only.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '1.2', '--apply', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      threshold: number | undefined;
+      thresholdAbove: number;
+      dryRun: boolean;
+      matched: number;
+      cleared: number;
+      errors: { path: string; message: string }[];
+    };
+    expect(parsed.matched).toBe(1);
+    expect(parsed.cleared).toBe(1);
+    expect(parsed.dryRun).toBe(false);
+    expect(parsed.thresholdAbove).toBe(1.2);
+    expect(parsed.threshold).toBeUndefined();
+    expect(parsed.errors).toEqual([]);
+    // paths absent — that's the whole point of --slim.
+    expect(parsed).not.toHaveProperty('paths');
+  });
+
+  it('--json --slim PRESERVES errors[] when a DELETE fails (per-path failures are the dashboard signal)', async () => {
+    // The critical invariant: errors[] is NOT slimmed because per-path
+    // failures are exactly what a cron dashboard needs to surface.
+    // Dropping them would hide the only signal that something broke.
+    deleteFailPaths = new Set(['/mild-down.md']);
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '1.0', '--apply', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      matched: number;
+      cleared: number;
+      errors: { path: string; message: string }[];
+    };
+    // 2 matched (--below 1.0 strict <: mild-down 0.9 and
+    // strong-down 0.65 — neutral 1.0 excluded by strict <);
+    // 1 fails (mild-down), 1 cleared (strong-down).
+    expect(parsed.matched).toBe(2);
+    expect(parsed.cleared).toBe(1);
+    expect(parsed.errors).toHaveLength(1);
+    expect(parsed.errors[0].path).toBe('/mild-down.md');
+    // paths absent.
+    expect(parsed).not.toHaveProperty('paths');
+    // Exit code propagated: partial failure surfaces as exit 1
+    // regardless of --slim.
+    expect(process.exitCode).toBe(1);
+  });
+
+  it('--slim under dry-run (no --apply) drops paths AND keeps cleared=0/dryRun=true contract', async () => {
+    // Dry-run is the natural cron pre-flight: "how many would this
+    // clear if I actually ran it?". --slim makes the snapshot a
+    // single-line answer with no path-array noise.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '0.7', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      matched: number;
+      cleared: number;
+      dryRun: boolean;
+      errors: { path: string; message: string }[];
+    };
+    expect(parsed.dryRun).toBe(true);
+    expect(parsed.cleared).toBe(0);  // dry-run never clears
+    expect(parsed.matched).toBe(1);  // only /strong-down.md (0.65 < 0.7)
+    expect(parsed.errors).toEqual([]);
+    expect(parsed).not.toHaveProperty('paths');
+  });
+
+  it('--slim without --json is silently ignored (text mode unchanged, no paths-array)', async () => {
+    // --slim only matters in --json mode (the text mode already lives
+    // without the paths array). Mirrors the --header-without-tsv
+    // silent-ignore precedent. The text output should be byte-
+    // identical to running WITHOUT --slim.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '0.7']);
+    const baseline = stdout.join('');
+    stdout.length = 0;
+    process.exitCode = 0;
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--below', '0.7', '--slim']);
+    expect(stdout.join('')).toBe(baseline);
+  });
+
+  it('--slim with --above + --below intersection: BOTH threshold fields preserved (--slim does not collapse)', async () => {
+    // Both threshold and thresholdAbove fields are PRESERVED under
+    // --slim because they encode the predicate that ran — a future
+    // regression that collapsed them into a single field would lie
+    // about which predicate the cron actually ran. Pinned by an
+    // --above + --below + --slim composition.
+    await feedbackCommand().parseAsync(['node', 'cli', 'prune', '--above', '1.04', '--below', '0.95', '--apply', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      threshold: number;
+      thresholdAbove: number;
+      matched: number;
+      cleared: number;
+    };
+    // Both predicates present and accurate.
+    expect(parsed.threshold).toBe(0.95);
+    expect(parsed.thresholdAbove).toBe(1.04);
+    // 4 outside the neutral band [0.95, 1.04]: strong-up (1.25),
+    // mild-up (1.05), mild-down (0.9), strong-down (0.65).
+    expect(parsed.matched).toBe(4);
+    expect(parsed.cleared).toBe(4);
+    expect(parsed).not.toHaveProperty('paths');
+  });
 });
 
 describe('digest cli', () => {

@@ -264,7 +264,8 @@ export function feedbackCommand() {
     .option('-q, --q <text>', 'narrow the candidate set by case-insensitive substring on the source path BEFORE the --below / --above threshold is applied. Use to limit the prune to a specific directory subtree (e.g. `--q /archive --below 0.7` only touches feedback on archived paths).')
     .option('--apply', 'actually clear the matched entries. Without --apply this is a dry-run that lists what WOULD be cleared without touching the feedback store. Matches the forget --apply safety pattern: destructive by default off, never silent.')
     .option('--json', 'emit the prune report as JSON for scripting')
-    .action(async (opts: { below?: number; above?: number; q?: string; apply?: boolean; json?: boolean }) => {
+    .option('--slim', 'with --json: emit a slimmed `{threshold, thresholdAbove, dryRun, matched, cleared, errors}` shape that drops the `paths` array. The full --json report includes the array of every matched path, which can be megabytes on a large workspace and is almost never needed by a cron dashboard that only cares about the counts and the error log. --slim mirrors the precedent set by `doctor --json --quiet` and `digest run --json --slim`: when the operator only needs the headline numbers, the count-only shape diffs cleanly across cron snapshots (no path-array churn flooding the diff) and the network/disk footprint stays bounded. Pairs naturally with --apply for tight cron-budget snapshots: `clawmind feedback prune --above 1.45 --apply --json --slim` gives a one-line-per-snapshot health check that "the cap recalibration cleared N entries". The errors array is PRESERVED in --slim because per-path failures are exactly what a dashboard needs to surface — dropping them would hide the only signal the cron has that something actually broke. Silently ignored without --json (the dry-run text output already lives without the paths array; --slim has nothing to slim there).')
+    .action(async (opts: { below?: number; above?: number; q?: string; apply?: boolean; json?: boolean; slim?: boolean }) => {
       await runOrReport('feedback prune', async () => {
         // The bulk-prune flow. The natural cron uses are:
         //   clawmind feedback prune --below 0.7              # dry-run, lists candidates
@@ -382,6 +383,24 @@ export function feedbackCommand() {
           process.exitCode = 1;
         }
         if (opts.json) {
+          // --slim drops the `paths` array for cron dashboards that
+          // only care about the headline counts. Mirrors the
+          // `doctor --json --quiet` and `digest run --json --slim`
+          // precedent. The errors array is PRESERVED because per-
+          // path failures are exactly what a dashboard needs to
+          // surface — dropping them would hide the only signal
+          // the cron has that something broke. Silent-ignored
+          // without --json (the dry-run text path already lives
+          // without the paths array). The shape is otherwise
+          // byte-identical to the full report so a downstream
+          // consumer that switches from --slim to non-slim sees
+          // every other field unchanged.
+          if (opts.slim) {
+            const { paths: _drop, ...slim } = report;
+            void _drop;
+            process.stdout.write(JSON.stringify(slim, null, 2) + '\n');
+            return;
+          }
           process.stdout.write(JSON.stringify(report, null, 2) + '\n');
           return;
         }
