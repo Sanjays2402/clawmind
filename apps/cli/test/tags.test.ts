@@ -628,4 +628,137 @@ describe('tags list --sort / --top', () => {
     await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--slim']);
     expect(stdout.join('')).toBe(baseline);
   });
+
+  // -----------------------------------------------------------------
+  // tags paths <tag> --sort path + --reverse: family-wide --sort
+  // contract port to the per-tag paths command. The cron use is a
+  // daily snapshot of "the paths under tag X" that diffs cleanly
+  // even when the API insertion order shifts across ingests.
+  // Mirrors stale / search / related / feedback list / digest list /
+  // aliases list / stats / tags list --sort + --reverse byte-for-byte.
+  // -----------------------------------------------------------------
+
+  it('exposes --sort on the tags paths subcommand surface', () => {
+    const paths = tagsCommand().commands.find((c) => c.name() === 'paths')!;
+    const flags = paths.options.map((o) => o.long);
+    expect(flags).toContain('--sort');
+    expect(flags).toContain('--reverse');
+  });
+
+  it('--sort path orders the paths list asc alphabetical (diff-stable for cron snapshots)', async () => {
+    // The natural cron use: a daily snapshot that diffs cleanly
+    // even when the API order shifts. We feed a deliberately
+    // shuffled API response and verify the output is alphabetical.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work',
+      paths: ['/charlie.md', '/alpha.md', '/bravo.md'],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--json', '--sort', 'path']);
+    const parsed = JSON.parse(stdout.join('')) as { tag: string; paths: string[] };
+    expect(parsed.paths).toEqual(['/alpha.md', '/bravo.md', '/charlie.md']);
+  });
+
+  it('--sort path applies BEFORE every output mode (--paths-only sees the sorted set too)', async () => {
+    // Critical contract: --sort is upstream of the format choice.
+    // A downstream consumer parsing --json and a sibling parsing
+    // --paths-only get byte-equivalent path orders.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work',
+      paths: ['/c.md', '/a.md', '/b.md'],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--sort', 'path', '--paths-only']);
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n/c.md\n');
+  });
+
+  it('--sort path --reverse orders the paths list desc alphabetical', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work',
+      paths: ['/charlie.md', '/alpha.md', '/bravo.md'],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync([
+      'node', 'cli', 'paths', 'work', '--json', '--sort', 'path', '--reverse',
+    ]);
+    const parsed = JSON.parse(stdout.join('')) as { paths: string[] };
+    expect(parsed.paths).toEqual(['/charlie.md', '/bravo.md', '/alpha.md']);
+  });
+
+  it('--sort with an unknown key aborts cleanly (exit 1, supported set in error)', async () => {
+    // Mirrors stats / tags list --sort: a typo cannot silently
+    // degrade to the default order. The error names the supported
+    // set so the operator can fix without consulting docs.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work', paths: ['/a.md'], count: 1,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync([
+      'node', 'cli', 'paths', 'work', '--sort', 'banana',
+    ]);
+    expect(process.exitCode).toBe(1);
+    expect(stderr.join('')).toContain('tags paths failed: unknown --sort key "banana"');
+    expect(stderr.join('')).toContain('expected: path');
+    // No emit on stdout when sort validation fails.
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('default (no --sort) preserves the API-returned order byte-for-byte (no regression)', async () => {
+    // Critical back-compat contract: scripts that never opt into
+    // --sort must keep seeing exactly the bytes they saw before.
+    // The API order (shuffled here on purpose) flows through
+    // unchanged.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work',
+      paths: ['/charlie.md', '/alpha.md', '/bravo.md'],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--paths-only']);
+    expect(stdout.join('')).toBe('/charlie.md\n/alpha.md\n/bravo.md\n');
+  });
+
+  it('--sort path composes with --json --slim (slim shape sees the sorted paths)', async () => {
+    // The slim shape's `paths` array reflects the post-sort order
+    // — observational consistency with the bare --json mode.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work',
+      paths: ['/c.md', '/a.md', '/b.md'],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync([
+      'node', 'cli', 'paths', 'work', '--json', '--slim', '--sort', 'path',
+    ]);
+    const parsed = JSON.parse(stdout.join('')) as { count: number; tag: string; paths: string[] };
+    expect(parsed.paths).toEqual(['/a.md', '/b.md', '/c.md']);
+    expect(parsed.count).toBe(3);
+  });
+
+  it('--sort path determinism: two consecutive runs over identical input produce byte-identical output', async () => {
+    // End-to-end pin of the cron snapshot diff property.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work',
+      paths: ['/zeta.md', '/alpha.md', '/middle.md'],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--json', '--sort', 'path']);
+    const tick1 = stdout.join('');
+    stdout.length = 0;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--json', '--sort', 'path']);
+    const tick2 = stdout.join('');
+    expect(tick1).toBe(tick2);
+  });
+
+  it('--reverse without --sort is a no-op (the API ordering is a fixed contract)', async () => {
+    // Mirrors the family-wide --sort/--reverse contract: --reverse
+    // without --sort is silently ignored on commands that have NO
+    // default --sort key (unlike stats / tags list which have a
+    // default and so --reverse is always active there).
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      tag: 'work',
+      paths: ['/charlie.md', '/alpha.md', '/bravo.md'],
+      count: 3,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await tagsCommand().parseAsync(['node', 'cli', 'paths', 'work', '--paths-only', '--reverse']);
+    // API order preserved — --reverse alone did not flip anything.
+    expect(stdout.join('')).toBe('/charlie.md\n/alpha.md\n/bravo.md\n');
+  });
 });

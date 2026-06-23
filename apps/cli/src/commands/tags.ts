@@ -150,12 +150,68 @@ export function tagsCommand() {
     .option('--json', 'emit results as JSON for scripting')
     .option('--paths', 'pipeline-friendly: emit ONLY the path column (no styling, no headers, no "no sources tagged" hint). Zero matches yields an empty stream so xargs/wc keep working. Predates the family-wide `--paths-only` naming used by search/forget/related/stale/pins/mutes/aliases; `--paths-only` is the recommended alias going forward.')
     .option('--paths-only', 'alias for --paths to bring the tags surface in line with the family-wide `--paths-only` naming exposed by search/forget/related/stale. Either flag emits exactly the same byte stream (one path per line, no ANSI, no header, no "no sources tagged" hint) so existing scripts using --paths keep working unchanged. When both are passed, the effect is identical (no precedence — they are truly equivalent). Mirrors the stale --paths / --paths-only alias relationship byte-for-byte. Composes with --json (--paths-only short-circuits --json).')
+    .option('--sort <key>', 'sort the path list by `path` (asc alphabetical, for stable cross-snapshot diffs of `tags paths <tag> --paths-only` cron streams). Default: no --sort (preserves the API-returned order — usually insertion order — so existing scripts diffing snapshots stay byte-stable until they opt into the new sort). Applied BEFORE every output mode (--json / --paths / --paths-only / text) so each mode sees the SAME ordered subset — a downstream consumer parsing --json and a sibling parsing --paths-only get byte-equivalent path orders. Mirrors the family-wide --sort contract (stats / feedback list / digest list / aliases list / tags list / stale / search / related --sort): ties at the same primary key carry a secondary sort by original-input index for cross-snapshot determinism, unknown keys abort cleanly with exit 1 enumerating the valid set. The natural cron use is a daily snapshot of "the paths under tag X" that diffs cleanly even when the API insertion order shifts across ingests — `clawmind tags paths work --sort path --paths-only > snap.txt` then `diff` across days. Only `path` is supported today (the per-path payload has no other meaningful sort key); the flag exists for symmetry with the rest of the family so a future addition (e.g. lastIngestedAt) drops in without a breaking change to the surface.')
+    .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` / `feedback list --reverse` / `digest list --reverse` / `aliases list --reverse` / `stats --reverse` / `tags list --reverse` byte-for-byte). With --sort path the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. The secondary tie-break by original-input index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction (two consecutive --sort + --reverse runs over identical-ties input produce byte-identical output — although for paths under a single tag, ties cannot occur because path strings are unique by definition; the dual-flip is documented here for family-contract consistency rather than as a real-world need). Ignored without --sort (the API ordering is a fixed contract and --reverse alone is not a sort direction question without a sort key) — mirrors the rest of the family-wide --sort/--reverse contract.')
     .option('--slim', 'with --json: emit a slimmed `{count, tag, paths}` shape that drops nothing (the full --json payload is already {tag, paths, count}). The slim shape just re-keys to the family-wide cron-dashboard convention so a downstream poller scripting against multiple slim-shape commands (aliases / pins / mutes / tags list / digest / etc.) sees the SAME top-level shape `{count, ...}` everywhere. The `tag` identifier is preserved because it disambiguates which tag\'s paths these are — useful when a single script polls `tags paths <a> --json --slim` and `tags paths <b> --json --slim` and dumps both into the same NDJSON stream. Composes naturally with the `tags paths <tag>` command\'s zero-match contract: a tag with no sources yields `{count: 0, tag: "<tag>", paths: []}` rather than an error or empty stream — same shape as a popular tag, just empty arrays. `count === paths.length` always. Ignored without --json (text mode unchanged); short-circuited by --paths / --paths-only (the pipeline shape wins).')
-    .action(async (tag: string, opts: { json?: boolean; paths?: boolean; pathsOnly?: boolean; slim?: boolean }) => {
+    .action(async (tag: string, opts: { json?: boolean; paths?: boolean; pathsOnly?: boolean; sort?: string; reverse?: boolean; slim?: boolean }) => {
       const enc = encodeURIComponent(tag);
       const out = (await apiFetch('GET', `/v1/tags/${enc}`)) as {
         tag: string; paths: string[]; count: number;
       };
+      // --sort orders the path list BEFORE every output mode so the
+      // --json / --paths / --paths-only / text branches all see the
+      // SAME ordered subset. Mirrors the family-wide --sort contract
+      // (stats / feedback list / digest list / aliases list / tags
+      // list / stale / search / related --sort): ties at the same
+      // primary key carry a secondary sort by original-input index
+      // for cross-snapshot determinism, unknown keys abort cleanly.
+      //
+      // Today only `path` is supported (the per-path payload under a
+      // single tag has no other meaningful sort key — `tags paths`
+      // returns a flat string list, NOT objects with metadata). The
+      // flag exists for symmetry with the rest of the family so a
+      // future addition (e.g. lastIngestedAt) drops in without a
+      // breaking change to the surface. An unknown key aborts with
+      // a crisp error pointing at the supported set.
+      //
+      // Ties cannot occur for paths under a single tag (path strings
+      // are unique by definition — the API stores them in a Set) so
+      // the secondary-by-original-index sort is a no-op in practice;
+      // it's documented here for family-contract consistency rather
+      // than as a real-world need. The dual sort still fires under
+      // --reverse so the contract is auditable in either direction.
+      //
+      // The default (no --sort) preserves the API-returned order so
+      // existing scripts diffing `tags paths X --paths-only`
+      // snapshots stay byte-stable until they opt into the new sort.
+      let paths = out.paths;
+      if (opts.sort !== undefined) {
+        const sortKey = opts.sort.toLowerCase();
+        if (sortKey !== 'path') {
+          process.stderr.write(kleur.red(`tags paths failed: unknown --sort key "${opts.sort}" (expected: path)\n`));
+          process.exitCode = 1;
+          return;
+        }
+        // --reverse flips the per-key direction. Mirrors the family-
+        // wide reverse-modifier contract (stale / search / related /
+        // feedback list / digest list / aliases list / stats / tags
+        // list --reverse) byte-for-byte: a single sign-flipping
+        // multiplier (dir = -1 under --reverse, else 1) applied to
+        // BOTH the primary comparator AND the secondary tie-break
+        // by original-input index. The dual-flip preserves cross-
+        // snapshot determinism under --reverse — even though paths
+        // are unique so the secondary cannot fire in practice, the
+        // contract is auditable in either direction.
+        const dir = opts.reverse ? -1 : 1;
+        paths = out.paths
+          .map((p, idx) => ({ p, idx }))
+          .sort((a, b) => {
+            const cmp = a.p.localeCompare(b.p);
+            if (cmp !== 0) return cmp * dir;
+            return (a.idx - b.idx) * dir;
+          })
+          .map((r) => r.p);
+      }
       // --paths and --paths-only emit the same byte stream. We check
       // BOTH before --json so the pipeline-friendly contract trumps
       // the machine-readable one (matches the precedent set by
@@ -167,7 +223,7 @@ export function tagsCommand() {
       // keeps the flag family uniform without breaking the existing
       // --paths contract that the tests pin to its exact byte layout.
       if (opts.paths || opts.pathsOnly) {
-        for (const p of out.paths) process.stdout.write(`${p}\n`);
+        for (const p of paths) process.stdout.write(`${p}\n`);
         return;
       }
       if (opts.json) {
@@ -204,11 +260,18 @@ export function tagsCommand() {
         // Single-line JSON.stringify so an NDJSON snapshot stream
         // diffs cleanly across ticks.
         if (opts.slim) {
-          const slim = { count: out.count, tag: out.tag, paths: out.paths };
+          const slim = { count: paths.length, tag: out.tag, paths };
           process.stdout.write(JSON.stringify(slim) + '\n');
           return;
         }
-        process.stdout.write(JSON.stringify(out, null, 2) + '\n');
+        // Full --json shape includes the sorted paths too — observational
+        // consistency with --slim and --paths-only across every output
+        // mode. The full shape's `count` is recomputed from the sorted
+        // length so it always matches paths.length (--sort cannot
+        // change the count, but we keep the recompute belt-and-suspenders
+        // so a future filter on top of --sort does not silently lie).
+        const payload = { tag: out.tag, paths, count: paths.length };
+        process.stdout.write(JSON.stringify(payload, null, 2) + '\n');
         return;
       }
       // --paths is the pipeline-friendly contract shared with pins/mutes/
@@ -221,7 +284,7 @@ export function tagsCommand() {
         process.stdout.write(kleur.gray(`no sources tagged ${out.tag}\n`));
         return;
       }
-      for (const p of out.paths) process.stdout.write(`${p}\n`);
+      for (const p of paths) process.stdout.write(`${p}\n`);
     });
 
   cmd.command('show <path>')
