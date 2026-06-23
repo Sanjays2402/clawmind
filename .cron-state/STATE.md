@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-22 20:07 PDT (current)
+### Tick 2026-06-22 23:37 PDT (current)
+
+- [x] feat(feedback): list --json --slim emits 4-integer count-only shape carving the boost distribution at neutral (5d21b7a)
+- [x] feat(search): --json --slim emits the deeper-cut {rank,path,score,namespace} dashboard shape (skips snippetFor) (713649a)
+- [x] feat(related): --json --slim drops per-neighbour hits + excerpt, keeps {path, score, namespace} (7bc727f)
+- [x] feat(aliases): list --json --slim emits {count, names} for the alias-stability cron poll (71cb531)
+- [x] feat(digest): list --json --slim emits {count, overdueCount, neverRunCount} for the digest-current cron poll (abec248)
+
+### Tick 2026-06-22 20:07 PDT
 
 - [x] feat(feedback): list --reverse modifier flips --sort direction (4th port of the family-wide reverse-modifier contract) (32580ff)
 - [x] feat(digest): list --reverse modifier flips --sort direction (5th port of the family-wide reverse-modifier contract) (6777c44)
@@ -199,12 +207,11 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(stats): add --slim --paths --json composition byte-layout pin: when --slim, --paths, and --json are all set, which one wins? The current code path is undocumented in the cli help; --paths short-circuits BEFORE --json which short-circuits BEFORE --slim. Pin the precedence so a future refactor that changed the order would surface immediately.
 - [ ] feat(digest): extend show --paths-only --diff with `--only-added` / `--only-removed` exclusive emit modes (the `--diff` shape requires post-processing with `grep "^+ " | cut -c3-` for the single-direction stream; a dedicated flag pair would skip that step. Open question: do both flags compose naturally, or should `--only-added --only-removed` be a no-op equivalent to plain `--paths-only` (since the union is the flat shape)? Or should it abort because the two are semantically exclusive?).
 - [ ] feat(stale): add the `--reverse` family-wide modifier to the `--sort` keys that have NO meaningful default direction (currently `--sort path` is asc by default; `--sort age` and `--sort size` are desc). Document the rule clearly in the help text: "--reverse flips the default DIRECTION for the key, not the SEMANTIC direction" — so a user who wants "oldest first" under `--sort age` does NOT need --reverse (they get it by default), and `--reverse` gives them "youngest first" which is a different semantic question. The help text on `--reverse` should reference the default direction for each `--sort` key so the user knows what reversing means before they try it. (No code change; pure docs clarification with a test pin that the help string contains the per-key default-direction notes.)
-- [ ] feat(feedback): port the --slim shape pattern from `prune --json --slim` to `feedback list --json --slim` for the same cron-dashboard reason — a list shape that drops the per-entry path/ups/downs blocks and emits just `{count, neutralCount, upDominantCount, downDominantCount}` for the headline dashboard. The full list payload can be tens of kilobytes on a workspace with hundreds of votes; a dashboard polling once a minute does not need that detail. Open question: which buckets to expose? The simplest cut is "above 1.0 / below 1.0 / equal 1.0" but the more interesting one might be the histogram by --above/--below thresholds.
-- [ ] feat(search): port the --slim shape from `prune --json --slim` / the queued `feedback list --json --slim` to `search --json --slim`. Drops snippet/highlights/excerpts entirely (the existing `--no-snippet` does this) AND drops the per-hit body fields not needed for ranking diffs, leaving just `{id, path, score, namespace}` per hit. The cron use is a dashboard polling "what does the top-5 for query X look like over time" without paying the per-hit excerpt cost; the existing --no-snippet drops snippets but preserves the rest of the hit body. Composes with --paths-only / --threshold / --sort / --reverse for the smallest-possible dashboard NDJSON shape.
-- [ ] feat(related): port the --slim shape to `related --json --slim` for the same cron-dashboard reason — drops excerpts and reduces to `{path, score, namespace}` per neighbour. The natural use is a per-source neighbour-diff dashboard; the related response carries a multi-paragraph `excerpt` per neighbour which dominates the payload size for a polling consumer.
 - [ ] feat(feedback): port the --reverse + --top composition pin to `feedback prune --json --slim` (does --reverse have any meaning on prune? Probably not since prune is a destructive batch operation, not a list. But the question is worth pinning so a future operator sees it documented as "intentionally not supported" rather than "forgotten").
-- [ ] feat(aliases): add `list --json --slim` cron-dashboard shape — drop the per-entry createdBy/createdAt blocks and emit just `{count, names}` (an array of alias names). The cron use is a dashboard polling "is the alias set stable" without paying the per-entry metadata cost. Composes with --since for "names added recently".
-- [ ] feat(digest): add `list --json --slim` cron-dashboard shape — drop the per-entry query/lastNewCount/lastRemovedCount/runs blocks and emit just `{count, overdueCount, neverRunCount}` using the existing --since cutoff to drive the overdueCount. The cron use is a dashboard polling "are my digests current" without the per-entry metadata cost. Composes with --sort lastRunTs / --reverse for the per-row ordering when the operator wants the full list but in a specific order; --slim drops the per-row payload regardless.
+- [ ] feat(stale): port the family-wide --slim cron-dashboard shape to `stale --json --slim`. Today stale already has `--slim` as a TEXT-mode toggle that emits `{stale, total}` — verify whether the existing slim shape composes cleanly with --json or whether `stale --json --slim` produces a different shape than the other family members. If the shape is `{stale: [<path>], total: N}` (per-path stale list) it pairs naturally with the cron use; if the slim toggle was bypassed for --json the queue should add the explicit `--json --slim` shape pin.
+- [ ] feat(tags): port the family-wide --slim cron-dashboard shape to `tags list --json --slim` and `tags paths <tag> --json --slim`. The `tags list` natural shape is `{count, tags}` (the names array, mirroring the aliases shape). The `tags paths <tag>` natural shape is `{count, tag, paths}` (the tag identifier + path array — useful for daily snapshots of "the paths under tag X" diffing cleanly even when the API order shifts across ingests; pairs with the queued `--reverse` port on `tags paths --paths-only`).
+- [ ] feat(pins): port the family-wide --slim cron-dashboard shape to `pins list --json --slim` and `mutes list --json --slim`. Natural shape: `{count, paths}` (the path array). Same as the aliases shape but on the pins/mutes axis (a dashboard polling "is the pinned set stable" or "is the muted set stable" once a minute).
+- [ ] feat(forget): port the family-wide --slim cron-dashboard shape to `forget --dry-run --json --slim`. Natural shape: `{count, namespaces}` (a histogram of "how many paths would forget touch per namespace") or just `{count}` (the total). The current --dry-run --json emits the full per-path list which can be megabytes on a wildcard pattern; a dashboard polling once a minute for "is the forget pattern stable" wants the count alone.
 - [ ] feat(stats): add `--json --slim --top <n>` composition pin: when --slim is set, --top should affect the `stale` array (cap at N namespaces) rather than the per-namespace extensions list. Currently --top only affects extensions; --slim drops extensions entirely so --top is silently a no-op under --slim. Either make --top affect the `stale` cap under --slim (the more useful behaviour) or document explicitly that --top is ignored under --slim. Pick one and pin it.
 - [ ] feat(tags): port the --reverse contract to `tags paths <tag> --paths-only` — the paths-only stream is currently in API order. Adding a `--sort path` would let cron snapshots diff cleanly; adding `--sort path --reverse` would complete the family on this command too. The natural use is a daily snapshot of "the paths under tag X" diffing cleanly even when the API order shifts across ingests.
 
@@ -2307,3 +2314,138 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   documented explicitly in both the --reverse help text AND in
   the corresponding test comments — a future reader sees the
   precedent rather than guessing.
+
+
+- 2026-06-22 23:37 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: 5d21b7a, 713649a, 7bc727f, 71cb531, abec248. Test gate:
+  `@clawmind/cli` 662/662 vitest pass (up from 629, +33 new tests:
+  feedback +5, search +8, related +5, aliases +5, digest +6, plus
+  4 more that landed in feature 1 commit's helper coverage). All 5
+  are family-wide --json --slim cron-dashboard-shape ports, closing
+  out the queued sweep that had explicitly called out all five
+  commands.
+
+  Theme: complete the family-wide --json --slim cron-dashboard
+  contract. The --slim shape was first introduced two ticks ago on
+  `feedback prune --json --slim` (mirroring the `doctor --json
+  --quiet` and `digest run --json --slim` precedent). The queued
+  list explicitly called out FIVE further ports: feedback list,
+  search, related, aliases list, digest list. This tick ships all
+  five.
+
+  The slim cron-dashboard contract — now uniform across NINE cli
+  commands (4 prior precedents + 5 this tick):
+    1. Single-line JSON.stringify (no indent) so NDJSON snapshot
+       streams diff cleanly between ticks.
+    2. Drops the per-entry heavy fields the dashboard does not need
+       (text bodies, excerpts, timestamps, per-row metadata).
+    3. Emits a small set of integer counts + (optionally) a single
+       array of identifiers (names, paths, ranking minima).
+    4. Composes with every filter/sort the command already supports
+       — the slim shape describes the SURVIVORS, not the raw API
+       payload.
+    5. Silently ignored without --json (the text-mode rendering is
+       for humans and stays unchanged).
+
+  The nine cli commands carrying the slim contract after this tick:
+    feedback prune --json --slim     (tick 11; precedent)
+    digest run --json --slim         (tick 7; precedent)
+    doctor --json --quiet            (tick 9; precedent — the
+                                      slim-equivalent flag name on
+                                      doctor is --quiet because
+                                      doctor's primary JSON shape
+                                      is multi-section)
+    stats --json --slim              (tick 5; precedent)
+    feedback list --json --slim      (this tick — feature 1)
+    search --json --slim             (this tick — feature 2)
+    related --json --slim            (this tick — feature 3)
+    aliases list --json --slim       (this tick — feature 4)
+    digest list --json --slim        (this tick — feature 5)
+
+  Per-feature notes:
+
+    1. feedback list --json --slim (5d21b7a). 5 new tests. The
+       shape is `{count, neutralCount, upDominantCount,
+       downDominantCount}` — four integers carving the boost
+       distribution at neutral with STRICT comparisons (an entry
+       at exactly 1.0 is neutral, not dominant in either
+       direction). Mirrors the `feedback list --above 1.0` /
+       `--below 1.0` strict-comparison semantics the operator
+       already knows from the band-filter flags. The sum-equals-
+       total invariant (count === up + down + neutral) is pinned
+       so a downstream `jq .upDominantCount / .count` ratio is
+       trivially auditable.
+
+    2. search --json --slim (713649a). 8 new tests. The shape is
+       `{rank, path, score, namespace}` per hit. The deeper cut
+       beyond --no-snippet: drops snippet/highlights/startLine
+       entirely. The CRITICAL perf property: the slim path DOES
+       NOT call snippetFor() — a cron dashboard polling once a
+       minute over a 50-result top-k must not pay 50 snippet
+       renders per poll. Pinned by `snippetForMock.not.
+       toHaveBeenCalled()` under --slim AND a baseline assertion
+       that the full --json path DOES call snippetFor (so the
+       perf claim is auditable both ways). Precedence pinned:
+       --paths-only > --slim > --no-snippet > full --json.
+       Honours --out file dispatch + wrote-N stderr confirm byte-
+       for-byte with the full --json --out behaviour.
+
+    3. related --json --slim (7bc727f). 5 new tests. Per-item
+       shape `{path, score, namespace}` — three fields. Drops
+       per-neighbour `hits` count AND multi-paragraph `excerpt`
+       body. Top-level fields PRESERVED: path (queried source),
+       sourceChunkCount (property of the source, NOT of the
+       returned set — critical that --threshold can take count
+       to 0 while sourceChunkCount stays at the API value),
+       count (filtered survivors). Pinned by a test that
+       --threshold dropping every neighbour leaves
+       sourceChunkCount at 47 while count and items go to 0/[].
+
+    4. aliases list --json --slim (71cb531). 5 new tests. Shape
+       `{count, names}` — two fields. `names` is the alphabetically-
+       ordered list of alias names IN WHICHEVER ORDER the prior
+       filter+sort pipeline produced — switching --slim on/off
+       must NOT flip the ordering. Pinned by a test that
+       --sort name --reverse produces desc-alphabetical
+       ['c','b','a']. Composes with --since for the "names added
+       at-or-after cutoff" cron poll.
+
+    5. digest list --json --slim (abec248). 6 new tests. Shape
+       `{count, overdueCount, neverRunCount}` — three integers.
+       The third bucket exists because "added a saved search
+       but never ran it" is operationally DISTINCT from "ran it
+       once but it has gone stale" — the two have different
+       remedies. The sum-equals-total invariant
+       (count === overdueCount + neverRunCount) is pinned across
+       three fixtures (all-never-run, all-timestamped, empty).
+       Composes with --since for the canonical overdue audit —
+       pairs with `digest run --since "..." --json --slim` (the
+       sibling slim shape that ran 12 ticks ago) as the
+       read+write side of the same overdue question.
+
+  Push: c5fb70e..abec248 main -> main. All five commits authored
+  as `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+
+  Verify-gate note: ran `pnpm run ci:verify` (full pipeline,
+  21 tasks: typecheck + test + build across all packages). 19
+  successful, 2 failed — both pre-existing reds unchanged by
+  this batch:
+    (1) `@clawmind/telemetry` OpenTelemetry 1.x/2.x peer mismatch
+        (queued since tick 1)
+    (2) `packages/rag/test/hybrid.test.ts` alpha-blend drift
+        (queued since tick 6)
+  The `@clawmind/cli` package is fully green: 662/662 cli tests
+  pass, typecheck clean, build clean. The `status --watch --json
+  --check-after` flake did not fire this tick.
+
+  Theme connector: this is the twelfth consecutive ship-from-
+  patterns tick. The --slim cron-dashboard contract is now byte-
+  for-byte uniform across all NINE cli commands that carry the
+  primitive. An operator who learned --slim on `feedback prune`
+  two ticks ago knows the shape on every list-style command in
+  the cli today. The queued list grows by 5 new follow-up ports
+  (stale --json --slim, tags list/paths --json --slim, pins/mutes
+  list --json --slim, forget --dry-run --json --slim) that
+  surfaced from the patterns this batch established — every
+  list-style command in the cli that does NOT yet carry --slim
+  is now identified by name in the queue for future ticks.
