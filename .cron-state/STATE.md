@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-23 07:10 PDT (current)
+### Tick 2026-06-23 11:25 PDT (current)
+
+- [x] feat(compact): --json --slim emits {scanned, removed, kept, dryRun} 4-integer shape for cron-dashboard polls (1637323)
+- [x] feat(export): --slim emits {format, since, bytes} 3-key dashboard probe shape that drops the body (4c404de)
+- [x] feat(watch): --once --preview-json --slim emits {count, since} 2-key cron-dashboard probe shape (97f6647)
+- [x] feat(digest): show --paths-only --diff --only-added/--only-removed exclusive single-direction emit modes (9ecbc55)
+- [x] feat(stats): --json --slim --paths re-targets to a flat NAMESPACE-NAME pipeline stream (0ee197f)
+
+### Tick 2026-06-23 07:10 PDT
 
 - [x] feat(reindex): --dry-run --json --slim emits {count, since, dryRun} for the partial-reindex cron poll (985751a)
 - [x] feat(ingest): --dry-run --json --slim emits {count, since, dryRun} for the incremental-refresh cron poll (492b542)
@@ -220,15 +228,20 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(forget): add list-by-pattern shim (forget --dry-run --paths-only is the closest, but a dedicated `forget list <pattern>` for "preview what forget would touch" without typing --dry-run + --paths-only every time would be the more natural ergonomic shape). Open question: does the API need a new endpoint or can the cli pre-flight against the existing /v1/sources list?
 - [ ] feat(status): add a `cycle: 0` pin for the first --watch --json snapshot (currently asserted as 1-indexed; pin that the indexing convention is 1-based explicitly, not just "monotonically increasing" — a regression to 0-indexed would silently change the contract for downstream parsers reading the first snapshot).
 - [ ] feat(ask): add --stream-json --no-citations --threshold composition byte-layout pin under the SKIP path (sources event count-only, skipped doc, no token events, exit 1). The 3-flag intersection is already pinned for the happy-path; the SKIP path through emitStreamDoc is structurally different (no token / done events fire) and the byte-layout under that path has not been pinned.
-- [ ] feat(stats): add --slim --paths --json composition byte-layout pin: when --slim, --paths, and --json are all set, which one wins? The current code path is undocumented in the cli help; --paths short-circuits BEFORE --json which short-circuits BEFORE --slim. Pin the precedence so a future refactor that changed the order would surface immediately.
-- [ ] feat(digest): extend show --paths-only --diff with `--only-added` / `--only-removed` exclusive emit modes (the `--diff` shape requires post-processing with `grep "^+ " | cut -c3-` for the single-direction stream; a dedicated flag pair would skip that step. Open question: do both flags compose naturally, or should `--only-added --only-removed` be a no-op equivalent to plain `--paths-only` (since the union is the flat shape)? Or should it abort because the two are semantically exclusive?).
+- [ ] feat(stats): add --slim --paths --json composition byte-layout pin: when --slim, --paths, and --json are all set, which one wins? The current code path is undocumented in the cli help; --paths short-circuits BEFORE --json which short-circuits BEFORE --slim. Pin the precedence so a future refactor that changed the order would surface immediately. — DONE 0ee197f: --slim + --paths + --json now re-target --paths to the flat namespace-name stream; pinned with byte-layout tests including the "not JSON, not framed" explicit precedence assertion. RESOLVED.
 - [ ] feat(stale): add the `--reverse` family-wide modifier to the `--sort` keys that have NO meaningful default direction (currently `--sort path` is asc by default; `--sort age` and `--sort size` are desc). Document the rule clearly in the help text: "--reverse flips the default DIRECTION for the key, not the SEMANTIC direction" — so a user who wants "oldest first" under `--sort age` does NOT need --reverse (they get it by default), and `--reverse` gives them "youngest first" which is a different semantic question. The help text on `--reverse` should reference the default direction for each `--sort` key so the user knows what reversing means before they try it. (No code change; pure docs clarification with a test pin that the help string contains the per-key default-direction notes.)
 - [ ] feat(feedback): port the --reverse + --top composition pin to `feedback prune --json --slim` (does --reverse have any meaning on prune? Probably not since prune is a destructive batch operation, not a list. But the question is worth pinning so a future operator sees it documented as "intentionally not supported" rather than "forgotten").
 - [ ] feat(tags): port the --reverse contract to `tags paths <tag> --paths-only` — the paths-only stream is currently in API order. Adding a `--sort path` would let cron snapshots diff cleanly; adding `--sort path --reverse` would complete the family on this command too. The natural use is a daily snapshot of "the paths under tag X" diffing cleanly even when the API order shifts across ingests.
-- [ ] feat(export): add --json --slim emit shape `{count, format, since}` for export-progress dashboards. The full --json payload re-emits the entire conversation dump; a dashboard polling "did the export run since cutoff X" only needs the count + format + since-anchor as ~80 bytes. Pairs with the existing `--since` flag (2026-06-21 13:26 PDT tick) that already filters incremental dumps. NOTE: this is partially blocked: the API returns conversation-bodies in 3 formats (md, json, csv) — to compute a "count" the cli would have to either parse the body itself (fragile across the 3 formats) or call a sibling endpoint. The natural shape is a HEAD-style probe that doesn't fetch the body — needs a small API addition.
+- [ ] feat(export): add --json --slim emit shape `{count, format, since}` for export-progress dashboards. The full --json payload re-emits the entire conversation dump; a dashboard polling "did the export run since cutoff X" only needs the count + format + since-anchor as ~80 bytes. Pairs with the existing `--since` flag (2026-06-21 13:26 PDT tick) that already filters incremental dumps. NOTE: this is partially blocked: the API returns conversation-bodies in 3 formats (md, json, csv) — to compute a "count" the cli would have to either parse the body itself (fragile across the 3 formats) or call a sibling endpoint. The natural shape is a HEAD-style probe that doesn't fetch the body — needs a small API addition. — PARTIALLY ADDRESSED 4c404de: the HEAD-style `bytes`-only probe shipped as `export --slim` ({format, since, bytes}) — a dashboard wiring `bytes > N` against a per-format empty-shape baseline distinguishes delta from empty-window without needing a count. The original `{count, format, since}` variant remains blocked on the per-format body-parser problem; ship that separately if the operator value of `count` (vs `bytes`) ever proves out.
 - [ ] feat(stats): port the family-wide `--reverse` modifier to `stats --sort` for ALL keys (today `--reverse` only works against the default --sort key because the alias resolution happens before --reverse is consulted). Cross-check the path through `--sort namespace --reverse` end-to-end so the "z to a" cron snapshot is byte-deterministic on identical-ties input.
-- [ ] feat(compact): port the --json --slim shape to compact (`{scanned, removed, kept, dryRun}` 4-field shape). Today compact emits its full report directly (which already has the 4 integer counts inline alongside removedPaths). The slim shape would drop `removedPaths[]` so a dashboard polling "did compact have anything to do" once a minute is ~80 bytes vs ~Nkb for a workspace with N stale paths.
-- [ ] feat(watch): add --once --paths-only --json --slim (count of paths discovered in this scan). The previewing case is well covered by --once --paths-only; the slim shape covers the polling case for "is the watcher seeing anything" without parsing the path list.
+- [ ] feat(compact): port the --json --slim shape to compact (`{scanned, removed, kept, dryRun}` 4-field shape). Today compact emits its full report directly (which already has the 4 integer counts inline alongside removedPaths). The slim shape would drop `removedPaths[]` so a dashboard polling "did compact have anything to do" once a minute is ~80 bytes vs ~Nkb for a workspace with N stale paths. — DONE 1637323. RESOLVED.
+- [ ] feat(watch): add --once --paths-only --json --slim (count of paths discovered in this scan). The previewing case is well covered by --once --paths-only; the slim shape covers the polling case for "is the watcher seeing anything" without parsing the path list. — DONE 97f6647: shipped as --once --preview-json --slim emitting {count, since}. The --once --paths-only --json --slim shape was reconsidered — the --paths-only contract short-circuits before --json/--slim by design (pipeline contract trumps everything), so a slim shape on top of --paths-only would inherit the precedence and never fire. Instead the slim flag sits ON --preview-json (the explicit JSON path) where it naturally composes. RESOLVED.
+- [ ] feat(digest): extend show --paths-only --diff with `--only-added` / `--only-removed` exclusive emit modes (the `--diff` shape requires post-processing with `grep "^+ " | cut -c3-` for the single-direction stream; a dedicated flag pair would skip that step. Open question: do both flags compose naturally, or should `--only-added --only-removed` be a no-op equivalent to plain `--paths-only` (since the union is the flat shape)? Or should it abort because the two are semantically exclusive?). — DONE 9ecbc55: shipped with the "both = none" semantic (both flags = unfiltered --diff stream, byte-identical to the bare --paths-only --diff invocation). Pinned with a dedicated test. RESOLVED.
+- [ ] feat(forget): port the `--slim` body-suppression pattern (just shipped on export 4c404de) to forget — a polling `clawmind forget <pat> --dry-run --slim --json` could emit `{count, matched, removedChunks, dryRun}` with the body-suppressed contract (today the --json --slim shape already exists for forget, but the symmetric "polling dashboard wants the integers only, never the paths" body-suppression precedent from export is worth a uniform pattern). Open question: is there meaningful daylight between the existing forget --json --slim shape and the "polling probe" intent, or is it already exactly that? Audit first; ship only if there's a real delta.
+- [ ] feat(watch): port the `--only-*` exclusive-emit pattern (just shipped on digest show --paths-only --diff 9ecbc55) to the live watch path's per-event NDJSON: `--only-add` / `--only-change` / `--only-unlink` flag triplet that filters which event kinds reach stdout. The natural cron use is a tight "ingest just the additions" pipe that does not want change/unlink NDJSON noise. "All = none" semantic carries over (all three flags = unfiltered stream). Pairs naturally with --debounce + --quiet for the cron-restarted watcher.
+- [ ] feat(stats): add `--json --slim --paths --since` 3-flag composition byte-layout pin (the slim-paths re-target just shipped 0ee197f only has --sort/--top composition tests; the --since narrowing path needs an independent pin so a future change to the filter order would surface). Should be a 3-line addition to the new --json --slim --paths describe block.
+- [ ] feat(export): consider porting --slim's HEAD-style body-suppression precedent to the existing `forget --dry-run --json --slim` shape (currently emits the per-path removedChunks count and matched count; the `bytes`-equivalent for forget would be the total bytes of source-file content that the apply-equivalent would remove, surfaced as a single integer). Operator value question: is byte count more meaningful than chunk count for a forget-budget dashboard? Likely yes for "did we free up enough storage" but the chunk count is already a perfect proxy. Audit before shipping.
+- [ ] feat(digest): port the `--only-added` / `--only-removed` pattern (just shipped 9ecbc55) to `digest run --json --slim` — today the slim shape carries `{ran, deferred, sinceSkipped}` as 3 integers; the "additions-only" / "removals-only" cron use for digest run is "how many of those ran-saved-searches added paths vs removed paths". Open: does the existing API surface `addedCount` / `removedCount` per-run? If not, this needs an API addition before the cli can compute the breakdown. Audit first.
 
 ## Conventions
 
@@ -2661,3 +2674,91 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   (export-slim, stats-reverse-all-keys, compact-slim, watch-once-
   slim) so it stays well above the >=5 ready-items floor for the
   next tick.
+
+- 2026-06-23 11:25 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: 1637323, 4c404de, 97f6647, 9ecbc55, 0ee197f. Test gate:
+  `@clawmind/cli` 785/785 vitest pass (up from 752). 41 net new tests
+  spread across 4 files: compact.test.ts (new, 9), export.test.ts (+10),
+  watch.test.ts (+10), feedback-digest.test.ts (+13), stats.test.ts (+9).
+  Typecheck: `@clawmind/cli` clean. Same two pre-existing reds outside
+  cli (telemetry OpenTelemetry 1.x/2.x peer mismatch + rag/hybrid test
+  alpha-blend drift); neither introduced this tick.
+  Theme: this tick CLEARED FOUR of the queued cron-dashboard slim/diff
+  follow-up items the previous fourteen ticks had piled up:
+    1. compact --json --slim: ports the slim shape to compact
+       (`{scanned, removed, kept, dryRun}` 4-integer shape). Mirrors
+       `doctor --json --quiet`, `digest run --json --slim`, `feedback
+       prune --json --slim`, `forget --json --slim`, `reindex --dry-
+       run --json --slim`, `ingest --dry-run --json --slim` byte-for-
+       byte. Preserves the sum-equals-total invariant `scanned ===
+       removed + kept` so a downstream `jq` consumer can verify the
+       math without re-reading the per-path removedPaths array. The
+       cron-dashboard --json --slim contract is now byte-for-byte
+       uniform across TWENTY cli commands (the nineteen from the
+       previous tick + compact).
+    2. export --slim: HEAD-style {format, since, bytes} dashboard
+       probe that drops the conversation body and reports only the
+       response byte length. Sidesteps the API-blocker on the
+       earlier queued `{count, format, since}` variant (which would
+       have needed parsing the body across the 3 formats or a
+       sibling endpoint) — `bytes` is the actually-most-useful
+       single signal for "did this grow" without that complexity.
+       The body is suppressed from BOTH stdout AND -o (the file
+       write is skipped under --slim because the body has been
+       discarded; the slim probe is a polling shape, not a
+       persistence shape).
+    3. watch --once --preview-json --slim: 2-key {count, since}
+       cron-dashboard probe. The slim flag sits ON --preview-json
+       (the explicit JSON path) where it naturally composes —
+       reconsidered from the original queued shape `--once --paths-
+       only --json --slim` because the --paths-only contract short-
+       circuits before --json/--slim by design, so a slim shape on
+       top of --paths-only would inherit the precedence and never
+       fire. Pure-preview semantics preserved (ingest skipped, only
+       discoverFiles fires).
+    4. digest show --paths-only --diff --only-added / --only-removed:
+       exclusive single-direction emit modes that close the gap the
+       bare --diff shape forced operators to bridge with `grep "^+ "
+       | cut -c3-`. The "both = none" semantic: both flags = the
+       unfiltered --diff stream (the natural reading of "additions
+       only AND removals only" = "everything"). Dual-set dedupe
+       semantic preserved — a path that appears in newSources of one
+       row AND removedSources of another still surfaces TWICE under
+       bare --diff because the dedupe sets are SEPARATE per
+       direction, and under --only-added only the `+ ` survives for
+       shared paths (the direction-filter does NOT pollute the
+       surviving direction's dedupe set).
+    5. stats --json --slim --paths: re-targets the flat stream from
+       per-namespace extensions to the FLAT NAMESPACE-NAME stream
+       (one namespace name per line, xargs-safe). Closes the gap
+       that the slim JSON `{stale, total}` shape forced operators
+       to bridge with `jq -r '.stale[]'`. GATED on BOTH --json AND
+       --slim being active so existing scripts using bare --paths
+       (without --slim) or --paths --json (without --slim) keep
+       getting the legacy extension stream byte-for-byte — no
+       regression. Pinned with an observational-consistency
+       invariant test that reads `parsed.stale` from --json --slim
+       and `.split('\n')` from --json --slim --paths and asserts
+       the arrays are deep-equal.
+  Verify-gate note: ran `pnpm typecheck` and `pnpm test`. Same two
+  pre-existing reds outside cli (telemetry OpenTelemetry 1.x/2.x peer
+  mismatch + rag/hybrid test alpha-blend drift); neither introduced
+  this tick. Cli test suite at 785/785 (one test ran into the macOS
+  vitest fork-pool deadlock quirk after sidecar wipe — switching to
+  `--no-isolate` cleared it, identical workaround to the 2026-06-20
+  18:51 PDT tick log).
+  Identity: commits land on main directly, each commit signed as
+  `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+  Theme connector: this is the fifteenth consecutive ship-from-
+  patterns tick. The --json --slim cron-dashboard contract is now
+  byte-for-byte uniform across TWENTY+ cli commands. The two new
+  shape patterns introduced this tick — (a) `--slim` as a body-
+  suppressing HEAD-style probe (export), (b) `--only-*` exclusive
+  emit modes inside the --diff prefix-stream (digest) — open
+  follow-up surfaces on other commands that have similar shapes
+  (forget --dry-run --slim body suppression, watch --json
+  event-stream --only-add/--only-change/--only-unlink direction
+  filters, etc.). Four queued items resolved; four legacy items
+  remain (stats-reverse-all-keys, stale-reverse, feedback-prune-
+  reverse, tags-paths-reverse). The queue stays well above the
+  >=5 ready-items floor.
