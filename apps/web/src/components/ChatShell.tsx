@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { TopNav } from '@/components/TopNav';
-import { NamespacePicker, Spinner, type Ns } from '@clawmind/ui';
+import { NamespacePicker, type Ns, ChatAnswerSkeleton, SourcesRailSkeleton } from '@clawmind/ui';
 import { ChatStream } from './ChatStream';
 import { SourcesPane } from './SourcesPane';
 import { Composer } from './Composer';
@@ -99,9 +99,7 @@ export function ChatShell({
               <EmptyReading />
             )}
             {loading && answer === '' && (
-              <div className="flex items-center gap-3 text-sm text-cm-muted">
-                <Spinner /> reading the workspace
-              </div>
+              <ChatAnswerSkeleton />
             )}
             {error && (
               <div className="rounded-md border border-cm-border bg-cm-paper p-4 text-sm text-cm-danger">
@@ -136,7 +134,11 @@ export function ChatShell({
         </section>
 
         <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start">
-          <SourcesPane sources={sources} active={activeSource} onSelect={setActiveSource} />
+          {loading && sources.length === 0 ? (
+            <SourcesRailSkeleton />
+          ) : (
+            <SourcesPane sources={sources} active={activeSource} onSelect={setActiveSource} />
+          )}
         </aside>
       </div>
     </main>
