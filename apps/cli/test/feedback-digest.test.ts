@@ -677,6 +677,123 @@ describe('feedback cli', () => {
     expect(out).toContain('unknown source path');
     process.exitCode = 0;
   });
+
+  // -----------------------------------------------------------------
+  // feedback list --tsv [+ --header]: family-wide tab-separated emit.
+  // Mirrors search/related/stale/stats --tsv byte-for-byte (zero ANSI,
+  // zero header by default, zero trailing summary, plain \n separator).
+  // The four columns (path, boost, ups, downs) are the operator-facing
+  // signals minus the ANSI sign-glyph the text mode renders.
+  // -----------------------------------------------------------------
+
+  it('exposes --tsv and --header on the feedback list subcommand surface', () => {
+    const list = feedbackCommand().commands.find((c) => c.name() === 'list');
+    expect(list).toBeDefined();
+    const flags = list!.options.map((o) => o.long);
+    expect(flags).toContain('--tsv');
+    expect(flags).toContain('--header');
+  });
+
+  it('feedback list --tsv emits exactly one row per entry in the canonical 4-col layout, no header, no ANSI', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/up.md', ups: 3, downs: 0, boost: 1.25 },
+        { path: '/down.md', ups: 0, downs: 4, boost: 0.7 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--tsv']);
+    const out = captured.join('');
+    // Exact byte layout: <path>\t<boost.toFixed(2)>\t<ups>\t<downs>\n
+    // Boost uses toFixed(2) to match text-mode "${boost.toFixed(2)}x".
+    expect(out).toBe('/up.md\t1.25\t3\t0\n/down.md\t0.70\t0\t4\n');
+    // No header without --header.
+    expect(out.startsWith('path\t')).toBe(false);
+    // No ANSI codes.
+    expect(out).not.toMatch(/\x1b\[/);
+    // No sign-glyph chatter from the text mode (no +/-/= prefix).
+    expect(out.split('\n')[0]?.startsWith('/')).toBe(true);
+  });
+
+  it('feedback list --tsv --header prepends the canonical 4-col schema row', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/a.md', ups: 1, downs: 0, boost: 1.05 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--tsv', '--header']);
+    expect(captured.join('')).toBe('path\tboost\tups\tdowns\n/a.md\t1.05\t1\t0\n');
+  });
+
+  it('feedback list --tsv --header still fires the header row when zero entries match (schema-row-is-the-contract)', async () => {
+    // A typed-table consumer parsing the stream against an empty
+    // feedback store should still see the column names and produce
+    // a valid empty table. Mirrors search/related/stale/stats --tsv
+    // --header byte-for-byte.
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [] }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--tsv', '--header']);
+    // wc -l = 1 (header only), not 0.
+    expect(captured.join('')).toBe('path\tboost\tups\tdowns\n');
+  });
+
+  it('feedback list --tsv zero entries without --header yields a fully empty stream (xargs-safe)', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [] }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--tsv']);
+    expect(captured.join('')).toBe('');
+  });
+
+  it('feedback list --tsv wins over --slim (tab-separated pipeline contract beats JSON wrapper)', async () => {
+    // Precedence: --tsv > --slim > --json > text. Both --slim and
+    // --tsv compete for the "machine-readable" slot but --tsv is the
+    // pipeline shape (awk-friendly) that awk cannot satisfy on JSON.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/a.md', ups: 1, downs: 0, boost: 1.05 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--json', '--slim', '--tsv']);
+    const out = captured.join('');
+    // Tab-separated, no JSON bracketing.
+    expect(out).toBe('/a.md\t1.05\t1\t0\n');
+    expect(out).not.toContain('{');
+  });
+
+  it('feedback list --tsv composes with --above (filter narrows the rows before emit)', async () => {
+    // --above runs BEFORE the --tsv branch so the TSV stream is the
+    // post-filter survivors.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/strong-up.md', ups: 5, downs: 0, boost: 1.45 },
+        { path: '/neutral.md', ups: 1, downs: 1, boost: 1.0 },
+        { path: '/down.md', ups: 0, downs: 3, boost: 0.7 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--above', '1.0', '--tsv']);
+    // Only /strong-up.md survives (strictly > 1.0).
+    expect(captured.join('')).toBe('/strong-up.md\t1.45\t5\t0\n');
+  });
+
+  it('feedback list --tsv composes with --sort path (rows emit in alphabetical order)', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      items: [
+        { path: '/zzz.md', ups: 1, downs: 0, boost: 1.05 },
+        { path: '/aaa.md', ups: 0, downs: 1, boost: 0.95 },
+      ],
+    }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--sort', 'path', '--tsv']);
+    expect(captured.join('')).toBe('/aaa.md\t0.95\t0\t1\n/zzz.md\t1.05\t1\t0\n');
+  });
+
+  it('feedback list --tsv WITHOUT --header but with zero rows is byte-identical to the empty stream (regression pin)', async () => {
+    // Pins that the zero-row path differs ONLY by the header presence:
+    // bare --tsv on an empty workspace yields "" (the "no feedback yet"
+    // text hint must not leak into the TSV stream — xargs/wc must see
+    // exactly 0 lines).
+    globalThis.fetch = (async () => new Response(JSON.stringify({ items: [] }), { status: 200 })) as never;
+    await feedbackCommand().parseAsync(['node', 'cli', 'list', '--tsv']);
+    const bare = captured.join('');
+    expect(bare).toBe('');
+    expect(bare).not.toContain('no feedback');
+  });
 });
 
 describe('feedback prune cli', () => {

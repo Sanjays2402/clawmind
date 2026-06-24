@@ -90,8 +90,10 @@ export function feedbackCommand() {
     .option('--sort <key>', 'sort entries by one of: boost (desc — highest-boost first, "show me my most-trusted paths"), path (asc alphabetical, for stable cross-snapshot diffs), ups (desc — most-upvoted first), downs (desc — most-downvoted first). Applied AFTER -q / --above / --below so the sort orders the SURVIVORS of any narrowing filter. Applied BEFORE --top so `--sort downs --top 10` is "the 10 entries with the most downvotes regardless of boost magnitude" — distinct from the existing --top semantic ("the 10 loudest votes by |boost-1.0|") which is a SEPARATE ranking primitive answering a different question. Ties at the same sort key fall back to API order (deterministic across snapshots; secondary sort by the original index). Unknown keys abort cleanly with exit 1 — a typo cannot silently fall back to API order which would be indistinguishable from an empty `--sort` invocation in the cron log. The default (no --sort) preserves the API-returned order — existing scripts diffing `feedback list --json` snapshots stay byte-stable.')
     .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` / `search --reverse` / `related --reverse` byte-for-byte). With --sort boost the default is desc (highest-trust first); --reverse gives asc (lowest-trust first) — the natural "which paths are getting penalised hardest by feedback" question, complementary to the "most-trusted" default. With --sort path the default is asc alphabetical; --reverse gives desc — useful for `tail`-style log scrapes where the FIRST change is the operator\'s focus and lives at the bottom of an alphabetical run. With --sort ups the default is desc (loudest upvotes first); --reverse gives asc (entries with the fewest ups first) — surfaces the long tail of paths the operator has not yet acknowledged. With --sort downs the default is desc (loudest downvotes first); --reverse gives asc (fewest downs first) — the same long-tail question on the punishing side. Ignored without --sort (the API ordering is a fixed contract). The secondary tie-break by original index is ALSO reversed under --reverse so cross-snapshot determinism holds in either direction (two consecutive --sort + --reverse runs over identical-ties input produce byte-identical output). Composes with --top: the cap applies to the head of the post-reverse ordering, so `--sort downs --reverse --top 5` is "the 5 entries with the FEWEST downvotes" (not the 5 with the most).')
     .option('--slim', 'with --json: emit a slimmed `{count, neutralCount, upDominantCount, downDominantCount}` shape that drops the per-entry path/ups/downs/boost blocks. Mirrors the `doctor --json --quiet`, `digest run --json --slim`, `feedback prune --json --slim`, and `stats --json --slim` precedent. The classic cron use is a dashboard panel polling \"is the feedback distribution stable\" once a minute: the full --json payload can be tens of kilobytes on a workspace with hundreds of votes (each entry is ~80 bytes), and a polling consumer almost never needs the per-entry detail. --slim cuts the payload to four integers that diff cleanly across cron snapshots (no per-entry boost churn flooding the diff). The four buckets carve the boost distribution at neutral: upDominantCount (boost > 1.0), downDominantCount (boost < 1.0), neutralCount (boost === 1.0), and count (total entries — always equals the sum of the three bucket counts so a downstream `jq .upDominantCount / .count` ratio is trivially auditable). Composes naturally with -q / --above / --below for \"slim shape but only within filter X\": e.g. `feedback list --above 1.2 --json --slim` is \"how many strong upvotes survive the threshold\" as a single integer poll. Single-line JSON output so an NDJSON snapshot stream diffs cleanly between ticks. Silently ignored without --json (text mode already lives without the bucket counts).')
+    .option('--tsv', 'emit tab-separated rows (path, boost, ups, downs) for awk/cut pipelines. No ANSI, no header (use --header), no sign-glyph chatter. Mirrors `search --tsv` / `related --tsv` / `stale --tsv` / `stats --tsv` byte-for-byte (zero ANSI, zero header by default, zero trailing summary, plain \\n separator). The four columns mirror the full --json item shape minus the `id` field — the four operator-facing signals (path, boost multiplier, raw upvote count, raw downvote count) in column-aligned form. Composes with -q / --above / --below / --top / --sort / --reverse — the TSV stream describes the post-filter, post-sort, post-cap survivors (same as every other emit mode). Precedence: --tsv > --slim > --json > text. --tsv wins over --slim/--json because tab-separated is a pipeline contract that awk cannot satisfy on JSON cleanly. Boost is emitted with .toFixed(2) precision matching the text-mode render (`${it.boost.toFixed(2)}x`) so cross-mode diffs are byte-stable. Empty result yields a clean empty stream (the text-mode "no feedback yet" hint is suppressed under --tsv so xargs/wc see exactly 0 lines).')
+    .option('--header', 'with --tsv: prepend a single tab-separated schema row (`path<TAB>boost<TAB>ups<TAB>downs`). Mirrors `search --tsv --header` / `related --tsv --header` / `stale --tsv --header` / `stats --tsv --header` byte-for-byte: fires UNCONDITIONALLY when --header is set, including on a zero-row body (the schema row is the contract, not the data rows). The default header-less shape is preserved when --header is absent so existing pipelines using bare --tsv keep working byte-for-byte. Ignored without --tsv.')
     .option('--json', 'emit results as JSON for scripting')
-    .action(async (opts: { q?: string; above?: number; below?: number; top?: number; sort?: string; reverse?: boolean; slim?: boolean; json?: boolean }) => {
+    .action(async (opts: { q?: string; above?: number; below?: number; top?: number; sort?: string; reverse?: boolean; slim?: boolean; tsv?: boolean; header?: boolean; json?: boolean }) => {
       await runOrReport('feedback list', async () => {
         const qs = opts.q ? `?q=${encodeURIComponent(opts.q)}` : '';
         let out = (await apiFetch('GET', `/v1/feedback${qs}`)) as {
@@ -259,6 +261,43 @@ export function feedbackCommand() {
               .map((r) => r.it);
             out = { ...out, items: ranked.slice(0, opts.top) };
           }
+        }
+        if (opts.tsv) {
+          // --tsv emits a tab-separated row per entry: <path>\t<boost>\t
+          // <ups>\t<downs>. Mirrors `search --tsv` / `related --tsv` /
+          // `stale --tsv` / `stats --tsv` byte-for-byte (zero ANSI,
+          // zero header by default, plain \n separator).
+          //
+          // The four columns are the operator-facing signals minus
+          // the ANSI sign-glyph (+/-/=) the text mode renders. Boost
+          // uses `.toFixed(2)` precision matching the text mode's
+          // `${it.boost.toFixed(2)}x` render so cross-mode diffs are
+          // byte-stable.
+          //
+          // Precedence: --tsv > --slim > --json > text. --tsv runs
+          // BEFORE --json because tab-separated is the pipeline
+          // contract awk/cut expect; JSON would force a jq dance.
+          //
+          // --header (when set) prepends the canonical 4-col schema
+          // row. Fires UNCONDITIONALLY even on zero-row bodies (the
+          // schema row IS the contract — a downstream pandas.read_csv
+          // parsing an empty workspace should still see column
+          // names, mirroring search/related/stale/stats --tsv
+          // --header).
+          //
+          // Empty result yields a clean empty stream: the text-mode
+          // "no feedback yet" hint is suppressed under --tsv so
+          // xargs/wc see exactly 0 lines. Under --header the schema
+          // row STILL fires on zero rows, so wc -l = 1 (header only).
+          if (opts.header) {
+            process.stdout.write('path\tboost\tups\tdowns\n');
+          }
+          for (const it of out.items) {
+            process.stdout.write(
+              `${it.path}\t${it.boost.toFixed(2)}\t${it.ups}\t${it.downs}\n`,
+            );
+          }
+          return;
         }
         if (opts.json) {
           // --slim emits a 4-integer count-only shape carving the
