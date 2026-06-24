@@ -3307,4 +3307,175 @@ describe('digest cli', () => {
     expect(parsed.addedCount).toBe(6);
     expect(parsed.removedCount).toBe(7);
   });
+
+  // -----------------------------------------------------------------
+  // digest show --sort + --reverse: family-wide --sort port to the
+  // history rows. Three keys (ts, addedCount, removedCount), all desc
+  // by default. Mirrors search / related / stale / feedback list /
+  // digest list / aliases list / tags paths --sort byte-for-byte:
+  // applied AFTER -q/--since but BEFORE --last so the cap honours
+  // the new ordering; ties carry a secondary sort by original index;
+  // unknown keys throw cleanly. --reverse flips with a single sign-
+  // flipping multiplier on both primary AND secondary.
+  // -----------------------------------------------------------------
+
+  it('exposes --sort and --reverse on the digest show subcommand surface', () => {
+    const show = digestCommand().commands.find((c) => c.name() === 'show');
+    expect(show).toBeDefined();
+    const flags = show!.options.map((o) => o.long);
+    expect(flags).toContain('--sort');
+    expect(flags).toContain('--reverse');
+  });
+
+  it('show --sort ts is an explicit no-op against the API-returned newest-first order', async () => {
+    // The default fixture has ts=2 then ts=1 (newest-first). --sort ts
+    // re-sorts desc by ts which is byte-identical. Pinned as a
+    // regression guard against a future API change that returns rows
+    // in a different order — explicit --sort ts is the operator's
+    // defence.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--sort', 'ts', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([2, 1]);
+  });
+
+  it('show --sort ts --reverse flips to oldest-first ordering', async () => {
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--sort', 'ts', '--reverse', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([1, 2]);
+  });
+
+  it('show --sort addedCount orders by SUM of newSources.length desc', async () => {
+    // Override fixture with rows that have distinct add counts so the
+    // sort is observably different from the default ts order.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 4, newSources: [{ path: '/a' }], removedSources: [], totalSources: 1 },                 // 1 added
+          { ts: 3, newSources: [{ path: '/b' }, { path: '/c' }, { path: '/d' }], removedSources: [], totalSources: 3 }, // 3 added
+          { ts: 2, newSources: [{ path: '/e' }, { path: '/f' }], removedSources: [], totalSources: 2 }, // 2 added
+          { ts: 1, newSources: [], removedSources: [], totalSources: 0 },                              // 0 added
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--sort', 'addedCount', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number; newSources: unknown[] }[] } };
+    // Order by addedCount desc: 3 (ts=3), 2 (ts=2), 1 (ts=4), 0 (ts=1).
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([3, 2, 4, 1]);
+  });
+
+  it('show --sort removedCount orders by SUM of removedSources.length desc', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 4, newSources: [], removedSources: [], totalSources: 0 },                  // 0 removed
+          { ts: 3, newSources: [], removedSources: ['/a', '/b', '/c', '/d', '/e'], totalSources: 5 }, // 5 removed
+          { ts: 2, newSources: [], removedSources: ['/f', '/g'], totalSources: 2 },        // 2 removed
+          { ts: 1, newSources: [], removedSources: ['/h'], totalSources: 1 },              // 1 removed
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--sort', 'removedCount', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    // Order by removedCount desc: 5 (ts=3), 2 (ts=2), 1 (ts=1), 0 (ts=4).
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([3, 2, 1, 4]);
+  });
+
+  it('show --sort addedCount --reverse gives ascending (quietest-first) ordering', async () => {
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 3, newSources: [{ path: '/a' }, { path: '/b' }, { path: '/c' }], removedSources: [], totalSources: 3 }, // 3 added
+          { ts: 2, newSources: [{ path: '/d' }], removedSources: [], totalSources: 1 }, // 1 added
+          { ts: 1, newSources: [], removedSources: [], totalSources: 0 },               // 0 added
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--sort', 'addedCount', '--reverse', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    // Asc by addedCount: 0 (ts=1), 1 (ts=2), 3 (ts=3).
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([1, 2, 3]);
+  });
+
+  it('show --sort addedCount --last 1 surfaces the loudest-additions row in one call', async () => {
+    // Composition pin: --last applies to the HEAD of the post-sort
+    // ordering, so `--sort addedCount --last 1` is "the row with the
+    // MOST new paths added", NOT "the newest row". This is the
+    // operator-friendly cron one-liner for "what was the noisiest
+    // recent ingest event".
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 5, newSources: [{ path: '/a' }], removedSources: [], totalSources: 1 },                          // newest, 1 added
+          { ts: 4, newSources: [{ path: '/b' }, { path: '/c' }, { path: '/d' }, { path: '/e' }], removedSources: [], totalSources: 4 }, // 4 added (loudest)
+          { ts: 3, newSources: [{ path: '/f' }, { path: '/g' }], removedSources: [], totalSources: 2 },          // 2 added
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--sort', 'addedCount', '--last', '1', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    // Only ts=4 survives (the loudest row, NOT the newest).
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([4]);
+  });
+
+  it('show --sort with an unknown key throws cleanly with exit 1', async () => {
+    const stderrBuf: string[] = [];
+    const origErr = process.stderr.write.bind(process.stderr);
+    process.stderr.write = ((c: string) => { stderrBuf.push(String(c)); return true; }) as never;
+    try {
+      await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--sort', 'bogus', '--json']);
+    } finally {
+      process.stderr.write = origErr;
+    }
+    expect(process.exitCode).toBe(1);
+    expect(stderrBuf.join('')).toContain('--sort value must be one of');
+    process.exitCode = 0;
+  });
+
+  it('show --sort ties carry a secondary sort by original index (cross-snapshot determinism)', async () => {
+    // Three rows all with addedCount=2 — the secondary index sort
+    // ensures the order is deterministic. Mirrors the family-wide
+    // contract (search/related/stale/feedback/digest list --sort).
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 30, newSources: [{ path: '/a' }, { path: '/b' }], removedSources: [], totalSources: 2 }, // idx=0, 2 added
+          { ts: 20, newSources: [{ path: '/c' }, { path: '/d' }], removedSources: [], totalSources: 2 }, // idx=1, 2 added
+          { ts: 10, newSources: [{ path: '/e' }, { path: '/f' }], removedSources: [], totalSources: 2 }, // idx=2, 2 added
+        ],
+      },
+    }), { status: 200 })) as never;
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '--sort', 'addedCount', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    // All ties at addedCount=2 — original index preserves the
+    // newest-first order (ts=30, 20, 10).
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([30, 20, 10]);
+  });
+
+  it('show --sort composes with -q and --since (sort runs AFTER both filters)', async () => {
+    // -q narrows first, --since narrows second, --sort orders the
+    // survivors. Pin that the sort describes the kept set, not the
+    // original API payload.
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      state: {
+        query: 'snip',
+        history: [
+          { ts: 5000, newSources: [{ path: '/match-a.md' }, { path: '/match-b.md' }, { path: '/match-c.md' }], removedSources: [], totalSources: 3 },
+          { ts: 4000, newSources: [{ path: '/skip-a.md' }], removedSources: [], totalSources: 1 },
+          { ts: 3000, newSources: [{ path: '/match-d.md' }], removedSources: [], totalSources: 1 },
+          { ts: 2000, newSources: [{ path: '/old-match.md' }, { path: '/old-match-2.md' }], removedSources: [], totalSources: 2 },
+        ],
+      },
+    }), { status: 200 })) as never;
+    // -q "match" keeps 3 rows, --since 3000 keeps the 3 newest, --sort
+    // addedCount orders the 2 survivors by addedCount desc.
+    await digestCommand().parseAsync(['node', 'cli', 'show', 's1', '-q', 'match', '--since', '1970-01-01T00:00:03.000Z', '--sort', 'addedCount', '--json']);
+    const parsed = JSON.parse(captured.join('')) as { state: { history: { ts: number }[] } };
+    // -q match drops /skip-a.md (ts=4000). --since 3000 keeps ts >= 3000 = [5000, 3000]. --sort addedCount: 3 added (ts=5000), 1 added (ts=3000).
+    expect(parsed.state.history.map((h) => h.ts)).toEqual([5000, 3000]);
+  });
 });
