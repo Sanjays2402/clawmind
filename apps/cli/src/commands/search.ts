@@ -41,6 +41,8 @@ export function searchCommand() {
     .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` byte-for-byte). With --sort path the default is asc alphabetical; --reverse gives desc — the cron use is "what\'s at the END of the alphabetical run", useful for diff snapshots that want the FIRST change at the bottom of the visible window for a `tail -f`-style log scrape. With --sort namespace the default is asc grouping; --reverse gives desc — the most-recent (alphabetically-last) namespace at the top, useful for cron snapshots that put the freshest namespace first. With --sort score the default is desc; --reverse gives asc (weakest-first) — useful for the "what\'s about to fall off the relevance edge" question, complementary to the "strongest first" default. Ignored without --sort (the default retrieve() ordering is a fixed contract). The secondary tie-break by original index is ALSO reversed so cross-snapshot determinism holds in either direction. Composes with --paths-only — the dedupe walks the post-reverse order.')
     .option('--rerank-off', 'DEBUG escape hatch: skip the lexical-rerank step in the retrieval pipeline. Surfaces the raw hybrid-merged + boost-adjusted ordering BEFORE the lexical reorder, so an operator can diagnose whether the rerank is HELPING or HURTING on a particular query. Useful when tuning hybridAlpha or chasing a regression where a known-relevant chunk drops out of the top-k. Other stages (embed call, hybrid merge, MMR diversity) stay enabled — only the heuristic lexical-rerank is bypassed. Composes with --json / --threshold / --paths-only / -k for "what does the pipeline rank as #1 without the lexical layer", "what does the top-50 look like without the rerank pull", etc.')
     .option('--rerank-only', 'DEBUG escape hatch (inverse of --rerank-off): emit ONLY the rerank stage\'s ordering, skipping the MMR diversity pass that the production flow applies on top. Pairs with --rerank-off for a 3-way A/B against the same query: default (rerank+MMR), --rerank-off (raw hybrid+boost, no rerank, with MMR), --rerank-only (rerank applied, no MMR). The use is "is the diversity pass demoting a chunk I think should be #1, or is it the rerank step itself?" — separating the two stages lets the operator point a finger at the right layer. Implementation forwards { skipMmr: true } through retrieve(); the lexical-rerank stage still runs and the top-k is the head N of its score order. Setting both --rerank-off AND --rerank-only is allowed (raw hybrid+boost ordering with NEITHER post-stage applied) for the most extreme "what does the index look like before any heuristic touches it" probe.')
+    .option('--tsv', 'emit tab-separated rows (rank, path, score, namespace) for awk/cut pipelines. No ANSI, no header (use --header), no snippet body. Mirrors stale --tsv and stats --tsv byte-for-byte. Composes with -t / --threshold / --sort / --reverse / -k / -n / --include-tags / --exclude-tags — the TSV stream describes the post-filter, post-sort, post-cap survivors (same as every other emit mode). The four columns match the --json --slim shape byte-for-byte so a downstream parser flipping between the two only changes the framing, not the schema. Precedence: --paths-only > --tsv > --json > text — --paths-only wins because it is the strictly leaner shape; --tsv wins over --json because tab-separated is a pipeline contract that awk cannot satisfy on JSON cleanly. Score is emitted with the same .toFixed(3) precision text mode uses so cross-mode diffs are byte-stable. Empty result yields a clean empty stream (the text-mode "no results" hint is suppressed under --tsv so xargs/wc see exactly 0 lines).')
+    .option('--header', 'with --tsv: prepend a single tab-separated schema row (`rank<TAB>path<TAB>score<TAB>namespace`). Mirrors stale --tsv --header / stats --tsv --header byte-for-byte: fires UNCONDITIONALLY when --header is set, including on a zero-row body (the schema row is the contract, not the data rows). The default header-less shape is preserved when --header is absent so existing pipelines using bare --tsv keep working. Ignored without --tsv.')
     .option('--no-snippet', 'in --json mode, emit only rank/path/score/startLine (no snippet/highlights). Smaller payload for ranking pipelines')
     .option('--slim', 'with --json: emit a slimmed `{rank, path, score, namespace}` shape per hit. Drops snippet, highlights, AND startLine — leaving only the four fields needed for "what does the top-k for query X look like over time" cron dashboards. Mirrors the `doctor --json --quiet`, `digest run --json --slim`, `feedback prune --json --slim`, `feedback list --json --slim`, and `stats --json --slim` precedent. The full --json payload includes a per-hit snippet (240 bytes default) plus a highlights array — for a cron poll asking "is the top-5 stable" this dominates the payload size. The existing `--no-snippet` already drops snippet/highlights but PRESERVES startLine; `--slim` is the deeper cut for dashboards that do not need the chunk-identifier byte either. Per-hit shape is exactly `{rank, path, score, namespace}` — namespace is included because grouping hits by namespace is the single most useful slim-shape query (a query whose top-k clusters in one namespace tells the operator something the score alone does not). Composes with -t/--threshold (slim describes survivors of the band-filter), --sort/--reverse (slim emits the post-sort order, so `--sort path --reverse --json --slim` is the desc-alphabetical slim stream), -k (slim respects the top-k cap), and namespaces/include-tags/exclude-tags (slim describes the post-filter survivors). --paths-only wins over --slim because --paths-only is the EVEN-leaner shape (no JSON wrapper at all); the precedence is --paths-only > --slim > --no-snippet > full --json. Wins over --no-snippet when both are set (slim is strictly slimmer). Silently ignored without --json. Output is single-line JSON.stringify of the array (no indent) so an NDJSON-style cron snapshot stream diffs cleanly between ticks.')
     .option('--paths-only', 'emit only the matched paths, one per line, with duplicates collapsed in rank order. Pipeline-friendly twin of `forget --paths-only` / `stale --paths`. Ignores --json / --out / --snippet / --highlight; just dumps paths.')
@@ -62,6 +64,8 @@ export function searchCommand() {
           rerankOff?: boolean;
           rerankOnly?: boolean;
           snippet: boolean;
+          tsv?: boolean;
+          header?: boolean;
           slim?: boolean;
           pathsOnly?: boolean;
           json?: boolean;
@@ -216,6 +220,53 @@ export function searchCommand() {
             seen.add(h.path);
             process.stdout.write(`${h.path}\n`);
           }
+          return;
+        }
+        // --tsv emits a tab-separated row per hit: <rank>\t<path>\t
+        // <score>\t<namespace>. Mirrors `stale --tsv` / `stats --tsv`
+        // byte-for-byte (zero ANSI, zero header by default, zero
+        // trailing summary, plain \n separator). The four columns
+        // are deliberately the same fields the --json --slim shape
+        // carries so a downstream parser flipping between the two
+        // only changes the framing, not the schema.
+        //
+        // Precedence: --paths-only > --tsv > --json > text. The
+        // --paths-only branch above already short-circuited (it is
+        // the strictly leaner shape — no rank/score/namespace, just
+        // paths). --tsv runs BEFORE the --json branch because a
+        // tab-separated pipeline contract is what awk/cut expect,
+        // not a JSON wrapper. The text mode is the legacy emit and
+        // sits last.
+        //
+        // Score is emitted with `.toFixed(3)` precision matching the
+        // text-mode render (`${h.score.toFixed(3)}` in the header
+        // line below) so cross-mode diffs are byte-stable — a
+        // snapshot taken with --tsv and one with text mode agree on
+        // the score column.
+        //
+        // --header (when set) prepends the canonical 4-col schema
+        // row. Mirrors `stale --tsv --header` / `stats --tsv --header`
+        // byte-for-byte: fires UNCONDITIONALLY (including zero-row
+        // bodies) because the schema row IS the contract — a
+        // downstream pandas.read_csv parsing the stream against an
+        // empty workspace should still see the column names and
+        // produce a valid empty table, not crash with "No columns
+        // to parse".
+        //
+        // Empty result yields a clean empty stream: the text-mode
+        // "no results for X" hint is suppressed under --tsv so
+        // xargs/wc see exactly 0 lines. The --header row STILL
+        // fires under --header even on the zero-hits path (the
+        // contract above), so wc -l = 1 (header only).
+        if (opts.tsv) {
+          if (opts.header) {
+            process.stdout.write('rank\tpath\tscore\tnamespace\n');
+          }
+          hits.forEach((h, i) => {
+            process.stdout.write(
+              `${i + 1}\t${h.path}\t${h.score.toFixed(3)}\t${h.namespace}\n`,
+            );
+          });
           return;
         }
         const terms = queryTerms(q.q);

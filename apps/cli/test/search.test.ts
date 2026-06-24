@@ -1096,3 +1096,150 @@ describe('search --sort orders hits by an operator-chosen key', () => {
     expect(parsed.map((r) => `${r.path}:${r.score}`)).toEqual(['/zzz.md:0.42', '/dup.md:0.5', '/dup.md:0.91']);
   });
 });
+
+// -------------------------------------------------------------------
+// --tsv [+ --header]: family-wide tab-separated emit on search.
+// Mirrors `stale --tsv` / `stats --tsv` byte-for-byte (zero ANSI,
+// zero header by default, zero trailing summary, plain \n separator).
+// The four columns (rank, path, score, namespace) match the --json
+// --slim shape so a downstream parser flipping between the two only
+// changes the framing, not the schema.
+// -------------------------------------------------------------------
+
+describe('search --tsv emits tab-separated rank/path/score/namespace rows', () => {
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+    retrieveMock.mockReset();
+    snippetForMock.mockReset();
+  });
+  afterEach(() => {
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes --tsv and --header on the search surface', () => {
+    const flags = searchCommand().options.map((o) => o.long);
+    expect(flags).toContain('--tsv');
+    expect(flags).toContain('--header');
+  });
+
+  it('--tsv emits exactly one row per hit in the canonical 4-col layout, no header, no ANSI', async () => {
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', namespace: 'memory', score: 0.912, chunk: { text: '' } },
+      { path: '/b.md', namespace: 'projects', score: 0.4201, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--tsv']);
+    const out = stdout.join('');
+    // Exact byte layout: <rank>\t<path>\t<score.toFixed(3)>\t<namespace>\n
+    // Score uses toFixed(3) to match text-mode precision so cross-mode
+    // diffs are byte-stable.
+    expect(out).toBe('1\t/a.md\t0.912\tmemory\n2\t/b.md\t0.420\tprojects\n');
+    // No headers without --header.
+    expect(out.startsWith('rank\t')).toBe(false);
+    // No ANSI codes — the stream is meant for awk/cut.
+    expect(out).not.toMatch(/\x1b\[/);
+    expect(stderr.join('')).toBe('');
+    // snippetFor is NOT called on the --tsv path (perf property: no
+    // snippet rendering for a pipeline-shape emit).
+    expect(snippetForMock).not.toHaveBeenCalled();
+  });
+
+  it('--tsv --header prepends the canonical 4-col schema row', async () => {
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', namespace: 'memory', score: 0.5, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--tsv', '--header']);
+    const out = stdout.join('');
+    expect(out).toBe('rank\tpath\tscore\tnamespace\n1\t/a.md\t0.500\tmemory\n');
+  });
+
+  it('--tsv --header still fires the header row when zero hits match (schema-row-is-the-contract)', async () => {
+    // A typed-table consumer parsing the stream against an empty
+    // workspace should still see the column names and produce a
+    // valid empty table, not crash with "No columns to parse".
+    // Mirrors stale --tsv --header / stats --tsv --header byte-for-byte.
+    retrieveMock.mockResolvedValue([]);
+    await searchCommand().parseAsync(['node', 'cli', 'nope', '--tsv', '--header']);
+    // wc -l = 1 (header only), not 0.
+    expect(stdout.join('')).toBe('rank\tpath\tscore\tnamespace\n');
+    // The "no results for X" hint MUST NOT leak — under --tsv the
+    // empty-state stays empty so xargs/wc see exactly the header row.
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--tsv zero hits without --header yields a fully empty stream (xargs-safe)', async () => {
+    // Without --header the schema is omitted, so wc -l = 0 not 1.
+    // Critical for `clawmind search nope --tsv | wc -l` returning 0.
+    retrieveMock.mockResolvedValue([]);
+    await searchCommand().parseAsync(['node', 'cli', 'nope', '--tsv']);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--paths-only wins over --tsv (pipeline-leaner shape short-circuits first)', async () => {
+    // Precedence: --paths-only > --tsv > --json > text. When both are
+    // set, --paths-only emits ONE path per line (deduped) and the TSV
+    // schema/rows never fire. This pins the contract documented in
+    // the help text.
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', namespace: 'memory', score: 0.9, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--paths-only', '--tsv']);
+    // Bare path stream, no tabs, no schema row.
+    expect(stdout.join('')).toBe('/a.md\n');
+    expect(stdout.join('')).not.toContain('\t');
+  });
+
+  it('--tsv wins over --json (tab-separated pipeline contract beats JSON wrapper)', async () => {
+    // Precedence: --tsv > --json. The TSV stream is what awk/cut want;
+    // JSON would force a jq dance for the same data. Pin the
+    // short-circuit by checking we get the tab-separated rows, not a
+    // JSON array.
+    retrieveMock.mockResolvedValue([
+      { path: '/a.md', namespace: 'memory', score: 0.8, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--json', '--tsv']);
+    const out = stdout.join('');
+    // Tab-separated, no JSON bracketing.
+    expect(out).toBe('1\t/a.md\t0.800\tmemory\n');
+    expect(out).not.toContain('[');
+    expect(out).not.toContain('{');
+  });
+
+  it('--tsv composes with --threshold (filter narrows the rows before emit)', async () => {
+    // --threshold runs BEFORE the --tsv branch so the TSV stream is
+    // the post-filter survivors. The rank counter restarts at 1 for
+    // the survivor set (matches --paths-only / --json behaviour).
+    retrieveMock.mockResolvedValue([
+      { path: '/keep.md', namespace: 'memory', score: 0.92, chunk: { text: '' } },
+      { path: '/drop.md', namespace: 'memory', score: 0.10, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--threshold', '0.5', '--tsv']);
+    // Only /keep.md survives; rank=1 (not rank=1 of the pre-filter set).
+    expect(stdout.join('')).toBe('1\t/keep.md\t0.920\tmemory\n');
+  });
+
+  it('--tsv composes with --sort path (rows emit in alphabetical order with re-numbered ranks)', async () => {
+    // The --sort branch runs BEFORE the --tsv emit so the TSV rows
+    // reflect the post-sort order. The rank column re-numbers from 1
+    // against the sorted set (so rank in the TSV stream matches the
+    // visible order, not the original retrieve() rank).
+    retrieveMock.mockResolvedValue([
+      { path: '/zzz.md', namespace: 'memory', score: 0.9, chunk: { text: '' } },
+      { path: '/aaa.md', namespace: 'memory', score: 0.5, chunk: { text: '' } },
+    ]);
+    await searchCommand().parseAsync(['node', 'cli', 'foo', '--sort', 'path', '--tsv']);
+    expect(stdout.join('')).toBe('1\t/aaa.md\t0.500\tmemory\n2\t/zzz.md\t0.900\tmemory\n');
+  });
+});
+
