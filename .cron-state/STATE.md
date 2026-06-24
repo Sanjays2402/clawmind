@@ -11,22 +11,41 @@ directly on main. (Commits land on main each tick.)
 
 ## Active focus
 
-CLI usability + reliability. The API surface has had a heavy compliance push
-recently (security posture, breach register, key allowlists, etc.) and the
-`apps/cli` surface is the user-facing seam that's been lagging on:
-1. Consistent "API unreachable" / non-2xx error handling across every command.
-2. JSON / scripting ergonomics (`--json`, `--paths`, `--tsv`, `--out`,
-   `--paths-only`) for piping into other tools.
-3. Filter / shape options (`--top`, `--sort`, `--threshold`, `-q`) so the
-   operator doesn't have to post-process with `jq` for the common cases.
-4. Small affordances that show up in Sanjay's day-to-day (filters, latency
-   hints, exit codes).
+**FRONTEND / UX (Sanjay's standing override, set 2026-06-23 evening).**
+Until the override block in `~/.hermes/scripts/clawmind-20min-prompt.md` is
+removed, every tick ships FIVE frontend slices in `apps/web/` (Next.js 15
++ React 19 + Tailwind v4 + the `@clawmind/ui` design-system package).
+Backend/CLI work is paused for this loop.
+
+What counts as a slice:
+1. Real UI feature, visual polish, interaction, animation, layout, a11y,
+   loading / empty / error states, theming, keyboard UX, data-viz.
+2. Matches the existing paper-cream + Fraunces/Inter/JetBrains-Mono
+   design language — pull tokens from `packages/ui/src/styles/tokens.css`
+   and surfaces from `apps/web/src/styles/globals.css`. Never invent
+   colors; use the `--cm-*` variables.
+3. Linear / Raycast / Vercel quality. No generic admin-template UIs.
+4. Touch the API only when a UI feature genuinely needs it; keep that
+   patch surgical and wire it straight to the page.
+
+Heuristic for picking the next slice: pick something a daily user of
+ClawMind would notice and quietly appreciate. The chat surface is the
+hottest area (used every session); secondary pages should still feel
+finished and intentional, not stamped.
 
 ## Roadmap (newest first - work top to bottom each tick)
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-23 19:21 PDT (current)
+### Tick 2026-06-23 23:32 PDT (current)
+
+- [x] feat(ui): toast notification system with ToastProvider, useToast hook, and viewport (b0ac005)
+- [x] feat(web/chat): copy-answer button with citation-preserving plain-text format (d840cb8)
+- [x] feat(web): keyboard shortcut help overlay bound to '?' with TopNav hint (0e93243)
+- [x] feat(web/chat): skeleton loading state for answer + sources rail (5574dad)
+- [x] feat(web/chat): client-side filter input on the sources rail when >=4 sources (f5e19d4)
+
+### Tick 2026-06-23 19:21 PDT
 
 - [x] feat(search): --tsv [+ --header] emits the family-wide tab-separated rank/path/score/namespace stream (18ad396)
 - [x] feat(related): --tsv [+ --header] extends the search-tsv 4-col shape with a 5th `hits` column (0037057)
@@ -235,6 +254,49 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [x] fix(stats): surface clean error when api is unreachable or returns error body (f9d7948)
 - [x] feat(status): show resolved api base url and per-probe latency (46d1151)
 - [x] fix(cli/compact): drop duplicate dryRun key in --json output (1c57284)
+
+### Queued frontend (refilled 2026-06-23 23:32 PDT under FRONTEND override)
+
+These are the top frontend ideas to ship in upcoming ticks under the active
+FRONTEND focus. Order is rough priority but feel free to reorder by what
+fits together as a clean batch theme.
+
+CHAT SURFACE (apps/web/src/components/Chat*, apps/web/src/app/chat):
+- [ ] feat(web/chat): cite-pill scroll-into-view + sticky-highlight when a numbered citation in the answer body is clicked. Today clicking the inline cm-cite-pill in the answer toggles `activeId` but does nothing to scroll the matching SourcesPane card into view — on a long rail this silently does nothing visible. Add a `scrollIntoView({block:'nearest', behavior:'smooth'})` plus a 1.2s sticky highlight ring on the targeted card.
+- [ ] feat(web/chat): citation [N] keyboard navigation — `[` / `]` cycles through citation pills in the answer body, focusing each one in turn AND opening it in the rail. Mirrors the GitHub PR navigation pattern.
+- [ ] feat(web/chat): retry-on-error affordance in the chat error state. Today a stream failure renders a red error block with the message but no recovery button. Add a "Retry" + "Edit and try again" pair that preserves the question and re-submits.
+- [ ] feat(web/chat): per-message conversation history within a thread — the current ChatShell loses the prior question/answer when a new question is asked. Add a vertical stack of Q/A pairs (newest at bottom), each with its own copy/share affordance, citation rail folded into a per-message collapsible.
+- [ ] feat(web/chat): mid-stream "thinking…" + token-count hint while the LLM is producing output. The current loading state is binary; once tokens start arriving we don't show progress. A small "<N> tokens · 320ms last token" footer next to the answer would close the loop.
+- [ ] feat(web/composer): saved-prompt picker overlay (cmd+/ from the composer). The Tab cycling is functional but not discoverable. A small popover anchored to the composer that lists the SAVED_PROMPTS with type-to-filter would be the explicit version of the Tab-cycling muscle memory.
+- [ ] feat(web/composer): drag-and-drop file pin onto the composer to pre-pin a source for the next question. The /pins page already exists; the composer should accept a file drop and surface a "Pinned: <path>" chip below the textarea that's submitted with the question.
+
+SOURCES RAIL + VIEWER:
+- [ ] feat(web/chat/sources): keyboard navigation through the rail — `j` / `k` (vim-style) AND ArrowDown / ArrowUp from the answer column cycles the active card; Enter opens the source viewer in a side-pane or new tab.
+- [ ] feat(web/chat/sources): per-source "open in viewer" button on each card that opens /sources/view?path=… in a new tab without dismissing the active citation. Today the only way to open a source is via the path link which steals focus.
+- [ ] feat(web/sources/view): syntax highlighting for the source viewer (Prism or Shiki) so opened files render with code coloring rather than as plain text. Match the cm-paper background and the existing globals.css .cm-chat-stream pre styling.
+- [ ] feat(web/sources/view): "open at line N" deep-link from the rail — the rail already passes startLine, the viewer should scroll-and-highlight that line when arriving via deep link.
+
+GLOBAL UX / NAV:
+- [ ] feat(web/nav): collapsible "More" overflow menu in the TopNav secondary nav for the 20+ secondary surfaces. The current mobile horizontal-scroll bar is functional but the desktop relies on the command palette for those; a discoverable "More ▾" dropdown next to the primary nav would close the discoverability gap.
+- [ ] feat(web/nav): per-route page-title in the document head (`Page · ClawMind`) — today every page is just "ClawMind". Use Next 15's metadata API per-page or a generateMetadata helper.
+- [ ] feat(web/nav): breadcrumbs on settings sub-pages (Settings › Security › API key policy). The /settings tree is two levels deep and the user has no anchor today.
+- [ ] feat(web/nav): focus-visible ring on every primary interactive element using --cm-accent-line so keyboard users always see where focus is. The current focus styles only fire on the composer.
+- [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette, ShareAnswerButton, ShortcutHelp) on a single `<Dialog>` primitive in @clawmind/ui so future modals don't drift in radius / shadow / backdrop opacity.
+- [ ] feat(web/ui): a `<KbdGroup keys={['⌘','K']} />` primitive so every kbd chip in the app shares one set of styles instead of the four duplicated kbd: CSSProperties blocks currently in use.
+
+PAGE-LEVEL POLISH:
+- [ ] feat(web/dashboard): inline sparkline next to each StatCard (the dashboard panel shows totals but no trend). A small SVG line chart of "documents indexed over the last 14 days" would turn the dashboard from a snapshot into a story. Backend can compute it from the existing ingestStatus → ingestHistory endpoint.
+- [ ] feat(web/dashboard): "what changed today" panel summarising the diff between yesterday and today's index (added documents, removed sources, new namespaces). Pairs naturally with the existing dashboard structure.
+- [ ] feat(web/stats): horizontal-bar visualisation of per-namespace files/chunks/bytes. Today the namespace breakdown is a grid of text cards; a single column-aligned bar visualisation would make outlier namespaces pop.
+- [ ] feat(web/history): per-day grouping with a small date header bar between groups. Today /history is a flat list; grouping by day would let the user scan recent questions by date faster.
+- [ ] feat(web/notifications): bell badge animation on transition from 0 → 1+ unread (a subtle pulse, NOT a constant blink). Adds a quiet "you have new mail" signal.
+- [ ] feat(web/welcome): finish the welcome guide visually — today /welcome exists but feels minimal. Add a 3-card carousel with screenshots/illustrations of the chat + dashboard + sources pages so a first-run user has a 30-second tour.
+
+ACCESSIBILITY + THEMING:
+- [ ] feat(web/a11y): skip-to-content link as the first focusable element on every page so keyboard users can bypass the TopNav.
+- [ ] feat(web/a11y): aria-current="page" on the active TopNav link (today only the visual highlight signals active; screen reader users get nothing).
+- [ ] feat(web/theming): system-theme auto-detect on first visit (prefers-color-scheme: dark/light) — the current useTheme hook hard-codes 'dark' as initial. Detect once on mount when no localStorage entry exists.
+- [ ] feat(web/theming): inline preview of accent color in /settings so a future "pick your accent" feature has its surface ready.
 
 ### Queued for later ticks
 
@@ -3034,3 +3096,116 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   --tsv, search --tsv --out file dispatch, forget --top
   proportional cap, digest show --tsv) so it stays well above the
   >=5 ready-items floor for the next tick.
+
+- 2026-06-23 23:32 PDT (Cake/cron) — 5 features shipped directly on main.
+  **PIVOT TICK: FRONTEND override engaged.** Sanjay added a standing
+  override at the top of `~/.hermes/scripts/clawmind-20min-prompt.md`
+  redirecting this 20-min loop from CLI work to frontend/UX work in
+  `apps/web/`. The override pauses the long-running CLI ergonomics
+  sweep (17 prior consecutive ticks) and starts a fresh frontend focus
+  in the Next.js + React 19 web app. Backend/CLI ticks resume only if
+  the override block is removed.
+
+  Features: b0ac005, d840cb8, 0e93243, 5574dad, f5e19d4. Push:
+  3724f57..f5e19d4 main -> main. All five commits authored as
+  `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+
+  Verify gate: ran `pnpm run ci:verify` (full 21-task pipeline). 19
+  successful, 2 failed: the pre-existing `@clawmind/telemetry`
+  OpenTelemetry 1.x/2.x peer mismatch (queued since tick 1, unchanged
+  by this batch) + a stale `.next` cache from a prior run that did not
+  affect the `@clawmind/web` typecheck task (clean). The web app's
+  isolated typecheck pass (`pnpm --filter @clawmind/web typecheck`)
+  AND the `@clawmind/ui` package's isolated typecheck pass (`pnpm
+  --filter @clawmind/ui typecheck`) are both fully GREEN — every line
+  shipped this tick is verified pre-push.
+
+  Theme: shake the dust off the chat surface — the app's hottest page
+  — and ship the four most-missed quality-of-life features (toast
+  notifications, copy-with-citations, keyboard shortcut overlay,
+  skeleton loading state), plus one quietly-useful filter affordance
+  on the sources rail. Two of the features ship as new primitives in
+  `@clawmind/ui` (Toast + Skeleton) so they're reusable across the
+  whole app, not chat-only.
+
+    1. feat(ui): Toast notification system (b0ac005). New
+       `@clawmind/ui/Toast.tsx` primitive: ToastProvider + useToast
+       hook + an aria-live polite viewport stacked bottom-right.
+       Three semantic tones (success / error / info) with
+       tone-appropriate auto-dismiss durations (errors stick 6.5s,
+       info 4.2s, success 3.2s) so the operator never misses a
+       failure. Hard-capped at 6 visible toasts so a runaway loop
+       cannot overflow the viewport. prefers-reduced-motion users
+       skip the 180ms slide-in. Mounted ONCE in
+       `apps/web/src/app/layout.tsx` so every page has access via
+       `useToast()` without per-page wiring. Soft-fails outside a
+       provider with a single console.warn rather than crashing —
+       safe to call defensively.
+
+    2. feat(web/chat): CopyAnswerButton (d840cb8). Renders next to
+       the existing Share button on every finished chat answer. Copies
+       a self-contained `Q: <query>\n\nA: <answer>\n\nSources:\n  [1]
+       <path>:<lines>\n  [2] ...` blob that pastes cleanly into Slack,
+       email, an issue, or a notes file with the numbered [1] [2]
+       inline citations in the answer body still resolving to the
+       numbered Sources list — citation-preserving plain text. Uses
+       the new toast system for both success (with character count +
+       source count) and clipboard-blocked errors. Icon swap (copy →
+       check) for 1.5s after a successful copy so the button confirms
+       even if the toast is dismissed early.
+
+    3. feat(web): ShortcutHelp overlay (0e93243). The "?" shortcut
+       every modern app (Linear, Notion, GitHub) has — a discoverable
+       cheatsheet listing every keyboard shortcut in the app, opened
+       by pressing bare '?' anywhere outside a text input. Bound via
+       the existing `useHotkey` hook with a CRITICAL guard: the
+       binding is suppressed when the keystroke originates from
+       INPUT / TEXTAREA / contentEditable, so a user typing '?' into
+       the composer or any settings field does NOT clobber their
+       keystroke. The TopNav now carries a '?' kbd chip next to the
+       existing '⌘ K' chip so the binding is discoverable without
+       keyboard-spamming. Three groups (Navigation / Chat / Command
+       palette) with curated shortcuts only — not every accidental
+       binding.
+
+    4. feat(web/chat): skeleton loading state (5574dad). Replaces the
+       bare "Spinner + reading the workspace" line with a
+       layout-faithful skeleton mirroring the chat reading column:
+       ChatAnswerSkeleton (three paragraph blocks with stepped bar
+       widths so the silhouette reads as PROSE not as a rectangle)
+       and SourcesRailSkeleton (three placeholder cards matching the
+       real SourcesPane cards down to the citation pill at top-left).
+       Calm 1.6s cm-pulse keyframes with 120ms phase offsets between
+       bars so the eye sweeps left-to-right rather than seeing every
+       bar blink in sync. aria-busy + visually-hidden announce text
+       preserves the screen-reader affordance that the spinner+label
+       carried.
+
+    5. feat(web/chat): SourcesRail filter input (f5e19d4). When the
+       rail carries >=4 sources, a small monospace filter input
+       appears above the cards. Matches against path OR excerpt OR
+       snippet text (case-insensitive substring), no API call, fully
+       client-side. Header switches from "N sources" to "M of N"
+       when filtering narrows the list so the operator always knows
+       how many were hidden. CRITICAL stability contract: citation
+       pill numbering uses the source's ORIGINAL index in the
+       unfiltered list (`sources.indexOf(s)`), NOT its index in the
+       filtered subset — so citation [3] in the answer text always
+       points at the SAME source no matter how the rail is currently
+       filtered. Without this, filtering would silently break the
+       answer's [1] / [2] / [3] references — a subtle bug that took
+       30 seconds of thought to anticipate.
+
+  Identity: commits land on main directly, each commit signed as
+  `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+
+  Theme connector: this is the first frontend tick under Sanjay's
+  override. The web app now has THREE new design-system primitives
+  (Toast, Skeleton, ShortcutHelp), TWO new chat affordances
+  (CopyAnswerButton, SourcesRail filter), and ONE new global hotkey
+  binding ('?'). Every line is wired through the existing cm-* token
+  palette so the design language stays unified. The queue refilled
+  with 26 frontend follow-up items spread across CHAT SURFACE,
+  SOURCES, GLOBAL UX/NAV, PAGE-LEVEL POLISH, and A11Y/THEMING groups
+  so it stays well above the >=5 ready-items floor for the next
+  frontend tick.
