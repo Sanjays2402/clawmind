@@ -3,6 +3,7 @@ import { Fraunces, Inter, JetBrains_Mono } from 'next/font/google';
 import '../styles/globals.css';
 import { CommandPalette } from '@/components/CommandPalette';
 import { PwaInstall } from '@/components/PwaInstall';
+import { ToastProvider } from '@clawmind/ui';
 
 const fraunces = Fraunces({
   subsets: ['latin'],
@@ -58,9 +59,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${fraunces.variable} ${inter.variable} ${mono.variable}`}
     >
       <body>
-        {children}
-        <CommandPalette />
-        <PwaInstall />
+        <ToastProvider>
+          {children}
+          <CommandPalette />
+          <PwaInstall />
+        </ToastProvider>
       </body>
     </html>
   );
