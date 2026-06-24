@@ -517,4 +517,150 @@ describe('forget cli', () => {
     await forgetCommand().parseAsync(['node', 'cli', '/tmp/*.md', '--slim']);
     expect(stdout.join('')).toBe(baseline);
   });
+
+  // -----------------------------------------------------------------
+  // --top <n>: cap the previewed removedPaths array AND the
+  // --paths-only stream to the first N paths. Presentation-only:
+  // matched/removedChunks integer counts STILL reflect the FULL
+  // API match. Rejected with --apply (safety contract).
+  // -----------------------------------------------------------------
+
+  it('exposes --top on the forget surface', () => {
+    const flags = forgetCommand().options.map((o) => o.long);
+    expect(flags).toContain('--top');
+  });
+
+  it('--top caps the removedPaths array in --json mode (matched stays at FULL value)', async () => {
+    // API returns 5 paths; --top 2 caps the visible list to 2 BUT
+    // matched/removedChunks reflect the full 5 so a downstream
+    // consumer always knows the true scope.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        matched: 5,
+        removedChunks: 25,
+        removedPaths: ['/a.md', '/b.md', '/c.md', '/d.md', '/e.md'],
+        dryRun: true,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/cache/**', '--top', '2', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      matched: number; removedChunks: number; removedPaths: string[]; dryRun: boolean;
+    };
+    // Path-level emit is capped to 2.
+    expect(parsed.removedPaths).toEqual(['/a.md', '/b.md']);
+    // Integer counts STILL reflect the FULL API match (critical safety
+    // contract: downstream consumers must always know the true scope).
+    expect(parsed.matched).toBe(5);
+    expect(parsed.removedChunks).toBe(25);
+    expect(parsed.dryRun).toBe(true);
+  });
+
+  it('--top caps the --paths-only stream (head of the API path list)', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        matched: 4,
+        removedChunks: 12,
+        removedPaths: ['/a.md', '/b.md', '/c.md', '/d.md'],
+        dryRun: true,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/cache/**', '--top', '3', '--paths-only']);
+    // First 3 paths, no header, no ANSI — xargs-safe.
+    expect(stdout.join('')).toBe('/a.md\n/b.md\n/c.md\n');
+  });
+
+  it('--top text-mode surfaces the discrepancy: "[showing first N]" suffix on the header', async () => {
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        matched: 50,
+        removedChunks: 250,
+        removedPaths: Array.from({ length: 50 }, (_, i) => `/p${i}.md`),
+        dryRun: true,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/cache/**', '--top', '5']);
+    const out = stdout.join('');
+    // Header narrates the FULL match count AND the post-cap visible
+    // count so the operator sees the discrepancy at a glance.
+    expect(out).toContain('would remove 50 source(s) and 250 chunk(s)');
+    expect(out).toContain('[showing first 5]');
+    // Body should list exactly 5 paths (the head slice).
+    const paths = out.split('\n').filter((l) => l.match(/^\s+\/p\d+\.md/));
+    expect(paths).toHaveLength(5);
+  });
+
+  it('--top is REJECTED with --apply (safety contract: visible preview must match destruction scope)', async () => {
+    // Critical safety pin: allowing --apply --top would silently
+    // delete the FULL N-path match while only showing the operator
+    // M paths. The cron safety pattern explicitly forbids this.
+    await forgetCommand().parseAsync(['node', 'cli', '/cache/**', '--top', '5', '--apply']);
+    expect(process.exitCode).toBe(1);
+    const err = stderr.join('');
+    expect(err).toContain('--top cannot be combined with --apply');
+    expect(err).toContain('visible preview must match destruction scope');
+    // No state was mutated: fetch was never called (rejected up-front).
+    expect(stdout.join('')).toBe('');
+  });
+
+  it('--top N greater than the match count is a no-op (no false "showing first" suffix)', async () => {
+    // If --top 50 is set but only 3 paths matched, the cap does not
+    // fire (3 < 50) so the header should not pretend a cap happened.
+    // Pinned to preserve the contract that the suffix surfaces only
+    // when there is a REAL discrepancy.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        matched: 3,
+        removedChunks: 9,
+        removedPaths: ['/a.md', '/b.md', '/c.md'],
+        dryRun: true,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/cache/**', '--top', '50']);
+    const out = stdout.join('');
+    // No "[showing first" — no cap actually applied.
+    expect(out).not.toContain('[showing first');
+    // All 3 paths in the body.
+    expect(out).toContain('/a.md');
+    expect(out).toContain('/b.md');
+    expect(out).toContain('/c.md');
+  });
+
+  it('--top with a non-positive value falls back to "no cap" (family-wide contract)', async () => {
+    // Family-wide --top precedent (stale/stats/feedback list --top):
+    // non-positive / NaN / zero silently falls back to "no cap" rather
+    // than aborting. Mirrors the precedent so the muscle memory carries.
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        matched: 3,
+        removedChunks: 9,
+        removedPaths: ['/a.md', '/b.md', '/c.md'],
+        dryRun: true,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/cache/**', '--top', '0', '--json']);
+    const parsed = JSON.parse(stdout.join('')) as { removedPaths: string[]; matched: number };
+    // All 3 paths emitted — --top 0 is a no-op.
+    expect(parsed.removedPaths).toEqual(['/a.md', '/b.md', '/c.md']);
+    expect(parsed.matched).toBe(3);
+  });
+
+  it('--top --json --slim preserves the FULL matched count in the slim shape (path-array drop is the slim contract, not a --top effect)', async () => {
+    // The slim shape already drops removedPaths entirely, so --top
+    // can only affect the integer fields. Pin that matched/
+    // removedChunks reflect the FULL API match (--top is path-only).
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify({
+        matched: 10,
+        removedChunks: 50,
+        removedPaths: Array.from({ length: 10 }, (_, i) => `/p${i}.md`),
+        dryRun: true,
+      }), { status: 200, headers: { 'content-type': 'application/json' } })) as never;
+    await forgetCommand().parseAsync(['node', 'cli', '/cache/**', '--top', '3', '--json', '--slim']);
+    const parsed = JSON.parse(stdout.join('')) as {
+      count: number; matched: number; removedChunks: number; dryRun: boolean;
+    };
+    // FULL counts preserved.
+    expect(parsed.count).toBe(10);
+    expect(parsed.matched).toBe(10);
+    expect(parsed.removedChunks).toBe(50);
+    expect(parsed.dryRun).toBe(true);
+    // The slim shape drops removedPaths entirely — no observable
+    // difference from the no-top case.
+    expect(parsed).not.toHaveProperty('removedPaths');
+  });
 });

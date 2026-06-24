@@ -61,12 +61,27 @@ export function forgetCommand() {
     .option('--apply', 'actually delete the matches; default is a dry-run preview')
     .option('--quiet', 'do not list every matched path')
     .option('--paths-only', 'emit only the matched paths, one per line, for piping into other commands')
+    .option('--top <n>', 'with --dry-run (the default): cap the previewed `removedPaths[]` array AND the --paths-only stream to the first N paths the API returned. The cron use is a high-volume `forget` preview where the operator only wants to eyeball the HEAD of a large match (`clawmind forget "/cache/**" --top 5 --paths-only`) without scrolling through hundreds of paths. Family-wide --top contract (mirrors stale / stats / feedback list / search / tags list / digest list --top): clamped to positive integer; non-positive or NaN falls back to "no cap"; applies BEFORE every emit mode uniformly. Critical safety contract: --top is REJECTED with --apply because allowing a cap on the destructive path would let `forget X --top 5 --apply` silently delete the FULL N-path match while only showing the operator 5 paths in the report — a misleading discrepancy between visible preview and actual destruction that the cron safety pattern explicitly forbids. The `matched` and `removedChunks` integer counts in --json mode reflect the FULL API match (not the post-cap value) so a downstream consumer always knows the true scope of what would happen on --apply, even with --top set; only the path-level emit (removedPaths array, --paths-only stream) is capped. Use --apply WITHOUT --top to actually destroy. The text-mode header still narrates the full match count so the operator sees the discrepancy visibly ("would remove 50 source(s) and ... [showing first 5]").', (v) => Number.parseInt(v, 10))
     .option('--confirm <n>', 'safety tripwire: with --apply, refuse to run unless the dry-run match count exactly equals N. Prevents an unintended `clawmind forget /tmp/foo --apply` from wiping the whole index when the glob accidentally matches everything. Specify the expected number of sources; supply -1 to allow any (explicit opt-out).')
     .option('--slim', 'with --json: emit a slimmed `{count, matched, removedChunks, dryRun}` shape that drops the per-path `removedPaths` array AND the `patterns` echo. The full --json payload includes the full match list (can be megabytes on a wildcard pattern) and a re-emit of the input patterns. A dashboard panel polling "is the forget pattern stable" once a minute only cares about the count + chunk count; the per-path list would dominate the payload and the patterns echo is already known by the caller (it passed them on the command line). `count` is an alias for `matched` carrying the family-wide leading-count convention so a downstream `jq .count` filter works against every slim shape in the family without case-by-case handling. `matched` is preserved for symmetry with the full-shape payload (so a script switching between full and slim does not have to re-key). The `dryRun` boolean is preserved because it disambiguates the slim shape between preview and apply mode — same bytes either way (the structural part), but a dashboard parsing the stream needs to know which mode produced it. Short-circuited by --paths-only (pipeline shape wins). Ignored without --json (text mode unchanged).')
     .option('--json', 'emit the forget report as JSON for scripting')
-    .action(async (patterns: string[], opts: { apply?: boolean; quiet?: boolean; pathsOnly?: boolean; confirm?: string; slim?: boolean; json?: boolean }) => {
+    .action(async (patterns: string[], opts: { apply?: boolean; quiet?: boolean; pathsOnly?: boolean; top?: number; confirm?: string; slim?: boolean; json?: boolean }) => {
       await runOrReport('forget', async () => {
         const dryRun = !opts.apply;
+        // --top safety contract: rejected with --apply. Allowing a cap
+        // on the destructive path would let `forget X --top 5 --apply`
+        // silently delete the FULL N-path match while only showing
+        // the operator 5 paths in the report — a misleading
+        // discrepancy between visible preview and actual destruction
+        // that the cron safety pattern explicitly forbids. The flag
+        // is presentation-only and lives strictly on the dry-run
+        // path.
+        if (opts.apply && opts.top !== undefined) {
+          throw new ForgetCliError(
+            `--top cannot be combined with --apply (visible preview must match destruction scope); ` +
+            `run without --top to delete everything matched, or drop --apply to preview the head N`,
+          );
+        }
         // --confirm is only meaningful with --apply (a dry-run is
         // already safe). When set, we do a dry-run FIRST regardless of
         // what the operator asked for, compare the match count to the
@@ -100,6 +115,35 @@ export function forgetCommand() {
           report = await callForget(patterns, false);
         } else {
           report = await callForget(patterns, dryRun);
+        }
+
+        // --top caps the PATH-LEVEL emit (removedPaths array, --paths-only
+        // stream, text-mode path list) to the first N paths the API
+        // returned. The `matched` and `removedChunks` integer counts
+        // in --json mode reflect the FULL API match (not the post-cap
+        // value) so a downstream consumer always knows the true scope
+        // of what would happen on --apply. Only the path-level emit is
+        // capped — the operator running `forget X --top 5 --paths-only`
+        // sees 5 paths but `forget X --json` still reports the true
+        // `matched` so a wrapper script never gets a misleading
+        // count.
+        //
+        // Family-wide --top contract: non-positive / NaN falls back
+        // to "no cap" (matches stale / stats / feedback list / search
+        // / tags list / digest list --top precedent — silent fallback
+        // is safer than aborting because a typo'd cap should not
+        // block the dry-run preview entirely).
+        //
+        // The full match count is captured into `fullMatched` so the
+        // text-mode header can narrate the discrepancy: "would remove
+        // 50 source(s) ... [showing first 5]". Without surfacing the
+        // discrepancy the operator could miss that --top hid 45 more
+        // paths.
+        const fullMatched = report.matched;
+        const capped = opts.top !== undefined && Number.isFinite(opts.top) && opts.top > 0
+          && opts.top < report.removedPaths.length;
+        if (capped) {
+          report = { ...report, removedPaths: report.removedPaths.slice(0, opts.top) };
         }
 
         // --paths-only is the pipe-friendly twin of `stale --paths`. It
@@ -195,7 +239,13 @@ export function forgetCommand() {
         }
 
         const verb = dryRun ? 'would remove' : 'removed';
-        const head = `${verb} ${report.matched} source(s) and ${report.removedChunks} chunk(s)`;
+        let head = `${verb} ${fullMatched} source(s) and ${report.removedChunks} chunk(s)`;
+        if (capped) {
+          // Surface the discrepancy: --top hid (fullMatched - shown) paths.
+          // Without this the operator might miss that the displayed list
+          // is a HEAD slice, not the full set.
+          head += ` [showing first ${report.removedPaths.length}]`;
+        }
         process.stdout.write((dryRun ? kleur.yellow(head) : kleur.red(head)) + '\n');
 
         if (!opts.quiet) {
