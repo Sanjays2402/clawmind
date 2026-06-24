@@ -119,6 +119,13 @@ export function TopNav() {
             <kbd className="cm-mono">⌘</kbd>
             <kbd className="cm-mono">K</kbd>
           </span>
+          <span
+            aria-hidden="true"
+            className="hidden items-center gap-1 rounded-md border border-cm-border px-2 py-1 text-[10.5px] text-cm-muted sm:inline-flex"
+            title="Open keyboard shortcuts (press ?)"
+          >
+            <kbd className="cm-mono">?</kbd>
+          </span>
           <ThemeToggle />
         </div>
       </div>

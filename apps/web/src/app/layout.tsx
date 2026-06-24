@@ -3,6 +3,7 @@ import { Fraunces, Inter, JetBrains_Mono } from 'next/font/google';
 import '../styles/globals.css';
 import { CommandPalette } from '@/components/CommandPalette';
 import { PwaInstall } from '@/components/PwaInstall';
+import { ShortcutHelp } from '@/components/ShortcutHelp';
 import { ToastProvider } from '@clawmind/ui';
 
 const fraunces = Fraunces({
@@ -62,6 +63,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <ToastProvider>
           {children}
           <CommandPalette />
+          <ShortcutHelp />
           <PwaInstall />
         </ToastProvider>
       </body>
