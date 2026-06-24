@@ -18,10 +18,12 @@ export function relatedCommand() {
     .option('--sort <key>', 'sort survivors of --threshold / --above / --below by one of: score (desc — highest-score-first, matches the default API ordering; useful as a no-op for symmetry with other commands), path (asc alphabetical, for stable cross-snapshot diffs of `related --json`), namespace (asc alphabetical, groups neighbours by namespace so diffs against a known set are visually clean). Applied AFTER --threshold / --above / --below so the sort orders the SURVIVORS of any band-filter. Mirrors the `feedback list --sort` / `digest list --sort` / `aliases list --sort` family contract: ties carry a secondary sort by original index for cross-snapshot determinism, unknown keys abort cleanly with exit 1.')
     .option('--reverse', 'flip the --sort direction (mirrors `stale --reverse` and `search --reverse` byte-for-byte). With --sort path the default is asc alphabetical; --reverse gives desc — the cron use is "the alphabetically-last neighbour first" for symmetry with cross-command tail-style log scrapes. With --sort namespace the default is asc grouping; --reverse gives desc — the alphabetically-last namespace at the top, useful for cron snapshots that want the freshest namespace first (the canonical "most-recent neighbour" question). With --sort score the default is desc; --reverse gives asc (weakest-first) — useful for "the neighbours about to drop out of the related set the next time the rerank shuffles". Ignored without --sort (the default API ordering is a fixed contract). The secondary tie-break by original index is ALSO reversed so cross-snapshot determinism holds in either direction. Composes with --paths-only — the dedupe walks the post-reverse order.')
     .option('--slim', 'with --json: emit a slimmed `{path, score, namespace, sourceChunkCount, count}` shape where each item is `{path, score, namespace}` only. Drops the per-neighbour `hits` count AND the multi-paragraph `excerpt` body — both dominate the payload size for a polling consumer. Mirrors the `doctor --json --quiet`, `digest run --json --slim`, `feedback prune --json --slim`, `feedback list --json --slim`, `search --json --slim`, and `stats --json --slim` precedent. The natural use is a per-source neighbour-diff dashboard polling `clawmind related foo.md --json --slim` once a minute to track "which sources are semantically near foo.md" without paying the per-neighbour excerpt cost (the excerpt is the multi-paragraph body of the related chunk and dominates payload size). The top-level `sourceChunkCount` is preserved verbatim (it is a property of the source the operator queried, not of the returned set) and `count` reflects the filtered survivors so a downstream `jq .count` consumer sees the right number — both top-level fields stay so the operator can audit "how many chunks did foo.md contribute, and how many neighbours survived my filter". Composes with --threshold / --above / --below (slim describes the band-filter survivors), --sort / --reverse (slim emits the post-sort order), -k (slim respects the top-k cap), and -n (slim describes the post-namespace-filter survivors). --paths-only wins over --slim because --paths-only is the EVEN-leaner shape (no JSON wrapper at all); the precedence is --paths-only > --slim > full --json. Single-line JSON.stringify (no indent) so NDJSON snapshot streams diff cleanly between ticks. Silently ignored without --json (text mode for humans stays unchanged).')
+    .option('--tsv', 'emit tab-separated rows (rank, path, score, namespace, hits) for awk/cut pipelines. No ANSI, no header (use --header), no excerpt body. Mirrors `search --tsv` / `stale --tsv` / `stats --tsv` byte-for-byte (zero ANSI, zero header by default, zero trailing summary, plain \\n separator). The five columns extend the search-tsv 4-col shape with `hits` (per-neighbour chunk match count, the same field the text mode renders as `xN`) — relevant on related because a neighbour with many chunk hits is structurally different from one with a single high-score chunk, and the operator running a TSV snapshot wants both signals in one column-aligned stream. Composes with --threshold / --above / --below / --sort / --reverse / -k / -n — the TSV stream describes the post-filter, post-sort, post-cap survivors. Precedence: --paths-only > --tsv > --slim > --json > text. --paths-only wins because it is the strictly leaner shape; --tsv wins over --slim/--json because tab-separated is a pipeline contract that awk cannot satisfy on JSON cleanly. Score is emitted with .toFixed(3) precision matching the text-mode render so cross-mode diffs are byte-stable. Empty result yields a clean empty stream (the text-mode "no related sources" hint is suppressed under --tsv so xargs/wc see exactly 0 lines).')
+    .option('--header', 'with --tsv: prepend a single tab-separated schema row (`rank<TAB>path<TAB>score<TAB>namespace<TAB>hits`). Mirrors `search --tsv --header` / `stale --tsv --header` / `stats --tsv --header` byte-for-byte: fires UNCONDITIONALLY when --header is set, including on a zero-row body (the schema row is the contract, not the data rows). The default header-less shape is preserved when --header is absent so existing pipelines using bare --tsv keep working byte-for-byte. Ignored without --tsv.')
     .option('--json', 'emit results as JSON for scripting')
     .description('Find sources semantically similar to a given indexed path');
 
-  cmd.action(async (path: string, opts: { k: number; namespaces?: string; threshold?: string; above?: number; below?: number; sort?: string; reverse?: boolean; pathsOnly?: boolean; slim?: boolean; json?: boolean }) => {
+  cmd.action(async (path: string, opts: { k: number; namespaces?: string; threshold?: string; above?: number; below?: number; sort?: string; reverse?: boolean; pathsOnly?: boolean; slim?: boolean; tsv?: boolean; header?: boolean; json?: boolean }) => {
     const env = loadEnv();
     const base = `http://${env.CLAWMIND_API_HOST}:${env.CLAWMIND_API_PORT}`;
     const url = new URL(`${base}/v1/related`);
@@ -184,6 +186,49 @@ export function relatedCommand() {
         seen.add(it.path);
         process.stdout.write(`${it.path}\n`);
       }
+      return;
+    }
+    // --tsv emits a tab-separated row per neighbour: <rank>\t<path>\t
+    // <score>\t<namespace>\t<hits>. Mirrors `search --tsv` byte-for-byte
+    // but extends the 4-col shape with `hits` (per-neighbour chunk match
+    // count, same field the text mode renders as `xN`). Hits is included
+    // because a neighbour with many chunk hits is structurally different
+    // from one with a single high-score chunk — the cron operator
+    // running a TSV snapshot wants both signals in one column-aligned
+    // stream rather than parsing the text mode's `xN` suffix or
+    // dropping back to --json + jq.
+    //
+    // Precedence: --paths-only > --tsv > --slim > --json > text.
+    // --paths-only short-circuited above. --tsv runs BEFORE --json
+    // because tab-separated is a pipeline contract that awk/cut expect,
+    // not a JSON wrapper. The text mode is the legacy emit and sits
+    // last.
+    //
+    // Score is emitted with `.toFixed(3)` precision matching the text-
+    // mode render (`${it.score.toFixed(3)}` in the header below) so
+    // cross-mode diffs are byte-stable.
+    //
+    // --header (when set) prepends the canonical 5-col schema row.
+    // Mirrors `search --tsv --header` / `stale --tsv --header` /
+    // `stats --tsv --header` byte-for-byte: fires UNCONDITIONALLY
+    // (including zero-row bodies) because the schema row IS the
+    // contract — a downstream pandas.read_csv parsing the stream
+    // against a query that returns zero neighbours should still see
+    // the column names and produce a valid empty table.
+    //
+    // Empty result yields a clean empty stream: the text-mode "no
+    // related sources" hint is suppressed under --tsv so xargs/wc
+    // see exactly 0 lines. The --header row STILL fires under
+    // --header even on the zero-neighbours path.
+    if (opts.tsv) {
+      if (opts.header) {
+        process.stdout.write('rank\tpath\tscore\tnamespace\thits\n');
+      }
+      out.items.forEach((it, i) => {
+        process.stdout.write(
+          `${i + 1}\t${it.path}\t${it.score.toFixed(3)}\t${it.namespace}\t${it.hits}\n`,
+        );
+      });
       return;
     }
     if (opts.json) {

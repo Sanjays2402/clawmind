@@ -1114,3 +1114,199 @@ describe('related cli', () => {
   });
 });
 
+// -------------------------------------------------------------------
+// --tsv [+ --header]: family-wide tab-separated emit on related.
+// Mirrors `search --tsv` byte-for-byte but extends the 4-col shape
+// with a 5th `hits` column (per-neighbour chunk match count, same
+// field the text mode renders as `xN`). Mirrors `stale --tsv` /
+// `stats --tsv` / `search --tsv --header` byte-for-byte on the
+// schema-row contract.
+// -------------------------------------------------------------------
+
+describe('related --tsv emits tab-separated rank/path/score/namespace/hits rows', () => {
+  let originalFetch: typeof globalThis.fetch;
+  let stdout: string[];
+  let stderr: string[];
+  let origOut: typeof process.stdout.write;
+  let origErr: typeof process.stderr.write;
+  beforeEach(() => {
+    stdout = [];
+    stderr = [];
+    originalFetch = globalThis.fetch;
+    origOut = process.stdout.write.bind(process.stdout);
+    origErr = process.stderr.write.bind(process.stderr);
+    process.stdout.write = ((c: string) => { stdout.push(String(c)); return true; }) as never;
+    process.stderr.write = ((c: string) => { stderr.push(String(c)); return true; }) as never;
+  });
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    process.stdout.write = origOut;
+    process.stderr.write = origErr;
+    process.exitCode = 0;
+  });
+
+  it('exposes --tsv and --header on the related surface', () => {
+    const flags = relatedCommand().options.map((o) => o.long);
+    expect(flags).toContain('--tsv');
+    expect(flags).toContain('--header');
+  });
+
+  it('--tsv emits exactly one row per neighbour in the canonical 5-col layout, no header, no ANSI', async () => {
+    const payload = {
+      path: 'foo.md',
+      sourceChunkCount: 3,
+      items: [
+        { path: 'a.md', namespace: 'memory', score: 0.912, hits: 4, excerpt: 'never seen' },
+        { path: 'b.md', namespace: 'projects', score: 0.4201, hits: 1, excerpt: 'also gone' },
+      ],
+      count: 2,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--tsv']);
+    const out = stdout.join('');
+    // Exact byte layout: <rank>\t<path>\t<score.toFixed(3)>\t<namespace>\t<hits>\n
+    // Score uses toFixed(3) to match text-mode precision.
+    expect(out).toBe('1\ta.md\t0.912\tmemory\t4\n2\tb.md\t0.420\tprojects\t1\n');
+    // No headers without --header.
+    expect(out.startsWith('rank\t')).toBe(false);
+    // No ANSI codes — the stream is meant for awk/cut.
+    expect(out).not.toMatch(/\x1b\[/);
+    // The excerpt bodies MUST NOT leak — --tsv is a pipeline contract
+    // that drops every multi-line body.
+    expect(out).not.toContain('never seen');
+    expect(out).not.toContain('also gone');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--tsv --header prepends the canonical 5-col schema row', async () => {
+    const payload = {
+      path: 'foo.md',
+      sourceChunkCount: 1,
+      items: [
+        { path: 'a.md', namespace: 'memory', score: 0.5, hits: 2, excerpt: '' },
+      ],
+      count: 1,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--tsv', '--header']);
+    const out = stdout.join('');
+    expect(out).toBe('rank\tpath\tscore\tnamespace\thits\n1\ta.md\t0.500\tmemory\t2\n');
+  });
+
+  it('--tsv --header still fires the header row when zero neighbours match (schema-row-is-the-contract)', async () => {
+    // A typed-table consumer parsing the stream against a query that
+    // returns zero neighbours should still see the column names and
+    // produce a valid empty table. Mirrors search/stale/stats --tsv
+    // --header byte-for-byte.
+    const payload = {
+      path: 'foo.md',
+      sourceChunkCount: 5,
+      items: [],
+      count: 0,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--tsv', '--header']);
+    // wc -l = 1 (header only), not 0.
+    expect(stdout.join('')).toBe('rank\tpath\tscore\tnamespace\thits\n');
+    // The "no related sources" hint MUST NOT leak — under --tsv the
+    // empty-state stays empty so xargs/wc see exactly the header row.
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--tsv zero neighbours without --header yields a fully empty stream (xargs-safe)', async () => {
+    const payload = {
+      path: 'foo.md',
+      sourceChunkCount: 5,
+      items: [],
+      count: 0,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--tsv']);
+    expect(stdout.join('')).toBe('');
+    expect(stderr.join('')).toBe('');
+  });
+
+  it('--paths-only wins over --tsv (pipeline-leaner shape short-circuits first)', async () => {
+    // Precedence: --paths-only > --tsv > --slim > --json > text. When
+    // both --paths-only and --tsv are set, --paths-only emits the
+    // dedupe-stable path stream and the TSV schema/rows never fire.
+    const payload = {
+      path: 'foo.md',
+      sourceChunkCount: 1,
+      items: [
+        { path: 'a.md', namespace: 'memory', score: 0.9, hits: 1, excerpt: '' },
+      ],
+      count: 1,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--paths-only', '--tsv']);
+    // Bare path stream, no tabs, no schema row.
+    expect(stdout.join('')).toBe('a.md\n');
+    expect(stdout.join('')).not.toContain('\t');
+  });
+
+  it('--tsv wins over --slim (tab-separated pipeline contract beats JSON wrapper)', async () => {
+    // Precedence: --tsv > --slim. Both compete for the "machine-
+    // readable" slot but --tsv is the pipeline shape (awk-friendly).
+    const payload = {
+      path: 'foo.md',
+      sourceChunkCount: 1,
+      items: [
+        { path: 'a.md', namespace: 'memory', score: 0.8, hits: 1, excerpt: '' },
+      ],
+      count: 1,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--json', '--slim', '--tsv']);
+    const out = stdout.join('');
+    // Tab-separated, no JSON bracketing.
+    expect(out).toBe('1\ta.md\t0.800\tmemory\t1\n');
+    expect(out).not.toContain('{');
+  });
+
+  it('--tsv composes with --threshold (filter narrows the rows before emit)', async () => {
+    // --threshold runs BEFORE the --tsv branch so the TSV stream is
+    // the post-filter survivors. Rank re-numbers from 1 against the
+    // survivor set.
+    const payload = {
+      path: 'foo.md',
+      sourceChunkCount: 2,
+      items: [
+        { path: 'keep.md', namespace: 'memory', score: 0.92, hits: 3, excerpt: '' },
+        { path: 'drop.md', namespace: 'memory', score: 0.10, hits: 1, excerpt: '' },
+      ],
+      count: 2,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--threshold', '0.5', '--tsv']);
+    // Only keep.md survives; rank=1 (not rank=1 of the pre-filter set).
+    expect(stdout.join('')).toBe('1\tkeep.md\t0.920\tmemory\t3\n');
+  });
+
+  it('--tsv composes with --sort path (rows emit in alphabetical order with re-numbered ranks)', async () => {
+    // The --sort branch runs BEFORE the --tsv emit so the TSV rows
+    // reflect the post-sort order. Mirrors search --sort + --tsv.
+    const payload = {
+      path: 'foo.md',
+      sourceChunkCount: 2,
+      items: [
+        { path: 'zzz.md', namespace: 'memory', score: 0.9, hits: 2, excerpt: '' },
+        { path: 'aaa.md', namespace: 'memory', score: 0.5, hits: 1, excerpt: '' },
+      ],
+      count: 2,
+    };
+    globalThis.fetch = (async () =>
+      new Response(JSON.stringify(payload), { status: 200 })) as never;
+    await relatedCommand().parseAsync(['node', 'cli', 'foo.md', '--sort', 'path', '--tsv']);
+    expect(stdout.join('')).toBe('1\taaa.md\t0.500\tmemory\t1\n2\tzzz.md\t0.900\tmemory\t2\n');
+  });
+});
+
+
