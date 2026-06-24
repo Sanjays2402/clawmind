@@ -7,6 +7,7 @@ import { ChatStream } from './ChatStream';
 import { SourcesPane } from './SourcesPane';
 import { Composer } from './Composer';
 import { ShareAnswerButton } from './ShareAnswerButton';
+import { CopyAnswerButton } from './CopyAnswerButton';
 import { api } from '@/lib/api';
 
 interface Source {
@@ -117,6 +118,11 @@ export function ChatShell({
                 />
                 {!loading && (
                   <div className="mt-6 flex items-center justify-end gap-2 border-t border-cm-border pt-4">
+                    <CopyAnswerButton
+                      query={question}
+                      answer={answer}
+                      sources={sources}
+                    />
                     <ShareAnswerButton
                       query={question}
                       answer={answer}
