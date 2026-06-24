@@ -26,7 +26,15 @@ recently (security posture, breach register, key allowlists, etc.) and the
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-23 15:09 PDT (current)
+### Tick 2026-06-23 19:21 PDT (current)
+
+- [x] feat(search): --tsv [+ --header] emits the family-wide tab-separated rank/path/score/namespace stream (18ad396)
+- [x] feat(related): --tsv [+ --header] extends the search-tsv 4-col shape with a 5th `hits` column (0037057)
+- [x] feat(feedback): list --tsv [+ --header] emits the family-wide tab-separated path/boost/ups/downs stream (e8b79e7)
+- [x] feat(digest): show --sort <ts|addedCount|removedCount> + --reverse port to the family-wide ordering primitive (6755e2f)
+- [x] feat(forget): --top <n> caps the previewed removedPaths array + --paths-only stream (presentation-only, REJECTED with --apply) (c87a78b)
+
+### Tick 2026-06-23 15:09 PDT
 
 - [x] feat(watch): --only-add/--only-change/--only-unlink event-kind filter triplet on the live NDJSON stream (e16f742)
 - [x] feat(tags): paths <tag> --sort path + --reverse port to the family-wide --sort/--reverse contract (5373fc4)
@@ -257,9 +265,19 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 - [ ] feat(stats): add --tsv --header prepending the schema row (`namespace\tfiles\tchunks\tbytes\tnewestIngestedAt`) so the stream is friendly to typed-table parsers (column -t / pandas.read_csv) without a separate echo. Mirrors `stale --tsv --header` byte-for-byte: zero-row body still gets the header (the schema row is the contract). Under --json --slim the header is the 2-col `namespace\tfiles` (matches the slim shape). — DONE 08b52b2. RESOLVED.
 - [ ] feat(stale): add --top <n> client-side post-sort cap. Family-wide --top contract (mirrors stats / feedback list / tags list / search --top): clamped to positive integer; non-positive or NaN falls back to "no cap"; recomputes `total` to the post-cap count; applies uniformly across every output mode (--json / --tsv / --paths / --paths-only / text). The canonical cron-budget use is `clawmind stale --sort size --top 10 --paths | xargs forget --apply` — "the 10 biggest stale files, in size-priority order". — DONE 50cc616. RESOLVED.
 - [ ] feat(watch): port the live-watch event-kind filter triplet (--only-add / --only-change / --only-unlink) to the --once preview path? Today the --once mode emits the ingest report shape (not per-event NDJSON), so the --only-* filter has no per-event axis to operate on. Audit first: is there a meaningful read of "preview only the adds" that the existing --paths-only / --preview-json doesn't already cover? Likely not — --paths-only / --preview-json are already pure-preview shapes that don't distinguish adds/changes/unlinks because ingest doesn't either at that level. Closing as not-needed.
-- [ ] feat(digest): port the family-wide --sort contract to `digest show` history rows. Today `digest show` emits history in API order (newest-first); a dedicated `--sort ts` (with --reverse) would let the operator pick oldest-first. The shape question: is there meaningful daylight between `digest show --sort ts` and the existing API order? The API is contractually newest-first so --sort ts default is a no-op; --sort ts --reverse gives oldest-first. Worth a port for family-contract consistency. Also: --sort addedCount / --sort removedCount would surface the loudest churn rows in either direction. Audit first.
-- [ ] feat(forget): port the family-wide --top contract to `forget --json --slim` for "preview the top N paths the forget would touch ordered by their per-chunk cost". Today the slim shape carries `{count, matched, removedChunks, dryRun}` — adding --top would let an operator cap the dry-run preview at N to bound the "would I really delete this much" judgment. Audit first: the existing slim shape drops the path list, so the operator polling the slim shape doesn't see paths at all. The --top would be meaningful on the bare --dry-run --json path (NOT the slim). Worth a separate test pin in either case.
-- [ ] feat(search): port the --tsv contract (just shipped on stats --tsv --header today) to search. Today search has --no-snippet for slim JSON and --paths-only for the pipeline stream, but no --tsv mode. Cron snapshots of search rankings would benefit from a tab-separated `rank\tpath\tscore\tnamespace` shape that diffs cleanly across ticks. Pairs with --tsv --header for typed-table parsers. Audit first: is search ranking stable enough across ticks for the diff to be meaningful, or does score float on every ingest making the diff noisy?
+- [ ] feat(digest): port the family-wide --sort contract to `digest show` history rows. Today `digest show` emits history in API order (newest-first); a dedicated `--sort ts` (with --reverse) would let the operator pick oldest-first. The shape question: is there meaningful daylight between `digest show --sort ts` and the existing API order? The API is contractually newest-first so --sort ts default is a no-op; --sort ts --reverse gives oldest-first. Worth a port for family-contract consistency. Also: --sort addedCount / --sort removedCount would surface the loudest churn rows in either direction. Audit first. — DONE 6755e2f: shipped --sort ts/addedCount/removedCount + --reverse on digest show. ts is the explicit no-op (newest-first API default + asc-flip under --reverse). addedCount/removedCount surface the loudest-churn rows in either direction. Composition pin: --sort addedCount --last 1 surfaces the loudest-additions row in one call (NOT the newest). RESOLVED.
+- [ ] feat(forget): port the family-wide --top contract to `forget --json --slim` for "preview the top N paths the forget would touch ordered by their per-chunk cost". Today the slim shape carries `{count, matched, removedChunks, dryRun}` — adding --top would let an operator cap the dry-run preview at N to bound the "would I really delete this much" judgment. Audit first: the existing slim shape drops the path list, so the operator polling the slim shape doesn't see paths at all. The --top would be meaningful on the bare --dry-run --json path (NOT the slim). Worth a separate test pin in either case. — DONE c87a78b: shipped --top <n> as a presentation-only cap on the path-level emit (removedPaths array + --paths-only stream + text-mode path list). matched/removedChunks integer counts STILL reflect the FULL API match — the slim shape is unchanged regardless of --top. Critical safety contract: --top is REJECTED with --apply (visible preview must match destruction scope; cron safety pattern). RESOLVED.
+- [ ] feat(search): port the --tsv contract (just shipped on stats --tsv --header today) to search. Today search has --no-snippet for slim JSON and --paths-only for the pipeline stream, but no --tsv mode. Cron snapshots of search rankings would benefit from a tab-separated `rank\tpath\tscore\tnamespace` shape that diffs cleanly across ticks. Pairs with --tsv --header for typed-table parsers. Audit first: is search ranking stable enough across ticks for the diff to be meaningful, or does score float on every ingest making the diff noisy? — DONE 18ad396: shipped --tsv + --header. Score uses .toFixed(3) precision matching text-mode so cross-mode diffs are byte-stable. The 4 columns (rank, path, score, namespace) match the --json --slim shape so a downstream parser flipping between the two only changes the framing, not the schema. Precedence: --paths-only > --tsv > --json > text. Perf property: --tsv does NOT call snippetFor(). RESOLVED.
+
+### Queued for later ticks (refilled this tick)
+
+- [ ] feat(related): port the --tsv --slim composition byte-layout pin (when --slim AND --tsv are both set with --json, what's the column shape? Today --tsv wins outright and emits the 5-col shape — does a future operator want a "slim 3-col TSV" stripped of rank+hits to match the slim JSON shape? Open: probably not worth a separate path; --slim's natural twin is --json + slim JSON shape, NOT --tsv. Pin the precedence with a single test and document it).
+- [ ] feat(stats): port the --tsv contract to `stats --json --slim --tsv --header` composition pin — today the slim --tsv path emits 2-col `namespace\tfiles` rows but the --header schema row under that mode is the same 2 columns. Pin the byte layout with a zero-row body + --header to lock the contract that the slim TSV header is byte-stable across slim/non-slim mode switches.
+- [ ] feat(digest): port the --sort family-wide contract to `digest show --paths-only` walks. Today the --paths-only walk is newest-first by row, then API order within each row's newSources + removedSources. Adding --sort would let `digest show --paths-only --sort addedCount` walk the loudest-additions row's paths first — useful for `clawmind digest show s1 --paths-only --sort addedCount --last 1 | xargs ingest` ("the paths from the noisiest recent run, ready for re-ingest"). Audit: --sort already runs BEFORE --paths-only walks `filteredHistory` so this is FREE — just verify with a test and document.
+- [ ] feat(feedback): port the --tsv contract to `feedback prune --json --slim` for the dry-run preview path. Today the slim shape carries 4 integers + the errors array; adding --tsv would emit those as `<predicate>\t<matched>\t<cleared>\t<dryRun>` rows for an awk-pipeline cron monitor. Audit: is there meaningful daylight between the slim JSON 4-int shape and a single-row TSV? Probably a 1:1 mirror; pin it for symmetry with the rest of the --tsv family or close as not-needed.
+- [ ] feat(search): port the --tsv contract to the --out file dispatch path (today `--tsv --out file.tsv` writes the TSV stream to the file via a shell redirect — but the existing --json --out / --text --out pattern writes ANSI-stripped bytes to the file plus a "wrote N result(s)" stderr confirm). The TSV path currently skips --out entirely; making it honour --out would complete the symmetry. Audit: is the file-dispatch worth it given operators usually shell-redirect TSV? Open question.
+- [ ] feat(forget): port the --top contract to surface the `removedChunks` proportional cap — today --top caps the path-level emit; an operator wanting "the 5 paths that account for the MOST chunks" needs to sort the removedPaths by per-path chunk count then cap. The API does not return per-path chunk counts today, so this needs an API addition. Audit before shipping.
+- [ ] feat(digest): port the --sort + --tsv composition: today digest show has no --tsv mode at all. A `digest show s1 --tsv --header` shape would emit `<ts>\t<addedCount>\t<removedCount>\t<totalSources>` per history row — the natural cron snapshot of churn-per-run. Pairs with --sort addedCount for "loudest-churn rows first" in column-aligned form.
 
 ## Conventions
 
@@ -2875,3 +2893,144 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
   4 new follow-up items (digest --sort ts, forget --top, search
   --tsv, plus a closed-as-not-needed watch --once --only-* audit)
   so it stays well above the >=5 ready-items floor for the next tick.
+
+- 2026-06-23 19:21 PDT (Cake/cron) — 5 features shipped directly on main.
+  Features: 18ad396, 0037057, e8b79e7, 6755e2f, c87a78b. Test gate:
+  `@clawmind/cli` 878/878 vitest pass (up from 833). 45 net new tests
+  spread across 4 files: search.test.ts (+9: 62 -> 71), related.test.ts
+  (+8: 47 -> 55), feedback-digest.test.ts (+19: 833-833 split — 9 for
+  feedback list --tsv on the "feedback cli" block + 10 for digest show
+  --sort on the "digest cli" block), forget.test.ts (+8: 25 -> 33).
+  Typecheck: `@clawmind/cli` clean. Same one pre-existing red outside
+  cli (telemetry OpenTelemetry 1.x/2.x peer mismatch — queued since
+  tick 1, unchanged by this batch). The rag/hybrid alpha-blend test
+  is back as a failure too this tick (queued since tick 6; appears
+  intermittently across recent ticks).
+
+  Theme: extend the family-wide --tsv contract that landed on stats
+  this morning (08b52b2) to THREE more commands (search, related,
+  feedback list) AND ship two more family-wide ports (digest show
+  --sort, forget --top) closing the queued sweep.
+
+    1. search --tsv [+ --header] (18ad396): emits the canonical 4-col
+       `<rank>\t<path>\t<score>\t<namespace>` stream. Mirrors stale
+       --tsv / stats --tsv byte-for-byte. The 4 columns match the
+       --json --slim shape so a downstream parser flipping between
+       the two only changes the framing, not the schema. Score uses
+       .toFixed(3) precision matching text-mode render so cross-mode
+       diffs are byte-stable. Perf property pinned: --tsv does NOT
+       call snippetFor() — a cron snapshot polling once a minute
+       does not pay the snippet-rendering cost. --header fires
+       UNCONDITIONALLY even on zero-row bodies; without --header the
+       zero-hit case is a fully empty stream (wc -l = 0; the
+       text-mode "no results" hint is suppressed). Precedence:
+       --paths-only > --tsv > --json > text — pipeline contract
+       beats machine-readable JSON.
+
+    2. related --tsv [+ --header] (0037057): extends the search-tsv
+       4-col shape with a 5th `hits` column (per-neighbour chunk match
+       count, same field text mode renders as `xN`). Hits is included
+       because a neighbour with many chunk hits is structurally
+       different from one with a single high-score chunk — the cron
+       operator running a TSV snapshot wants both signals in one
+       column-aligned stream rather than parsing the text-mode `xN`
+       suffix or dropping back to --json + jq. Same precedence,
+       same schema-row contract, same .toFixed(3) cross-mode
+       stability. Excerpt bodies MUST NOT leak (pinned).
+
+    3. feedback list --tsv [+ --header] (e8b79e7): 4-col
+       `<path>\t<boost>\t<ups>\t<downs>`. Operator-facing signals
+       minus the ANSI sign-glyph the text mode renders. Boost uses
+       .toFixed(2) precision matching text-mode "${boost.toFixed(2)}x"
+       render so cross-mode diffs byte-stable. Composes with -q /
+       --above / --below / --top / --sort / --reverse — the TSV
+       stream describes the post-filter, post-sort, post-cap
+       survivors (same as every other emit mode). The text-mode
+       "no feedback yet" hint is suppressed under --tsv (xargs/wc-
+       safe regression pinned).
+
+    4. digest show --sort + --reverse (6755e2f): family-wide --sort
+       port to the history rows. Three keys, all desc by default:
+       ts (newest-first, matches API, explicit no-op for symmetry),
+       addedCount (loudest-additions-first), removedCount (loudest-
+       removals-first). Applied AFTER -q / --since but BEFORE --last
+       so the cap honours the new ordering: `--sort addedCount
+       --last 1` surfaces the LOUDEST recent ingest event in one
+       call (NOT the newest). This composition is the operator-
+       friendly cron one-liner. Ties carry a secondary sort by
+       original index. Unknown keys throw cleanly with exit 1.
+       --reverse flips with a single sign-flipping multiplier on
+       BOTH primary AND secondary, preserving cross-snapshot
+       determinism in either direction.
+
+    5. forget --top <n> (c87a78b): caps the previewed `removedPaths[]`
+       array AND the --paths-only stream to the first N paths the
+       API returned. Presentation-only — matched/removedChunks
+       integer counts STILL reflect the FULL API match so a
+       downstream consumer always knows the true scope of what
+       would happen on --apply, even with --top set.
+       CRITICAL SAFETY CONTRACT: --top is REJECTED with --apply.
+       Allowing a cap on the destructive path would let `forget X
+       --top 5 --apply` silently delete the FULL N-path match while
+       only showing the operator 5 paths in the report — a
+       misleading discrepancy between visible preview and actual
+       destruction that the cron safety pattern explicitly forbids.
+       The error message tells the operator the two options
+       (drop --top OR drop --apply). Text-mode header surfaces the
+       discrepancy visibly: "would remove 50 source(s) and 250
+       chunk(s) [showing first 5]" — the "[showing first N]"
+       suffix only fires when --top actually capped (--top 50
+       against a 3-path match is a no-op with no false suffix).
+       Family-wide --top contract: non-positive / NaN falls back
+       to "no cap" (matches stale/stats/feedback list/search/tags
+       list/digest list --top precedent).
+
+  Push: bb313a1..c87a78b main -> main. All five commits authored
+  as `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+
+  Verify-gate note: ran `pnpm run ci:verify` (full 21-task
+  pipeline). 19 successful, 2 failed: the queued telemetry
+  OpenTelemetry 1.x/2.x peer mismatch + the rag/hybrid alpha-blend
+  drift — both unchanged by this batch (verified pre-existing by
+  running `pnpm --filter @clawmind/cli test` in isolation, which
+  passes 878/878 clean).
+
+  Process notes:
+  - Patch-tool gotcha: the first attempt at the search --tsv help
+    text crammed two .option() calls onto one line because the
+    embedded backslashes in the doc string confused the patch
+    tool's escape handling. Caught immediately by the typecheck
+    on the patch — fixed by re-patching with simpler help text
+    (no shell escape gymnastics). Worth noting for future ticks:
+    multi-line .option() chains with embedded `\\` literals are
+    fragile to the patch tool.
+  - During the search --tsv patch the entire --slim option
+    declaration was accidentally deleted; the failing 9 test
+    cases caught it cleanly within 30 seconds. Restored with a
+    targeted re-insertion. The fast feedback loop (per-feature
+    test gate before commit) prevented this from landing on main.
+
+  Identity: commits land on main directly, each commit signed as
+  `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+
+  Theme connector: this is the seventeenth consecutive ship-from-
+  patterns tick. THREE different family-wide patterns ported to
+  five different commands this batch:
+    (a) --tsv [+ --header] family-wide tab-separated emit
+        (stats -> search, related, feedback list)
+    (b) --sort + --reverse family-wide ordering primitive
+        (digest list / aliases list / tags paths / etc. -> digest show)
+    (c) --top family-wide post-set cap
+        (stats / feedback list / search etc. -> forget, with the
+        safety twist that forget --top is REJECTED with --apply)
+  The cli's --tsv contract now spans FIVE commands uniformly
+  (stale, stats, search, related, feedback list); the schema-row
+  --header contract is consistent across all five. Every primary
+  column shape MIRRORS the corresponding --json --slim shape so
+  downstream parsers can flip between TSV and JSON framings with
+  no schema drift. The queue refilled with 7 new follow-up items
+  (related --tsv --slim composition pin, stats slim --tsv --header
+  zero-row pin, digest show --paths-only --sort, feedback prune
+  --tsv, search --tsv --out file dispatch, forget --top
+  proportional cap, digest show --tsv) so it stays well above the
+  >=5 ready-items floor for the next tick.
