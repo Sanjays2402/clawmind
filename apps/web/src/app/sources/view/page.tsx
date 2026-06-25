@@ -3,8 +3,9 @@ import { TopNav } from '@/components/TopNav';
 import { FeedbackForm } from '@/components/FeedbackForm';
 import { TagEditor } from '@/components/TagEditor';
 import { ScrollToCited } from '@/components/ScrollToCited';
+import { CodeView } from '@/components/CodeView';
 import { api, fmtBytes, fmtRelative } from '@/lib/api';
-import { contextWindow, isCitedLine } from '@/lib/contextWindow';
+import { contextWindow } from '@/lib/contextWindow';
 import { IconFolder, IconArrowRight, IconWarning } from '@clawmind/ui';
 
 export const dynamic = 'force-dynamic';
@@ -55,7 +56,6 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
   }
 
   const content = fileRes.content ?? '';
-  const lines = content.length === 0 ? [] : content.split('\n');
   const startLine = fileRes.start ?? 1;
   // Deep-link target string drives the client auto-scroll effect; it changes
   // when the path or cited range changes so a soft navigation re-scrolls.
@@ -102,33 +102,7 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
               </Link>
             </div>
           </div>
-          {lines.length === 0 ? (
-            <div style={{ padding: 32, textAlign: 'center', color: 'var(--cm-muted)', fontSize: 14 }}>
-              File is empty.
-            </div>
-          ) : (
-            <pre style={{ margin: 0, padding: '14px 0', overflowX: 'auto', fontSize: 13, lineHeight: 1.55, fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)' }}>
-              {lines.map((line, i) => {
-                const lineNo = startLine + i;
-                const cited = isCitedLine(win, lineNo);
-                // The cited band is wrapped in a single element carrying
-                // id="cm-cited" on its FIRST line so the client auto-scroll
-                // can centre it. Highlight every cited row with a gold rail.
-                const firstCited = cited && (i === 0 || !isCitedLine(win, lineNo - 1));
-                return (
-                  <div
-                    key={i}
-                    id={firstCited ? 'cm-cited' : undefined}
-                    className={cited ? 'cm-cited-line' : undefined}
-                    style={{ display: 'flex' }}
-                  >
-                    <span style={{ flex: '0 0 56px', textAlign: 'right', paddingRight: 12, color: cited ? 'var(--cm-cite)' : 'var(--cm-muted)', userSelect: 'none' }}>{lineNo}</span>
-                    <span style={{ whiteSpace: 'pre', paddingRight: 16 }}>{line || ' '}</span>
-                  </div>
-                );
-              })}
-            </pre>
-          )}
+          <CodeView content={content} path={path} startLine={startLine} win={win} />
         </div>
       </section>
     </Shell>
