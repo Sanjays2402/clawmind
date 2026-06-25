@@ -2,9 +2,9 @@
 import Link from 'next/link';
 import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
-import { Logo, ThemeToggle, KbdGroup, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp, IconWebhook, IconArchive, IconSettings, IconLink, IconBell, IconWarning, IconShield } from '@clawmind/ui';
+import { Logo, ThemeToggle, KbdGroup, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp, IconWebhook, IconArchive, IconSettings, IconLink, IconBell, IconWarning, IconShield, IconCaretDown } from '@clawmind/ui';
 
 const primary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/chat', label: 'Ask', Icon: IconSpark },
@@ -99,6 +99,7 @@ export function TopNav() {
               </Link>
             );
           })}
+          <MoreMenu pathname={pathname} />
         </nav>
         <div className="flex items-center gap-2">
           <Link
@@ -161,3 +162,92 @@ export function TopNav() {
     </>
   );
 }
+
+/**
+ * Desktop "More" overflow dropdown. The primary nav shows 7 surfaces; the
+ * other ~20 secondary surfaces were previously reachable on desktop ONLY via
+ * the command palette (the horizontal-scroll bar is mobile-only). This closes
+ * that discoverability gap with a popover anchored under a "More" trigger.
+ *
+ * Behaviour: opens on click, closes on Escape, click-outside, or selecting an
+ * item (Next navigation unmounts nothing, so we close on click explicitly).
+ * The trigger lights up like an active nav item when the current route lives
+ * inside the secondary set, so the user always knows "where they are" even
+ * when the active page is tucked inside the menu.
+ */
+function MoreMenu({ pathname }: { pathname: string | null }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const isInSecondary = secondary.some(
+    ({ href }) => pathname === href || pathname?.startsWith(href + '/'),
+  );
+
+  // Close on click-outside and Escape while open.
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', onDocClick);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDocClick);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label="More pages"
+        className={[
+          'flex items-center gap-1 rounded-md px-2.5 py-1.5 text-[13px] transition-colors',
+          open || isInSecondary ? 'bg-cm-accent-soft text-cm-fg' : 'text-cm-muted hover:text-cm-fg',
+        ].join(' ')}
+      >
+        More
+        <IconCaretDown size={12} />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          aria-label="More pages"
+          className="absolute right-0 top-[calc(100%+8px)] z-30 w-[440px] rounded-xl border border-cm-border bg-cm-paper p-2 shadow-xl"
+        >
+          <div className="grid grid-cols-2 gap-0.5">
+            {secondary.map(({ href, label, Icon }) => {
+              const active = pathname === href || pathname?.startsWith(href + '/');
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  role="menuitem"
+                  aria-current={active ? 'page' : undefined}
+                  onClick={() => setOpen(false)}
+                  className={[
+                    'flex items-center gap-2 rounded-md px-2.5 py-2 text-[13px] transition-colors',
+                    active ? 'bg-cm-accent-soft text-cm-fg' : 'text-cm-muted hover:bg-cm-subtle hover:text-cm-fg',
+                  ].join(' ')}
+                >
+                  <Icon size={14} />
+                  <span className="truncate">{label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
