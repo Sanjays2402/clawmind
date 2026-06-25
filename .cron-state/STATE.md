@@ -37,7 +37,15 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-25 06:00 PDT (current) - a11y + nav + theming batch
+### Tick 2026-06-25 11:19 PDT (current) - nav discoverability + UI-primitive batch
+
+- [x] feat(ui): shared Kbd + KbdGroup primitive replacing four duplicated kbd blocks (e300f3c)
+- [x] feat(web/nav): desktop "More" overflow dropdown for the secondary surfaces (1e01dde)
+- [x] feat(web/history): group answers under sticky per-day date headers (adcf288)
+- [x] feat(web/stats): switchable files/chunks/bytes lens on the namespace bars (cba8f79)
+- [x] feat(web/composer): cmd+/ saved-prompt picker overlay with type-to-filter (f761dee)
+
+### Tick 2026-06-25 06:00 PDT - a11y + nav + theming batch
 
 - [x] feat(web/theming): system-theme auto-detect on first visit + live OS follow (fd83f5b)
 - [x] feat(web/a11y): skip-to-content link as the first focusable element (917c05e)
@@ -283,7 +291,7 @@ CHAT SURFACE (apps/web/src/components/Chat*, apps/web/src/app/chat):
 - [x] feat(web/chat): retry-on-error affordance in the chat error state. SHIPPED d330b7f as a ChatError panel with Retry (re-submits same question) + Edit and try again (returns caret to composer via Composer focusSignal); submit() now takes an explicit question.
 - [ ] feat(web/chat): per-message conversation history within a thread — the current ChatShell loses the prior question/answer when a new question is asked. Add a vertical stack of Q/A pairs (newest at bottom), each with its own copy/share affordance, citation rail folded into a per-message collapsible.
 - [x] feat(web/chat): mid-stream "thinking..." + token-count hint while the LLM is producing output. SHIPPED 928d500 as a StreamProgress footer (breathing accent dot + running token count + last-token gap) that appears once the first token lands and resets each submit; reduced-motion guard.
-- [ ] feat(web/composer): saved-prompt picker overlay (cmd+/ from the composer). The Tab cycling is functional but not discoverable. A small popover anchored to the composer that lists the SAVED_PROMPTS with type-to-filter would be the explicit version of the Tab-cycling muscle memory.
+- [x] feat(web/composer): saved-prompt picker overlay (cmd+/ from the composer). SHIPPED f761dee as a PromptPicker anchored beneath the composer: opens on cmd/ctrl+/ or the footer "saved prompts" hint button, type-to-filter, up/down + Enter to pick, Esc/click-outside to close. Picking drops the prompt into the textarea and returns the caret to the end. Tab cycling left untouched alongside it. Surfaced in the ShortcutHelp Chat group + the chat breadcrumb hint.
 - [ ] feat(web/composer): drag-and-drop file pin onto the composer to pre-pin a source for the next question. The /pins page already exists; the composer should accept a file drop and surface a "Pinned: <path>" chip below the textarea that's submitted with the question.
 
 SOURCES RAIL + VIEWER:
@@ -293,18 +301,18 @@ SOURCES RAIL + VIEWER:
 - [ ] feat(web/sources/view): "open at line N" deep-link from the rail — the rail already passes startLine, the viewer should scroll-and-highlight that line when arriving via deep link.
 
 GLOBAL UX / NAV:
-- [ ] feat(web/nav): collapsible "More" overflow menu in the TopNav secondary nav for the 20+ secondary surfaces. The current mobile horizontal-scroll bar is functional but the desktop relies on the command palette for those; a discoverable "More ▾" dropdown next to the primary nav would close the discoverability gap.
+- [x] feat(web/nav): collapsible "More" overflow menu in the TopNav secondary nav for the 20+ secondary surfaces. SHIPPED 1e01dde as a MoreMenu popover at the end of the desktop primary nav: a two-column grid of every secondary item, closes on Esc/click-outside/select, highlights the active item AND the "More" trigger when the current route lives in the secondary set. role=menu/menuitem + aria-haspopup/aria-expanded; reuses the existing `active` pathname computation. Added a shared IconCaretDown to @clawmind/ui for the trigger.
 - [x] feat(web/nav): per-route page-title in the document head (`Page · ClawMind`) - today every page is just "ClawMind". SHIPPED f6a2c85 as lib/pageTitle.ts (route->label resolver with curated TOP_LEVEL + SETTINGS maps, humanize fallback, opaque-id skip) + a DocumentTitle client component mounted once in the layout. Server-titled routes (trust/incidents/sbom/breach-register/offline) resolve to null and are left untouched. Settings sub-pages get breadcrumb titles ("Security . Settings . ClawMind").
 - [ ] feat(web/nav): breadcrumbs on settings sub-pages (Settings › Security › API key policy). The /settings tree is two levels deep and the user has no anchor today.
 - [x] feat(web/nav): focus-visible ring on every primary interactive element using --cm-accent-line so keyboard users always see where focus is. SHIPPED 9b453b9 as a base :focus-visible rule in globals.css covering a/button/input/textarea/select/summary + role=button|link|tab|menuitem with a 2px --cm-accent-line ring (tighter offset on inputs). :focus-visible means pointer clicks never ring; bespoke focus treatments (cite pill, skip link, open-viewer, share CTA) keep class-level specificity and override the base.
 - [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette, ShareAnswerButton, ShortcutHelp) on a single `<Dialog>` primitive in @clawmind/ui so future modals don't drift in radius / shadow / backdrop opacity.
-- [ ] feat(web/ui): a `<KbdGroup keys={['⌘','K']} />` primitive so every kbd chip in the app shares one set of styles instead of the four duplicated kbd: CSSProperties blocks currently in use.
+- [x] feat(web/ui): a `<KbdGroup keys={['⌘','K']} />` primitive so every kbd chip in the app shares one set of styles instead of the four duplicated kbd: CSSProperties blocks currently in use. SHIPPED e300f3c as Kbd (one key, sm/md size) + KbdGroup (key sequence, or boxed=one bordered pill for the TopNav legend) in @clawmind/ui; ShortcutHelp/CommandPalette/TopNav all dropped their local kbd consts and render the primitive. No visual change - chips render byte-identical at each size.
 
 PAGE-LEVEL POLISH:
 - [ ] feat(web/dashboard): inline sparkline next to each StatCard (the dashboard panel shows totals but no trend). A small SVG line chart of "documents indexed over the last 14 days" would turn the dashboard from a snapshot into a story. Backend can compute it from the existing ingestStatus → ingestHistory endpoint.
 - [ ] feat(web/dashboard): "what changed today" panel summarising the diff between yesterday and today's index (added documents, removed sources, new namespaces). Pairs naturally with the existing dashboard structure.
-- [ ] feat(web/stats): horizontal-bar visualisation of per-namespace files/chunks/bytes. Today the namespace breakdown is a grid of text cards; a single column-aligned bar visualisation would make outlier namespaces pop.
-- [ ] feat(web/history): per-day grouping with a small date header bar between groups. Today /history is a flat list; grouping by day would let the user scan recent questions by date faster.
+- [x] feat(web/stats): horizontal-bar visualisation of per-namespace files/chunks/bytes. SHIPPED cba8f79: the bar viz already existed but was hard-wired to chunks; added a Files/Chunks/Bytes segmented toggle that re-sorts the namespaces desc by the chosen metric, rescales every bar to that metric's max, and swaps the value column (bytes via fmtBytes). The summary stat cards double as lens shortcuts with an accent ring when active. role=tablist/tab + aria-selected. (Outlier namespaces now pop under whichever lens you pick.)
+- [x] feat(web/history): per-day grouping with a small date header bar between groups. SHIPPED adcf288 via lib/dayGroups.ts (pure groupByDay + dayLabel: Today/Yesterday/weekday/Mon D/Mon D, YYYY) + a sticky DayHeader between groups; grouping preserves the API's newest-first order across and within groups. Verified labels against a 6-row fixture.
 - [ ] feat(web/notifications): bell badge animation on transition from 0 → 1+ unread (a subtle pulse, NOT a constant blink). Adds a quiet "you have new mail" signal.
 - [ ] feat(web/welcome): finish the welcome guide visually — today /welcome exists but feels minimal. Add a 3-card carousel with screenshots/illustrations of the chat + dashboard + sources pages so a first-run user has a 30-second tour.
 
@@ -3319,6 +3327,68 @@ ACCESSIBILITY + THEMING:
   pages). The single lint warning (`sources` useMemo, web build line 498) is
   pre-existing and in none of this tick's 6 touched files. Push:
   051259f..f6a2c85 main -> main.
+
+  Identity: commits land on main directly, each signed as
+  `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+
+- 2026-06-25 11:19 PDT (Cake/cron) — 5 features shipped on main. The nav
+  discoverability + UI-primitive batch the previous session flagged as a strong
+  "next tick" candidate; all 5 were top-of-queue NAV / UI-primitive / PAGE-POLISH
+  roadmap items. Features: e300f3c, 1e01dde, adcf288, cba8f79, f761dee. Theme:
+  close discoverability gaps across the shell + consolidate a duplicated
+  primitive, then two page-level polish wins (history, stats).
+    1. e300f3c — Kbd + KbdGroup primitive in @clawmind/ui. Three surfaces
+       (ShortcutHelp sheet, CommandPalette, TopNav legend) each hand-rolled
+       their own kbd chip CSSProperties block with subtle drift. Extracted a
+       single Kbd (one key, sm flat-muted / md raised) + KbdGroup (key sequence,
+       or boxed=one bordered pill for the TopNav legend idiom). All three
+       consumers dropped their local kbd const and render the primitive; chips
+       render byte-identical at each size (no visual change).
+    2. 1e01dde — desktop "More" overflow dropdown in TopNav. The 7 primary
+       surfaces show in the nav; the ~20 secondary surfaces were reachable on
+       DESKTOP only via cmd-K (the horizontal-scroll bar listing them is
+       md:hidden). Added a MoreMenu popover at the end of the primary nav: a
+       two-column grid of every secondary item, closes on Esc/click-outside/
+       select, highlights the active item AND the "More" trigger when the
+       current route lives in the secondary set. role=menu/menuitem +
+       aria-haspopup/aria-expanded, reuses the existing `active` computation.
+       Added a shared IconCaretDown to @clawmind/ui for the trigger.
+    3. adcf288 — per-day grouping on /history. The flat newest-first run got
+       bucketed into calendar days under a sticky DayHeader (mono label +
+       hairline + per-day count). New lib/dayGroups.ts: pure groupByDay +
+       dayLabel (Today / Yesterday / weekday within the last week / "Jun 10"
+       same year / "Mar 4, 2025" older). Grouping preserves the API's
+       newest-first order across AND within groups; empty days never produce a
+       group. Row-rendering closure lifted into a local renderRow() to avoid
+       duplicating the large per-item handler block. Verified bucketing + labels
+       against a 6-row fixture spanning all five label cases (ran via tsx).
+    4. cba8f79 — switchable files/chunks/bytes lens on the stats namespace
+       bars. The bar viz was hard-wired to chunks (scale + value column). Added
+       a Files/Chunks/Bytes segmented toggle that re-sorts the namespaces desc
+       by the chosen metric, rescales every bar to that metric's max, and swaps
+       the value column (bytes via fmtBytes). The bar width animates 300ms so
+       the re-rank reads smooth. The three summary stat cards double as lens
+       shortcuts with an accent ring when active. role=tablist/tab +
+       aria-selected on the toggle; aria-pressed on the cards.
+    5. f761dee — cmd+/ saved-prompt picker overlay on the composer. The
+       Tab-cycling through SAVED_PROMPTS is fast but invisible to a first-time
+       user. Added the discoverable twin: a PromptPicker anchored under the
+       composer, opens on cmd/ctrl+/ or the footer "saved prompts" hint button,
+       type-to-filter, up/down + Enter to pick, Esc/click-outside to close.
+       Picking drops the prompt into the textarea and returns the caret to the
+       end. Tab cycling untouched alongside it. Surfaced the binding in the
+       ShortcutHelp Chat group + the chat breadcrumb hint. role=listbox/option.
+  Gate: `pnpm run ci:verify` fails ONLY on the pre-existing @clawmind/telemetry
+  OTel 1.x/2.x ReadableSpan peer mismatch (queued since tick 1, untouched here).
+  ci:verify chains typecheck && test && build so that telemetry red
+  short-circuits before build; ran the real web/ui gate directly:
+  @clawmind/ui + @clawmind/web + @clawmind/api ALL typecheck green AND
+  `pnpm --filter @clawmind/web build` compiled clean ("Compiled successfully",
+  all routes generated). The single lint warning (`sources` useMemo, now at
+  history/page.tsx:552) is PRE-EXISTING — it's the untouched `namespaces`
+  useMemo in HistoryRow; it only shifted line number because the day-grouping
+  memo added ~54 lines above it (none of this tick's edits touched that code).
+  Push: 246608b..f761dee main -> main.
 
   Identity: commits land on main directly, each signed as
   `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
