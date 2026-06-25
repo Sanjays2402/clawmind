@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next';
 import { Fraunces, Inter, JetBrains_Mono } from 'next/font/google';
 import '../styles/globals.css';
 import { CommandPalette } from '@/components/CommandPalette';
+import { DocumentTitle } from '@/components/DocumentTitle';
 import { PwaInstall } from '@/components/PwaInstall';
 import { ShortcutHelp } from '@/components/ShortcutHelp';
 import { ToastProvider } from '@clawmind/ui';
@@ -61,6 +62,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <body>
         <ToastProvider>
+          <DocumentTitle />
           {children}
           <CommandPalette />
           <ShortcutHelp />
