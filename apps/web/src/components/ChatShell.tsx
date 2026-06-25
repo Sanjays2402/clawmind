@@ -9,6 +9,7 @@ import { Composer } from './Composer';
 import { ShareAnswerButton } from './ShareAnswerButton';
 import { CopyAnswerButton } from './CopyAnswerButton';
 import { ChatError } from './ChatError';
+import { StreamProgress } from './StreamProgress';
 import { api } from '@/lib/api';
 import { revealSourceCard } from '@/lib/sourceNav';
 import { citedOrder, citePillId } from '@/lib/citations';
@@ -39,6 +40,9 @@ export function ChatShell({
   const [error, setError] = useState<string | null>(null);
   const [namespaces, setNamespaces] = useState<Ns[]>(['memory', 'projects', 'sessions']);
   const [composerFocus, setComposerFocus] = useState(0);
+  const [tokenCount, setTokenCount] = useState(0);
+  const [lastTokenMs, setLastTokenMs] = useState<number | null>(null);
+  const lastTokenAtRef = useRef<number | null>(null);
   const cancelRef = useRef<boolean>(false);
   const searchParams = useSearchParams();
   const prefillRef = useRef<string | null>(null);
@@ -94,12 +98,22 @@ export function ChatShell({
     setAnswer('');
     setSources([]);
     setActiveSource(null);
+    setTokenCount(0);
+    setLastTokenMs(null);
+    lastTokenAtRef.current = null;
     cancelRef.current = false;
     try {
       await api.stream({ q, namespaces }, (evt) => {
         if (cancelRef.current) return;
         if (evt.type === 'sources') setSources(evt.value as Source[]);
-        if (evt.type === 'token') setAnswer((a) => a + (evt.value as string));
+        if (evt.type === 'token') {
+          const now = Date.now();
+          const prev = lastTokenAtRef.current;
+          if (prev !== null) setLastTokenMs(now - prev);
+          lastTokenAtRef.current = now;
+          setTokenCount((c) => c + 1);
+          setAnswer((a) => a + (evt.value as string));
+        }
         if (evt.type === 'error') setError((evt.value as { message: string }).message);
       });
     } catch (err) {
@@ -165,6 +179,9 @@ export function ChatShell({
                   activeId={activeSource?.id ?? null}
                   onCite={setActiveSource}
                 />
+                {loading && (
+                  <StreamProgress tokens={tokenCount} lastMs={lastTokenMs} />
+                )}
                 {!loading && (
                   <div className="mt-6 flex items-center justify-end gap-2 border-t border-cm-border pt-4">
                     <CopyAnswerButton

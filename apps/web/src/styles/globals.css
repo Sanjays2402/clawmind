@@ -123,6 +123,24 @@ mark.cm-hi {
   .cm-source-flash { animation: none; }
 }
 
+/* Live streaming progress footer: a small breathing dot next to the
+   running token count while the answer is still arriving. */
+@keyframes cm-stream-dot {
+  0%, 100% { transform: scale(0.7); opacity: 0.45; }
+  50%      { transform: scale(1);   opacity: 1; }
+}
+.cm-stream-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--cm-accent);
+  animation: cm-stream-dot 1.1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-stream-dot { animation: none; opacity: 0.8; }
+}
+
 /* Token-color helpers used across pages so Tailwind utilities can blend
    with the existing CSS variable palette. */
 .bg-cm-bg { background: var(--cm-bg); }
