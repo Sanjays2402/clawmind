@@ -168,6 +168,40 @@ mark.cm-hi {
   border-radius: 10px;
 }
 
+/* Skip-to-content link: the first focusable element on every page that
+   renders the TopNav. Off-screen above the viewport at rest; slides into
+   the top-left corner the instant it receives keyboard focus so a keyboard
+   or screen-reader user can jump straight past the nav to the page body. */
+.cm-skip-link {
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  z-index: 60;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--cm-fg);
+  color: var(--cm-bg);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  border: 1px solid var(--cm-fg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+  transform: translateY(-160%);
+  transition: transform 150ms ease;
+}
+.cm-skip-link:focus-visible,
+.cm-skip-link:focus {
+  transform: translateY(0);
+  outline: 2px solid var(--cm-accent-line);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-skip-link { transition: none; }
+}
+/* The focus landing target sits between the nav and the page body; it takes
+   focus (tabindex -1) without drawing a visible box of its own. */
+.cm-skip-target { outline: none; }
+
 .cm-hairline {
   background-image: linear-gradient(to right, var(--cm-border) 50%, transparent 0%);
   background-size: 8px 1px;

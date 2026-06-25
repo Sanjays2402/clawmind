@@ -66,7 +66,11 @@ export function TopNav() {
     };
   }, [pathname]);
   return (
-    <header className="sticky top-0 z-20 border-b border-cm-border bg-cm-bg/85 backdrop-blur">
+    <>
+      <a href="#cm-content" className="cm-skip-link">
+        Skip to content
+      </a>
+      <header className="sticky top-0 z-20 border-b border-cm-border bg-cm-bg/85 backdrop-blur">
       <div className="mx-auto flex w-full max-w-[1180px] items-center justify-between gap-4 px-6 py-3 sm:px-10">
         <Link href="/" className="flex items-center gap-2.5">
           <Logo size={22} />
@@ -148,6 +152,11 @@ export function TopNav() {
           );
         })}
       </nav>
-    </header>
+      </header>
+      {/* Skip-link landing target: focus jumps here, just past the nav.
+          tabindex -1 makes it programmatically focusable without entering
+          the normal tab order. */}
+      <span id="cm-content" tabIndex={-1} className="cm-skip-target" aria-hidden="true" />
+    </>
   );
 }
