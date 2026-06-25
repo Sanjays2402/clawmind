@@ -162,6 +162,33 @@ mark.cm-hi {
 .border-cm-accent-line { border-color: var(--cm-accent-line); }
 .ring-cm-accent:focus { outline: 2px solid var(--cm-accent); outline-offset: 1px; }
 
+/* Global keyboard-focus ring. Fires only for :focus-visible (keyboard or
+   programmatic focus), never on a mouse click, so pointer users never see a
+   ring while keyboard users always know where they are. Scoped to the genuine
+   interactive surface. Components with bespoke focus treatment (cite pill,
+   skip link, open-in-viewer, share CTA) use higher-specificity selectors and
+   override this base rule. */
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+[role='button']:focus-visible,
+[role='link']:focus-visible,
+[role='tab']:focus-visible,
+[role='menuitem']:focus-visible {
+  outline: 2px solid var(--cm-accent-line);
+  outline-offset: 2px;
+}
+/* Inputs/textareas read better with a tighter offset since their border is
+   the visual edge the ring should hug. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline-offset: 1px;
+}
+
 .cm-card {
   background: var(--cm-paper);
   border: 1px solid var(--cm-border);
