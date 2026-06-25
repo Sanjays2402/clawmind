@@ -37,7 +37,15 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-23 23:32 PDT (current)
+### Tick 2026-06-25 00:07 PDT (current) - chat navigation + recovery batch
+
+- [x] feat(web/chat): scroll-into-view + transient flash-ring on citation click (a5ffb81)
+- [x] feat(web/chat): [ and ] keyboard navigation through answer citations (36213ed)
+- [x] feat(web/chat): retry + edit-and-try-again recovery on stream failure (d330b7f)
+- [x] feat(web/chat): live token-count + last-token latency footer while streaming (928d500)
+- [x] feat(web/chat/sources): per-card open-in-viewer deep link on the rail (3292b2b)
+
+### Tick 2026-06-23 23:32 PDT
 
 - [x] feat(ui): toast notification system with ToastProvider, useToast hook, and viewport (b0ac005)
 - [x] feat(web/chat): copy-answer button with citation-preserving plain-text format (d840cb8)
@@ -262,17 +270,17 @@ FRONTEND focus. Order is rough priority but feel free to reorder by what
 fits together as a clean batch theme.
 
 CHAT SURFACE (apps/web/src/components/Chat*, apps/web/src/app/chat):
-- [ ] feat(web/chat): cite-pill scroll-into-view + sticky-highlight when a numbered citation in the answer body is clicked. Today clicking the inline cm-cite-pill in the answer toggles `activeId` but does nothing to scroll the matching SourcesPane card into view — on a long rail this silently does nothing visible. Add a `scrollIntoView({block:'nearest', behavior:'smooth'})` plus a 1.2s sticky highlight ring on the targeted card.
-- [ ] feat(web/chat): citation [N] keyboard navigation — `[` / `]` cycles through citation pills in the answer body, focusing each one in turn AND opening it in the rail. Mirrors the GitHub PR navigation pattern.
-- [ ] feat(web/chat): retry-on-error affordance in the chat error state. Today a stream failure renders a red error block with the message but no recovery button. Add a "Retry" + "Edit and try again" pair that preserves the question and re-submits.
+- [x] feat(web/chat): cite-pill scroll-into-view + sticky-highlight when a numbered citation in the answer body is clicked. SHIPPED a5ffb81 as scroll-into-view (block: nearest) + a one-shot 1.2s gold flash-ring via the shared lib/sourceNav revealSourceCard helper; prefers-reduced-motion guard collapses the flash.
+- [x] feat(web/chat): citation [N] keyboard navigation. SHIPPED 36213ed as [ / ] cycling the cited sources in first-appearance order (lib/citations citedOrder), focusing each pill (cm-cite-<id>) and revealing its rail card; wraps, suppressed inside inputs, registered in the ? sheet.
+- [x] feat(web/chat): retry-on-error affordance in the chat error state. SHIPPED d330b7f as a ChatError panel with Retry (re-submits same question) + Edit and try again (returns caret to composer via Composer focusSignal); submit() now takes an explicit question.
 - [ ] feat(web/chat): per-message conversation history within a thread — the current ChatShell loses the prior question/answer when a new question is asked. Add a vertical stack of Q/A pairs (newest at bottom), each with its own copy/share affordance, citation rail folded into a per-message collapsible.
-- [ ] feat(web/chat): mid-stream "thinking…" + token-count hint while the LLM is producing output. The current loading state is binary; once tokens start arriving we don't show progress. A small "<N> tokens · 320ms last token" footer next to the answer would close the loop.
+- [x] feat(web/chat): mid-stream "thinking..." + token-count hint while the LLM is producing output. SHIPPED 928d500 as a StreamProgress footer (breathing accent dot + running token count + last-token gap) that appears once the first token lands and resets each submit; reduced-motion guard.
 - [ ] feat(web/composer): saved-prompt picker overlay (cmd+/ from the composer). The Tab cycling is functional but not discoverable. A small popover anchored to the composer that lists the SAVED_PROMPTS with type-to-filter would be the explicit version of the Tab-cycling muscle memory.
 - [ ] feat(web/composer): drag-and-drop file pin onto the composer to pre-pin a source for the next question. The /pins page already exists; the composer should accept a file drop and surface a "Pinned: <path>" chip below the textarea that's submitted with the question.
 
 SOURCES RAIL + VIEWER:
 - [ ] feat(web/chat/sources): keyboard navigation through the rail — `j` / `k` (vim-style) AND ArrowDown / ArrowUp from the answer column cycles the active card; Enter opens the source viewer in a side-pane or new tab.
-- [ ] feat(web/chat/sources): per-source "open in viewer" button on each card that opens /sources/view?path=… in a new tab without dismissing the active citation. Today the only way to open a source is via the path link which steals focus.
+- [x] feat(web/chat/sources): per-source "open in viewer" button on each card. SHIPPED 3292b2b as a top-right OpenInViewer anchor opening /sources/view in a new tab without dismissing the active citation; stops click/mousedown propagation, calm-at-rest reveal on hover/focus-within, deep-links by s.path (NOT displayPath, which would 404 on aliased sources) and forwards start/end.
 - [ ] feat(web/sources/view): syntax highlighting for the source viewer (Prism or Shiki) so opened files render with code coloring rather than as plain text. Match the cm-paper background and the existing globals.css .cm-chat-stream pre styling.
 - [ ] feat(web/sources/view): "open at line N" deep-link from the rail — the rail already passes startLine, the viewer should scroll-and-highlight that line when arriving via deep link.
 
@@ -3209,3 +3217,46 @@ ACCESSIBILITY + THEMING:
   SOURCES, GLOBAL UX/NAV, PAGE-LEVEL POLISH, and A11Y/THEMING groups
   so it stays well above the >=5 ready-items floor for the next
   frontend tick.
+
+- 2026-06-25 00:07 PDT (Cake/cron) — 5 frontend features shipped on main.
+  Features: a5ffb81, 36213ed, d330b7f, 928d500, 3292b2b. Theme: complete
+  the chat-surface citation NAVIGATION loop + a real error RECOVERY path,
+  the top-of-queue chat items from last tick's "next batch" note.
+    1. a5ffb81 — clicking an inline citation now scroll-into-views the
+       matching rail card (block: nearest) and runs a one-shot 1.2s gold
+       flash-ring. Extracted a shared lib/sourceNav (revealSourceCard +
+       sourceCardId) so the DOM-id contract lives in ONE place instead of
+       string-concatenated 'cm-source-'+id in two files.
+    2. 36213ed — [ / ] step through the answer's citations in first-
+       appearance order (new lib/citations citedOrder, de-dupes + skips
+       model over-counts), focusing each pill (cm-cite-<id>) and revealing
+       its card. From no-selection, ] -> first and [ -> last, then wraps.
+       Suppressed inside inputs; CitationChip gained a buttonId prop;
+       registered in the ? shortcut sheet + breadcrumb hint.
+    3. d330b7f — stream failures now render a ChatError panel (Retry =
+       re-submit same question; Edit and try again = caret back to the
+       composer with the question preserved via a new Composer focusSignal)
+       instead of a dead-end red block. submit() now takes an explicit
+       question arg so Retry is state-edit-robust. CAUGHT a latent footgun
+       in the process: the Ask button passed onClick={onSubmit}, leaking
+       the MouseEvent into the new question param — fixed to onSubmit().
+    4. 928d500 — a StreamProgress footer (breathing accent dot + running
+       token count + last-token gap) appears the moment the first token
+       lands, closing the binary skeleton->done gap. Inter-token timing
+       tracked via a ref so it survives re-renders; all reset each submit.
+    5. 3292b2b — each rail card gained a top-right open-in-viewer anchor
+       (new tab, does NOT dismiss the active citation; stops click +
+       mousedown propagation; calm-at-rest reveal on hover/focus-within).
+       Subtle correctness catch: deep-links by s.path (the REAL fs path
+       the /sources/file route reads), NOT displayPath — an alias label
+       like "@notes/foo.md" would have 404'd. Forwards start/end too.
+  Gate: `pnpm run ci:verify` fails ONLY on the pre-existing
+  @clawmind/telemetry OTel 1.x/2.x ReadableSpan peer mismatch (roadmap
+  line ~311, queued since tick 1, untouched here). The two packages this
+  tick touches — @clawmind/ui + @clawmind/web — BOTH typecheck green AND
+  `next build` compiled every route (incl. /chat, /sources/view) clean.
+  Three reduced-motion guards added (flash-ring, stream-dot, kept the
+  skeleton's). Push: abd756d..3292b2b main -> main.
+
+  Identity: commits land on main directly, each signed as
+  `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
