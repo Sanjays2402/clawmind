@@ -8,6 +8,7 @@ import { SourcesPane } from './SourcesPane';
 import { Composer } from './Composer';
 import { ShareAnswerButton } from './ShareAnswerButton';
 import { CopyAnswerButton } from './CopyAnswerButton';
+import { ChatError } from './ChatError';
 import { api } from '@/lib/api';
 import { revealSourceCard } from '@/lib/sourceNav';
 import { citedOrder, citePillId } from '@/lib/citations';
@@ -37,6 +38,7 @@ export function ChatShell({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [namespaces, setNamespaces] = useState<Ns[]>(['memory', 'projects', 'sessions']);
+  const [composerFocus, setComposerFocus] = useState(0);
   const cancelRef = useRef<boolean>(false);
   const searchParams = useSearchParams();
   const prefillRef = useRef<string | null>(null);
@@ -85,8 +87,8 @@ export function ChatShell({
     return () => window.removeEventListener('keydown', onKey);
   }, [answer, sources, activeSource]);
 
-  async function submit() {
-    if (!question.trim() || loading) return;
+  async function submit(q: string = question) {
+    if (!q.trim() || loading) return;
     setLoading(true);
     setError(null);
     setAnswer('');
@@ -94,7 +96,7 @@ export function ChatShell({
     setActiveSource(null);
     cancelRef.current = false;
     try {
-      await api.stream({ q: question, namespaces }, (evt) => {
+      await api.stream({ q, namespaces }, (evt) => {
         if (cancelRef.current) return;
         if (evt.type === 'sources') setSources(evt.value as Source[]);
         if (evt.type === 'token') setAnswer((a) => a + (evt.value as string));
@@ -105,6 +107,13 @@ export function ChatShell({
     } finally {
       setLoading(false);
     }
+  }
+
+  // "Edit and try again" from the error panel: clear the error and return
+  // the caret to the composer with the failed question still in the field.
+  function editAndRetry() {
+    setError(null);
+    setComposerFocus((n) => n + 1);
   }
 
   return (
@@ -131,19 +140,22 @@ export function ChatShell({
             onSubmit={submit}
             loading={loading}
             onStop={() => { cancelRef.current = true; setLoading(false); }}
+            focusSignal={composerFocus}
           />
 
           <div className="mt-8">
             {!answer && !loading && !error && (
               <EmptyReading />
             )}
-            {loading && answer === '' && (
+            {loading && answer === '' && !error && (
               <ChatAnswerSkeleton />
             )}
             {error && (
-              <div className="rounded-md border border-cm-border bg-cm-paper p-4 text-sm text-cm-danger">
-                {error}
-              </div>
+              <ChatError
+                message={error}
+                onRetry={() => submit(question)}
+                onEdit={editAndRetry}
+              />
             )}
             {answer && (
               <>

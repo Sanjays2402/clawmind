@@ -14,14 +14,28 @@ const SAVED_PROMPTS = [
  * A calm, generous textarea that lives at the TOP of the page.
  * Tab cycles through saved prompts when the field is empty (or matches a prompt).
  */
-export function Composer({ value, onChange, onSubmit, loading, onStop }: {
+export function Composer({ value, onChange, onSubmit, loading, onStop, focusSignal }: {
   value: string; onChange: (s: string) => void; onSubmit: () => void; loading: boolean; onStop: () => void;
+  /** Increment to imperatively focus the textarea (e.g. "Edit and try again"
+   *  from the error state). The caret is moved to the end of the text. */
+  focusSignal?: number;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [focused, setFocused] = useState(false);
   const [promptIdx, setPromptIdx] = useState(-1);
 
   useEffect(() => { ref.current?.focus(); }, []);
+
+  // Imperative refocus driven by focusSignal: focus and drop the caret at
+  // the end so the user can immediately keep editing the preserved question.
+  useEffect(() => {
+    if (focusSignal === undefined || focusSignal === 0) return;
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    const end = el.value.length;
+    el.setSelectionRange(end, end);
+  }, [focusSignal]);
 
   // Auto-grow textarea.
   useEffect(() => {
@@ -102,7 +116,7 @@ export function Composer({ value, onChange, onSubmit, loading, onStop }: {
         {loading ? (
           <Button variant="ghost" onClick={onStop}>Stop</Button>
         ) : (
-          <Button onClick={onSubmit} size="sm">
+          <Button onClick={() => onSubmit()} size="sm">
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <IconSpark size={13} /> Ask
             </span>
