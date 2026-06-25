@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
-import { useHotkey } from '@clawmind/ui';
+import { useHotkey, Kbd } from '@clawmind/ui';
 
 interface Shortcut {
   keys: string[]; // e.g. ['⌘', 'K'] — rendered as separate <kbd> chips
@@ -146,7 +146,7 @@ export function ShortcutHelp() {
             className="cm-mono"
             style={{ fontSize: 11, color: 'var(--cm-faint)' }}
           >
-            press <kbd style={kbd}>?</kbd> to toggle
+            press <Kbd>?</Kbd> to toggle
           </span>
         </header>
 
@@ -217,9 +217,9 @@ export function ShortcutHelp() {
                       }}
                     >
                       {s.keys.map((k, idx) => (
-                        <kbd key={`${s.label}-${idx}`} style={kbd}>
+                        <Kbd key={`${s.label}-${idx}`}>
                           {k}
-                        </kbd>
+                        </Kbd>
                       ))}
                     </div>
                   </li>
@@ -261,18 +261,3 @@ export function ShortcutHelp() {
     </div>
   );
 }
-
-const kbd: React.CSSProperties = {
-  border: '1px solid var(--cm-border)',
-  borderBottom: '1.5px solid var(--cm-border-strong)',
-  background: 'var(--cm-bg)',
-  borderRadius: 4,
-  padding: '2px 6px',
-  fontSize: 11,
-  fontFamily: 'var(--cm-font-mono)',
-  color: 'var(--cm-fg)',
-  lineHeight: 1.2,
-  minWidth: 18,
-  textAlign: 'center',
-  display: 'inline-block',
-};

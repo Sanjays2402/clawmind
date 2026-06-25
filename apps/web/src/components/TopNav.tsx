@@ -4,7 +4,7 @@ import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
-import { Logo, ThemeToggle, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp, IconWebhook, IconArchive, IconSettings, IconLink, IconBell, IconWarning, IconShield } from '@clawmind/ui';
+import { Logo, ThemeToggle, KbdGroup, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp, IconWebhook, IconArchive, IconSettings, IconLink, IconBell, IconWarning, IconShield } from '@clawmind/ui';
 
 const primary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
   { href: '/chat', label: 'Ask', Icon: IconSpark },
@@ -118,18 +118,17 @@ export function TopNav() {
           </Link>
           <span
             aria-hidden="true"
-            className="hidden items-center gap-1 rounded-md border border-cm-border px-2 py-1 text-[10.5px] text-cm-muted sm:inline-flex"
+            className="hidden sm:inline-flex"
             title="Open command palette"
           >
-            <kbd className="cm-mono">⌘</kbd>
-            <kbd className="cm-mono">K</kbd>
+            <KbdGroup keys={['⌘', 'K']} boxed size="sm" />
           </span>
           <span
             aria-hidden="true"
-            className="hidden items-center gap-1 rounded-md border border-cm-border px-2 py-1 text-[10.5px] text-cm-muted sm:inline-flex"
+            className="hidden sm:inline-flex"
             title="Open keyboard shortcuts (press ?)"
           >
-            <kbd className="cm-mono">?</kbd>
+            <KbdGroup keys={['?']} boxed size="sm" />
           </span>
           <ThemeToggle />
         </div>

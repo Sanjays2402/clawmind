@@ -22,6 +22,7 @@ import {
   IconClockCountdown,
   IconStethoscope,
   IconArrowRight,
+  Kbd,
 } from '@clawmind/ui';
 import { api } from '@/lib/api';
 
@@ -262,7 +263,7 @@ export function CommandPalette() {
               fontSize: 15,
             }}
           />
-          <kbd style={kbd}>esc</kbd>
+          <Kbd size="sm">esc</Kbd>
         </div>
         <ul style={{ listStyle: 'none', margin: 0, padding: 6, maxHeight: '50vh', overflowY: 'auto' }}>
           {items.length === 0 ? (
@@ -309,21 +310,12 @@ export function CommandPalette() {
         </ul>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, padding: '8px 12px', borderTop: '1px solid var(--cm-border)', fontSize: 12, color: 'var(--cm-muted)' }}>
           <div style={{ display: 'flex', gap: 12 }}>
-            <span><kbd style={kbd}>↑</kbd> <kbd style={kbd}>↓</kbd> navigate</span>
-            <span><kbd style={kbd}>↵</kbd> select</span>
+            <span><Kbd size="sm">↑</Kbd> <Kbd size="sm">↓</Kbd> navigate</span>
+            <span><Kbd size="sm">↵</Kbd> select</span>
           </div>
-          <span><kbd style={kbd}>⌘</kbd> <kbd style={kbd}>K</kbd> toggle</span>
+          <span><Kbd size="sm">⌘</Kbd> <Kbd size="sm">K</Kbd> toggle</span>
         </div>
       </div>
     </div>
   );
 }
-
-const kbd: React.CSSProperties = {
-  border: '1px solid var(--cm-border)',
-  borderRadius: 4,
-  padding: '1px 5px',
-  fontSize: 10.5,
-  fontFamily: 'var(--cm-font-mono)',
-  color: 'var(--cm-muted)',
-};

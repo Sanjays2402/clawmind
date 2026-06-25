@@ -4,6 +4,7 @@ export * from './components/Card';
 export * from './components/Badge';
 export * from './components/Spinner';
 export * from './components/CitationChip';
+export * from './components/Kbd';
 export * from './components/EmptyState';
 export * from './components/ErrorState';
 export * from './components/CodeBlock';
