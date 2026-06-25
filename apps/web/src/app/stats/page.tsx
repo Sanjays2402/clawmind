@@ -1,13 +1,31 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TopNav } from '@/components/TopNav';
-import { api, fmtBytes, fmtRelative, type StatsReport } from '@/lib/api';
+import { api, fmtBytes, fmtRelative, type StatsReport, type NamespaceStats } from '@/lib/api';
 import { EmptyState, ErrorState, Spinner, IconRefresh, IconDatabase } from '@clawmind/ui';
+
+type Metric = 'files' | 'chunks' | 'bytes';
+
+const METRICS: { id: Metric; label: string }[] = [
+  { id: 'files', label: 'Files' },
+  { id: 'chunks', label: 'Chunks' },
+  { id: 'bytes', label: 'Bytes' },
+];
+
+function metricValue(ns: NamespaceStats, metric: Metric): number {
+  return metric === 'files' ? ns.files : metric === 'chunks' ? ns.chunks : ns.bytes;
+}
+
+function fmtMetric(value: number, metric: Metric): string {
+  return metric === 'bytes' ? fmtBytes(value) : value.toLocaleString();
+}
 
 export default function StatsPage() {
   const [stats, setStats] = useState<StatsReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Which metric the per-namespace bar visualisation ranks + scales by.
+  const [metric, setMetric] = useState<Metric>('chunks');
 
   async function load() {
     setLoading(true);
@@ -22,7 +40,18 @@ export default function StatsPage() {
   }
   useEffect(() => { load(); }, []);
 
-  const maxChunks = stats ? Math.max(1, ...stats.byNamespace.map((n) => n.chunks)) : 1;
+  // Sort namespaces by the selected metric (desc) so the heaviest namespace
+  // for whichever lens you pick always sits at the top, and scale every bar to
+  // that metric's max so the longest bar is full-width. Recomputed only when
+  // the data or the chosen metric changes.
+  const ranked = useMemo(() => {
+    if (!stats) return [];
+    return [...stats.byNamespace].sort((a, b) => metricValue(b, metric) - metricValue(a, metric));
+  }, [stats, metric]);
+  const maxVal = useMemo(
+    () => Math.max(1, ...ranked.map((n) => metricValue(n, metric))),
+    [ranked, metric],
+  );
 
   return (
     <main className="min-h-screen">
@@ -57,53 +86,60 @@ export default function StatsPage() {
         ) : (
           <>
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Stat label="Files" value={stats.totals.files.toLocaleString()} />
-              <Stat label="Chunks" value={stats.totals.chunks.toLocaleString()} />
-              <Stat label="Indexed bytes" value={fmtBytes(stats.totals.bytes)} />
+              <Stat label="Files" value={stats.totals.files.toLocaleString()} active={metric === 'files'} onClick={() => setMetric('files')} />
+              <Stat label="Chunks" value={stats.totals.chunks.toLocaleString()} active={metric === 'chunks'} onClick={() => setMetric('chunks')} />
+              <Stat label="Indexed bytes" value={fmtBytes(stats.totals.bytes)} active={metric === 'bytes'} onClick={() => setMetric('bytes')} />
               <Stat label="Namespaces" value={String(stats.totals.namespaces)} />
             </div>
 
             <div className="mt-6 cm-card">
-              <div className="flex items-center justify-between border-b border-cm-border px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cm-border px-4 py-3">
                 <div className="flex items-center gap-2 text-sm font-medium">
                   <IconDatabase size={16} />
                   By namespace
                 </div>
-                <div className="text-xs text-cm-muted">Generated {fmtRelative(stats.generatedAt)}</div>
+                <div className="flex items-center gap-3">
+                  <MetricToggle metric={metric} onChange={setMetric} />
+                  <div className="text-xs text-cm-muted">Generated {fmtRelative(stats.generatedAt)}</div>
+                </div>
               </div>
               <div className="divide-y divide-cm-border">
-                {stats.byNamespace.map((ns) => (
-                  <div key={ns.namespace} className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_2fr_auto] sm:items-center">
-                    <div>
-                      <div className="font-mono text-sm">{ns.namespace}</div>
-                      <div className="mt-0.5 text-xs text-cm-muted">
-                        {ns.files} files, {fmtBytes(ns.bytes)}
+                {ranked.map((ns) => {
+                  const val = metricValue(ns, metric);
+                  const pct = Math.round((val / maxVal) * 100);
+                  return (
+                    <div key={ns.namespace} className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_2fr_auto] sm:items-center">
+                      <div>
+                        <div className="font-mono text-sm">{ns.namespace}</div>
+                        <div className="mt-0.5 text-xs text-cm-muted">
+                          {ns.files} files, {fmtBytes(ns.bytes)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-cm-bg">
+                          <div
+                            className="h-full rounded-full bg-cm-accent transition-all duration-300"
+                            style={{ width: `${pct}%` }}
+                          />
+                        </div>
+                        <div className="mt-1.5 flex flex-wrap gap-1.5">
+                          {ns.extensions.slice(0, 6).map((e) => (
+                            <span key={e.ext} className="rounded bg-cm-bg px-1.5 py-0.5 text-[11px] text-cm-muted">
+                              {e.ext} {e.count}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-medium tabular-nums">{fmtMetric(val, metric)}</div>
+                        <div className="text-xs text-cm-muted">{metric}</div>
+                        <div className="mt-1 text-[11px] text-cm-muted">
+                          oldest {fmtRelative(ns.oldestIngestedAt)}
+                        </div>
                       </div>
                     </div>
-                    <div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-cm-bg">
-                        <div
-                          className="h-full rounded-full bg-cm-accent"
-                          style={{ width: `${Math.round((ns.chunks / maxChunks) * 100)}%` }}
-                        />
-                      </div>
-                      <div className="mt-1.5 flex flex-wrap gap-1.5">
-                        {ns.extensions.slice(0, 6).map((e) => (
-                          <span key={e.ext} className="rounded bg-cm-bg px-1.5 py-0.5 text-[11px] text-cm-muted">
-                            {e.ext} {e.count}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-medium">{ns.chunks.toLocaleString()}</div>
-                      <div className="text-xs text-cm-muted">chunks</div>
-                      <div className="mt-1 text-[11px] text-cm-muted">
-                        oldest {fmtRelative(ns.oldestIngestedAt)}
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </>
@@ -113,11 +149,65 @@ export default function StatsPage() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+/**
+ * Segmented control that picks which metric the namespace bars rank + scale
+ * by. Three tight pills sharing one bordered shell; the active pill carries
+ * the accent-soft treatment.
+ */
+function MetricToggle({ metric, onChange }: { metric: Metric; onChange: (m: Metric) => void }) {
   return (
-    <div className="cm-card p-4">
+    <div
+      role="tablist"
+      aria-label="Rank namespaces by"
+      className="inline-flex items-center rounded-md border border-cm-border p-0.5"
+    >
+      {METRICS.map((m) => {
+        const active = m.id === metric;
+        return (
+          <button
+            key={m.id}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(m.id)}
+            className={[
+              'rounded px-2 py-1 text-xs transition-colors',
+              active ? 'bg-cm-accent-soft text-cm-fg' : 'text-cm-muted hover:text-cm-fg',
+            ].join(' ')}
+          >
+            {m.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Stat({ label, value, active, onClick }: { label: string; value: string; active?: boolean; onClick?: () => void }) {
+  if (!onClick) {
+    return (
+      <div className="cm-card p-4">
+        <div className="text-xs uppercase tracking-wide text-cm-muted">{label}</div>
+        <div className="mt-1 text-xl font-semibold">{value}</div>
+      </div>
+    );
+  }
+  // Clickable stat cards double as a shortcut to rank the namespace bars by
+  // that total. The active card gets an accent ring so the link between the
+  // card you clicked and the bars below is visible.
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      title={`Rank namespaces by ${label.toLowerCase()}`}
+      className={[
+        'cm-card p-4 text-left transition-colors',
+        active ? 'ring-1 ring-cm-accent-line' : 'hover:border-cm-border-strong',
+      ].join(' ')}
+    >
       <div className="text-xs uppercase tracking-wide text-cm-muted">{label}</div>
       <div className="mt-1 text-xl font-semibold">{value}</div>
-    </div>
+    </button>
   );
 }
