@@ -139,7 +139,7 @@ export function ChatShell({
         <div className="mx-auto flex w-full max-w-[1180px] items-center justify-between gap-4 px-6 py-3 sm:px-10">
           <NamespacePicker value={namespaces} onChange={setNamespaces} variant="breadcrumb" />
           <span className="cm-mono text-[11px] text-cm-faint">
-            cmd + enter to ask &middot; tab to cycle prompts &middot; [ ] to step citations
+            cmd + enter to ask &middot; cmd + / for saved prompts &middot; [ ] to step citations
           </span>
         </div>
       </div>
