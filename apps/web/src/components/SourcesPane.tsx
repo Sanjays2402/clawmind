@@ -1,7 +1,7 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { EmptyState } from '@clawmind/ui';
-import { sourceCardId } from '@/lib/sourceNav';
+import { sourceCardId, revealSourceCard } from '@/lib/sourceNav';
 
 interface SnippetSpan { start: number; end: number }
 interface Snippet { text: string; spans: SnippetSpan[] }
@@ -19,6 +19,21 @@ interface Source {
 // Threshold above which the rail surfaces the filter affordance. Below
 // this count the input would be noisier than the rail itself.
 const FILTER_SHOW_THRESHOLD = 4;
+
+/**
+ * Deep-link into the source viewer for a card. Reads the file by its REAL
+ * path (s.path), not displayPath (an alias label like "@notes/foo.md" that
+ * would 404 on the viewer), and forwards the cited line range so the viewer
+ * lands on the right band.
+ */
+function viewerHrefFor(s: Source): string {
+  return (
+    '/sources/view?path=' +
+    encodeURIComponent(s.path) +
+    (s.startLine ? '&start=' + s.startLine : '') +
+    (s.endLine ? '&end=' + s.endLine : '')
+  );
+}
 
 function matches(s: Source, q: string): boolean {
   if (!q) return true;
@@ -45,6 +60,57 @@ export function SourcesPane({
   }, [sources, filter]);
 
   const showFilter = sources.length >= FILTER_SHOW_THRESHOLD;
+
+  // Keep a live ref to the currently-active id so the keydown handler (bound
+  // once) always reads the latest selection without re-binding every render.
+  const activeIdRef = useRef<string | null>(active?.id ?? null);
+  activeIdRef.current = active?.id ?? null;
+
+  // j / ArrowDown and k / ArrowUp step through EVERY card in the rail (vim
+  // idiom), not just the cited ones — the [ / ] cycle in ChatShell already
+  // covers cited-only stepping. Enter opens the active card in the viewer.
+  // Suppressed while typing in any input/textarea so the rail filter and the
+  // composer never lose a keystroke. Stepping reveals the card (scroll +
+  // flash) and marks it active so the answer column highlight stays in sync.
+  useEffect(() => {
+    if (filtered.length === 0) return;
+    function onKey(e: KeyboardEvent) {
+      const down = e.key === 'j' || e.key === 'ArrowDown';
+      const up = e.key === 'k' || e.key === 'ArrowUp';
+      const enter = e.key === 'Enter';
+      if (!down && !up && !enter) return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      const curId = activeIdRef.current;
+      const curIdx = curId ? filtered.findIndex((s) => s.id === curId) : -1;
+      if (enter) {
+        // Only act on Enter when a rail card is actually selected, so we never
+        // hijack a form submit elsewhere on the page.
+        if (curIdx === -1) return;
+        const cur = filtered[curIdx];
+        if (!cur) return;
+        e.preventDefault();
+        window.open(viewerHrefFor(cur), '_blank', 'noopener');
+        return;
+      }
+      e.preventDefault();
+      const delta = down ? 1 : -1;
+      const nextIdx =
+        curIdx === -1
+          ? (delta === 1 ? 0 : filtered.length - 1)
+          : (curIdx + delta + filtered.length) % filtered.length;
+      const next = filtered[nextIdx];
+      if (!next) return;
+      onSelect(next);
+      revealSourceCard(next.id);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [filtered, onSelect]);
 
   if (sources.length === 0) {
     return (
@@ -81,14 +147,7 @@ export function SourcesPane({
             // answer text always points at the same source no matter
             // what's currently filtered).
             const originalIndex = sources.indexOf(s);
-            // The viewer reads the file by its REAL path, so the deep-link
-            // must use s.path even when displayPath (an alias-shortened
-            // label like "@notes/foo.md") is what the card shows.
-            const viewerHref =
-              '/sources/view?path=' +
-              encodeURIComponent(s.path) +
-              (s.startLine ? '&start=' + s.startLine : '') +
-              (s.endLine ? '&end=' + s.endLine : '');
+            const viewerHref = viewerHrefFor(s);
             return (
               <li
                 key={s.id + originalIndex}

@@ -33,6 +33,8 @@ const GROUPS: ShortcutGroup[] = [
       { keys: ['Tab'], label: 'Cycle through saved starter prompts' },
       { keys: ['Shift', 'Tab'], label: 'Cycle back through saved starters' },
       { keys: ['[', ']'], label: 'Step through the answer citations', hint: 'Focuses each cited source and reveals it in the rail' },
+      { keys: ['j', 'k'], label: 'Move down / up the sources rail', hint: 'Arrow keys work too; steps every card, not just cited ones' },
+      { keys: ['Enter'], label: 'Open the selected source in the viewer', hint: 'Opens in a new tab when a rail card is active' },
     ],
   },
   {
