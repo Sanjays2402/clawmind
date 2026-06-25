@@ -37,7 +37,15 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-25 00:07 PDT (current) - chat navigation + recovery batch
+### Tick 2026-06-25 06:00 PDT (current) - a11y + nav + theming batch
+
+- [x] feat(web/theming): system-theme auto-detect on first visit + live OS follow (fd83f5b)
+- [x] feat(web/a11y): skip-to-content link as the first focusable element (917c05e)
+- [x] feat(web/a11y): aria-current="page" on the active TopNav link (76c13c2)
+- [x] feat(web/a11y): global focus-visible ring on every interactive element (9b453b9)
+- [x] feat(web/nav): per-route document title via a DRY resolver (f6a2c85)
+
+### Tick 2026-06-25 00:07 PDT - chat navigation + recovery batch
 
 - [x] feat(web/chat): scroll-into-view + transient flash-ring on citation click (a5ffb81)
 - [x] feat(web/chat): [ and ] keyboard navigation through answer citations (36213ed)
@@ -286,9 +294,9 @@ SOURCES RAIL + VIEWER:
 
 GLOBAL UX / NAV:
 - [ ] feat(web/nav): collapsible "More" overflow menu in the TopNav secondary nav for the 20+ secondary surfaces. The current mobile horizontal-scroll bar is functional but the desktop relies on the command palette for those; a discoverable "More ▾" dropdown next to the primary nav would close the discoverability gap.
-- [ ] feat(web/nav): per-route page-title in the document head (`Page · ClawMind`) — today every page is just "ClawMind". Use Next 15's metadata API per-page or a generateMetadata helper.
+- [x] feat(web/nav): per-route page-title in the document head (`Page · ClawMind`) - today every page is just "ClawMind". SHIPPED f6a2c85 as lib/pageTitle.ts (route->label resolver with curated TOP_LEVEL + SETTINGS maps, humanize fallback, opaque-id skip) + a DocumentTitle client component mounted once in the layout. Server-titled routes (trust/incidents/sbom/breach-register/offline) resolve to null and are left untouched. Settings sub-pages get breadcrumb titles ("Security . Settings . ClawMind").
 - [ ] feat(web/nav): breadcrumbs on settings sub-pages (Settings › Security › API key policy). The /settings tree is two levels deep and the user has no anchor today.
-- [ ] feat(web/nav): focus-visible ring on every primary interactive element using --cm-accent-line so keyboard users always see where focus is. The current focus styles only fire on the composer.
+- [x] feat(web/nav): focus-visible ring on every primary interactive element using --cm-accent-line so keyboard users always see where focus is. SHIPPED 9b453b9 as a base :focus-visible rule in globals.css covering a/button/input/textarea/select/summary + role=button|link|tab|menuitem with a 2px --cm-accent-line ring (tighter offset on inputs). :focus-visible means pointer clicks never ring; bespoke focus treatments (cite pill, skip link, open-viewer, share CTA) keep class-level specificity and override the base.
 - [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette, ShareAnswerButton, ShortcutHelp) on a single `<Dialog>` primitive in @clawmind/ui so future modals don't drift in radius / shadow / backdrop opacity.
 - [ ] feat(web/ui): a `<KbdGroup keys={['⌘','K']} />` primitive so every kbd chip in the app shares one set of styles instead of the four duplicated kbd: CSSProperties blocks currently in use.
 
@@ -301,9 +309,9 @@ PAGE-LEVEL POLISH:
 - [ ] feat(web/welcome): finish the welcome guide visually — today /welcome exists but feels minimal. Add a 3-card carousel with screenshots/illustrations of the chat + dashboard + sources pages so a first-run user has a 30-second tour.
 
 ACCESSIBILITY + THEMING:
-- [ ] feat(web/a11y): skip-to-content link as the first focusable element on every page so keyboard users can bypass the TopNav.
-- [ ] feat(web/a11y): aria-current="page" on the active TopNav link (today only the visual highlight signals active; screen reader users get nothing).
-- [ ] feat(web/theming): system-theme auto-detect on first visit (prefers-color-scheme: dark/light) — the current useTheme hook hard-codes 'dark' as initial. Detect once on mount when no localStorage entry exists.
+- [x] feat(web/a11y): skip-to-content link as the first focusable element on every page so keyboard users can bypass the TopNav. SHIPPED 917c05e as a "Skip to content" anchor at the top of TopNav (rendered on ~95 pages) that slides in from off-screen on keyboard focus and targets a tabindex=-1 landing span placed right after the header. Reduced-motion users get the reveal without the slide.
+- [x] feat(web/a11y): aria-current="page" on the active TopNav link (today only the visual highlight signals active; screen reader users get nothing). SHIPPED 76c13c2 on both the desktop primary nav and the mobile overflow bar, reusing the existing `active` pathname computation so the highlight and the ARIA state can never disagree.
+- [x] feat(web/theming): system-theme auto-detect on first visit (prefers-color-scheme: dark/light) — the current useTheme hook hard-codes 'dark' as initial. SHIPPED fd83f5b: useTheme now resolves explicit persisted choice first, else the OS preference, in a mount effect (not the useState initialiser, so no SSR hydration mismatch against the light default). Live-follows OS dark/light flips via a matchMedia change listener while no explicit choice is pinned; the first toggle persists a fixed theme and stops the follow. System-driven changes deliberately don't persist.
 - [ ] feat(web/theming): inline preview of accent color in /settings so a future "pick your accent" feature has its surface ready.
 
 ### Queued for later ticks
@@ -3257,6 +3265,60 @@ ACCESSIBILITY + THEMING:
   `next build` compiled every route (incl. /chat, /sources/view) clean.
   Three reduced-motion guards added (flash-ring, stream-dot, kept the
   skeleton's). Push: abd756d..3292b2b main -> main.
+
+  Identity: commits land on main directly, each signed as
+  `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
+
+- 2026-06-25 06:00 PDT (Cake/cron) — 5 features shipped on main. The
+  a11y + nav + theming batch the previous session flagged as a strong
+  candidate; all 5 were top-of-queue ACCESSIBILITY/THEMING/NAV roadmap items.
+  Features: fd83f5b, 917c05e, 76c13c2, 9b453b9, f6a2c85. Theme: make the
+  shell itself accessible and self-describing — keyboard focus, screen-reader
+  signposting, OS-aware theming, and per-route tab titles. None of these are
+  chat-surface (that loop is well-covered); this tick hardens the chrome every
+  page shares.
+    1. fd83f5b — useTheme rewrite: resolves explicit choice -> OS
+       prefers-color-scheme on mount (in an EFFECT, not the useState
+       initialiser, so no SSR hydration mismatch against the light default);
+       live-follows OS dark/light flips via a matchMedia change listener until
+       the first explicit toggle pins a fixed theme. System changes don't
+       persist, so OS-follow survives until the user opts in. Replaces the old
+       hard-coded `useState('dark')`.
+    2. 917c05e — skip-to-content link as the first focusable element in
+       TopNav (renders on ~95 pages). Off-screen at rest, slides into the
+       top-left on keyboard focus, targets a tabindex=-1 landing span placed
+       right after the header so focus lands just past the nav. Reduced-motion
+       guard collapses the slide. New CSS: .cm-skip-link / .cm-skip-target.
+    3. 76c13c2 — aria-current="page" on the active nav link in BOTH the
+       desktop primary nav and the mobile overflow bar, reusing the existing
+       `active` pathname computation so the visual highlight and the ARIA
+       state can never drift apart. SR users finally get the current page.
+    4. 9b453b9 — global :focus-visible ring (2px --cm-accent-line) on
+       a/button/input/textarea/select/summary + role=button|link|tab|menuitem.
+       :focus-visible (not :focus) means pointer clicks never ring while
+       keyboard/programmatic focus always does; inputs use a tighter offset.
+       The four bespoke focus treatments (cite pill, skip link, open-viewer,
+       share CTA) keep class-level specificity and override the base cleanly.
+    5. f6a2c85 — per-route document title. New lib/pageTitle.ts is a DRY
+       route->label resolver (curated TOP_LEVEL + SETTINGS maps, humanize
+       fallback, opaque-id skip so /tags/<hash> -> just "Tags") + a
+       DocumentTitle client component mounted once in the layout that syncs
+       document.title on navigation. Crucial: server-titled routes
+       (trust/incidents/sbom/breach-register/offline + the /s/[id] share page)
+       resolve to null and are LEFT UNTOUCHED so the client never clobbers a
+       server generateMetadata title. Settings sub-pages render breadcrumb
+       titles ("Security . Settings . ClawMind"). Validated the resolver output
+       against 12 sample paths before shipping.
+  Gate: `pnpm run ci:verify` fails ONLY on the pre-existing
+  @clawmind/telemetry OTel 1.x/2.x ReadableSpan peer mismatch (roadmap
+  line ~311, queued since tick 1, untouched here). Because ci:verify chains
+  typecheck && test && build, that telemetry red short-circuits before build,
+  so I ran `pnpm --filter @clawmind/web build` directly as the real web/ui
+  gate: @clawmind/ui + @clawmind/web BOTH typecheck green AND `next build`
+  compiled all 102 routes clean ("Compiled successfully", 102/102 static
+  pages). The single lint warning (`sources` useMemo, web build line 498) is
+  pre-existing and in none of this tick's 6 touched files. Push:
+  051259f..f6a2c85 main -> main.
 
   Identity: commits land on main directly, each signed as
   `Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
