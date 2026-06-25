@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
 import { api, fmtRelative, API_BASE, type HistoryItem, type Source } from '@/lib/api';
+import { groupByDay } from '@/lib/dayGroups';
 import {
   EmptyState,
   ErrorState,
@@ -73,6 +74,10 @@ export default function HistoryPage() {
       topModel,
     };
   }, [items]);
+
+  // Bucket the (already newest-first) rows into per-day groups so the list
+  // gets a scannable date header between days instead of being one flat run.
+  const grouped = useMemo(() => groupByDay(items, (it) => it.ts), [items]);
 
   function toggleNs(ns: Ns) {
     setNamespaces((prev) => (prev.includes(ns) ? prev.filter((n) => n !== ns) : [...prev, ns]));
@@ -316,61 +321,110 @@ export default function HistoryPage() {
         )}
 
         {!loading && !error && items.length > 0 && (
-          <ul style={{ listStyle: 'none', padding: 0, margin: '24px 0 0', display: 'grid', gap: 10 }}>
-            {items.map((it) => (
-              <HistoryRow
-                key={it.id}
-                item={it}
-                open={openId === it.id}
-                onToggle={() => setOpenId((cur) => (cur === it.id ? null : it.id))}
-                onRename={async (title) => {
-                  const prev = items;
-                  const trimmed = title.trim();
-                  setItems((cur) =>
-                    cur.map((x) =>
-                      x.id === it.id ? { ...x, title: trimmed || undefined } : x,
-                    ),
-                  );
-                  try {
-                    const res = await api.renameHistoryItem(it.id, trimmed);
-                    setItems((cur) =>
-                      cur.map((x) =>
-                        x.id === it.id ? { ...x, title: res.title || undefined } : x,
-                      ),
-                    );
-                  } catch (e) {
-                    setItems(prev);
-                    setError((e as Error).message);
-                  }
-                }}
-                onTagsChanged={(tags) => {
-                  setItems((cur) => cur.map((x) => (x.id === it.id ? { ...x, tags } : x)));
-                  setAvailableTags((cur) => {
-                    const next = new Set(cur);
-                    for (const t of tags) next.add(t);
-                    return Array.from(next).sort();
-                  });
-                }}
-                onDelete={async () => {
-                  const ok = typeof window !== 'undefined'
-                    ? window.confirm('Delete this history entry? This cannot be undone.')
-                    : true;
-                  if (!ok) return;
-                  const prev = items;
-                  setItems((cur) => cur.filter((x) => x.id !== it.id));
-                  if (openId === it.id) setOpenId(null);
-                  try {
-                    await api.removeHistoryItem(it.id);
-                  } catch (e) {
-                    setItems(prev);
-                    setError((e as Error).message);
-                  }
-                }}
-              />
+          <div style={{ margin: '24px 0 0', display: 'grid', gap: 22 }}>
+            {grouped.map((group) => (
+              <section key={group.dayStart}>
+                <DayHeader label={group.label} count={group.items.length} />
+                <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0', display: 'grid', gap: 10 }}>
+                  {group.items.map((it) => renderRow(it))}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         )}
       </main>
+    </div>
+  );
+
+  function renderRow(it: HistoryItem) {
+    return (
+      <HistoryRow
+        key={it.id}
+        item={it}
+        open={openId === it.id}
+        onToggle={() => setOpenId((cur) => (cur === it.id ? null : it.id))}
+        onRename={async (title) => {
+          const prev = items;
+          const trimmed = title.trim();
+          setItems((cur) =>
+            cur.map((x) =>
+              x.id === it.id ? { ...x, title: trimmed || undefined } : x,
+            ),
+          );
+          try {
+            const res = await api.renameHistoryItem(it.id, trimmed);
+            setItems((cur) =>
+              cur.map((x) =>
+                x.id === it.id ? { ...x, title: res.title || undefined } : x,
+              ),
+            );
+          } catch (e) {
+            setItems(prev);
+            setError((e as Error).message);
+          }
+        }}
+        onTagsChanged={(tags) => {
+          setItems((cur) => cur.map((x) => (x.id === it.id ? { ...x, tags } : x)));
+          setAvailableTags((cur) => {
+            const next = new Set(cur);
+            for (const t of tags) next.add(t);
+            return Array.from(next).sort();
+          });
+        }}
+        onDelete={async () => {
+          const ok = typeof window !== 'undefined'
+            ? window.confirm('Delete this history entry? This cannot be undone.')
+            : true;
+          if (!ok) return;
+          const prev = items;
+          setItems((cur) => cur.filter((x) => x.id !== it.id));
+          if (openId === it.id) setOpenId(null);
+          try {
+            await api.removeHistoryItem(it.id);
+          } catch (e) {
+            setItems(prev);
+            setError((e as Error).message);
+          }
+        }}
+      />
+    );
+  }
+}
+
+/**
+ * Sticky per-day header that floats just under the TopNav while its group
+ * scrolls past. The count gives a quiet sense of how busy a day was.
+ */
+function DayHeader({ label, count }: { label: string; count: number }) {
+  return (
+    <div
+      style={{
+        position: 'sticky',
+        top: 0,
+        zIndex: 5,
+        display: 'flex',
+        alignItems: 'baseline',
+        gap: 10,
+        padding: '6px 0',
+        background: 'var(--cm-bg)',
+      }}
+    >
+      <h2
+        className="cm-mono"
+        style={{
+          margin: 0,
+          fontSize: 11,
+          textTransform: 'uppercase',
+          letterSpacing: '0.08em',
+          color: 'var(--cm-faint)',
+        }}
+      >
+        {label}
+      </h2>
+      <span className="cm-hairline" style={{ flex: 1 }} />
+      <span className="cm-mono" style={{ fontSize: 11, color: 'var(--cm-faint)' }}>
+        {count}
+      </span>
     </div>
   );
 }
