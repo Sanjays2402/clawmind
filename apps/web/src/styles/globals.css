@@ -233,6 +233,42 @@ mark.cm-hi {
   margin-bottom: 4px;
 }
 
+/* Per-card "open in viewer" affordance on the chat sources rail. Anchored
+   top-right of the card; calm (faint, low-opacity) at rest, lifts to the
+   accent on hover/focus of itself or the card it sits on. Reveal on
+   focus-within keeps it reachable for keyboard users. */
+.cm-open-viewer {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  color: var(--cm-faint);
+  background: var(--cm-paper);
+  opacity: 0;
+  transition: opacity 120ms ease, color 120ms ease, background 120ms ease;
+}
+li:hover > .cm-open-viewer,
+li:focus-within > .cm-open-viewer,
+.cm-open-viewer:focus-visible {
+  opacity: 1;
+}
+.cm-open-viewer:hover {
+  color: var(--cm-accent);
+  background: var(--cm-accent-soft);
+}
+.cm-open-viewer:focus-visible {
+  outline: 2px solid var(--cm-accent-line);
+  outline-offset: 1px;
+}
+@media (hover: none) {
+  .cm-open-viewer { opacity: 0.6; }
+}
+
 /* Public share page: /s/[id] */
 .cm-share {
   max-width: 760px;

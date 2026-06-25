@@ -81,8 +81,20 @@ export function SourcesPane({
             // answer text always points at the same source no matter
             // what's currently filtered).
             const originalIndex = sources.indexOf(s);
+            // The viewer reads the file by its REAL path, so the deep-link
+            // must use s.path even when displayPath (an alias-shortened
+            // label like "@notes/foo.md") is what the card shows.
+            const viewerHref =
+              '/sources/view?path=' +
+              encodeURIComponent(s.path) +
+              (s.startLine ? '&start=' + s.startLine : '') +
+              (s.endLine ? '&end=' + s.endLine : '');
             return (
-              <li key={s.id + originalIndex} id={sourceCardId(s.id)}>
+              <li
+                key={s.id + originalIndex}
+                id={sourceCardId(s.id)}
+                style={{ position: 'relative' }}
+              >
                 <button
                   type="button"
                   onClick={() => onSelect(s)}
@@ -98,7 +110,7 @@ export function SourcesPane({
                     transition: 'border-color 120ms ease, background 120ms ease',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, paddingRight: 24 }}>
                     <span
                       className="cm-cite-pill"
                       style={{ position: 'relative', cursor: 'default', flexShrink: 0 }}
@@ -125,6 +137,7 @@ export function SourcesPane({
                     {renderSnippet(s)}
                   </div>
                 </button>
+                <OpenInViewer href={viewerHref} />
               </li>
             );
           })}
@@ -237,6 +250,34 @@ function renderSnippet(s: Source) {
   }
   const text = s.excerpt ?? '';
   return text.length > 220 ? text.slice(0, 220) + '...' : text;
+}
+
+/**
+ * Corner affordance that opens the full file in the source viewer in a
+ * new tab, WITHOUT dismissing the active citation. It sits over the card
+ * button (which only sets the active source) and stops click/mousedown
+ * propagation so opening the viewer never also fires the card's select.
+ * Visible on hover/focus-within so the card stays calm at rest.
+ */
+function OpenInViewer({ href }: { href: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      aria-label="Open this source in the viewer (new tab)"
+      title="Open in viewer"
+      className="cm-open-viewer"
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M14 4h6v6" />
+        <path d="M20 4 11 13" />
+        <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+      </svg>
+    </a>
+  );
 }
 
 export function HighlightedText({ text, spans }: { text: string; spans: SnippetSpan[] }) {
