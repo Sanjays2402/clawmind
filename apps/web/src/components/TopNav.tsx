@@ -88,6 +88,7 @@ export function TopNav() {
               <Link
                 key={href}
                 href={href}
+                aria-current={active ? 'page' : undefined}
                 className={[
                   'flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors',
                   active ? 'bg-cm-accent-soft text-cm-fg' : 'text-cm-muted hover:text-cm-fg',
@@ -141,6 +142,7 @@ export function TopNav() {
             <Link
               key={href}
               href={href}
+              aria-current={active ? 'page' : undefined}
               className={[
                 'flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11.5px]',
                 active ? 'bg-cm-accent-soft text-cm-fg' : 'text-cm-muted',
