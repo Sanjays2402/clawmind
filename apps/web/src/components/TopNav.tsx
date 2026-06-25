@@ -4,6 +4,7 @@ import type { Route } from 'next';
 import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
+import { SettingsBreadcrumb } from '@/components/SettingsBreadcrumb';
 import { Logo, ThemeToggle, KbdGroup, IconSpark, IconFolder, IconChartBar, IconDatabase, IconBook, IconSearch, IconRefresh, IconPushPin, IconKey, IconChat, IconTag, IconAt, IconSpeakerSlash, IconClockCountdown, IconStethoscope, IconThumbsUp, IconWebhook, IconArchive, IconSettings, IconLink, IconBell, IconWarning, IconShield, IconCaretDown } from '@clawmind/ui';
 
 const primary: Array<{ href: Route; label: string; Icon: typeof IconSpark }> = [
@@ -155,6 +156,9 @@ export function TopNav() {
         })}
       </nav>
       </header>
+      {/* Settings sub-pages get a "Settings / <Sub>" trail directly under the
+          nav. Renders nothing on every other route. */}
+      <SettingsBreadcrumb />
       {/* Skip-link landing target: focus jumps here, just past the nav.
           tabindex -1 makes it programmatically focusable without entering
           the normal tab order. */}

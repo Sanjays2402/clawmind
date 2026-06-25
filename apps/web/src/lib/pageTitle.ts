@@ -134,6 +134,16 @@ export function humanize(segment: string): string {
 }
 
 /**
+ * Human label for a single settings sub-page segment, reusing the curated
+ * SETTINGS map (so acronym pages like "sso" / "dpa" read correctly) and
+ * falling back to a humanized segment. Shared by the document-title resolver
+ * and the settings breadcrumb bar so the two never drift.
+ */
+export function settingsSubLabel(sub: string): string {
+  return SETTINGS[sub] ?? humanize(sub);
+}
+
+/**
  * Resolve the human label for a pathname, or `null` when the route owns its
  * own server-set title and the client setter must not touch it.
  */
