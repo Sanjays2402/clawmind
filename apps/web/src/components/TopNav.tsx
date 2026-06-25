@@ -44,6 +44,13 @@ export function TopNav() {
   const pathname = usePathname();
   const items = [...primary, ...secondary];
   const [unread, setUnread] = useState<number>(0);
+  // One-shot pulse when the unread count crosses from 0 to 1+. We track the
+  // previous count and a transient `pulse` flag that auto-clears so the
+  // animation fires exactly once per arrival (a quiet "you have new mail"
+  // signal), never a constant blink. prevUnreadRef starts at -1 so the very
+  // first poll establishing a baseline never triggers a spurious pulse.
+  const [pulse, setPulse] = useState(false);
+  const prevUnreadRef = useRef<number>(-1);
 
   // Poll the unread count so the bell badge stays roughly in sync without
   // dragging in a websocket. 30s feels live without hammering the API.
@@ -66,6 +73,18 @@ export function TopNav() {
       if (timer) clearTimeout(timer);
     };
   }, [pathname]);
+
+  // Fire the one-shot pulse only on a genuine 0 -> 1+ rising edge. The first
+  // poll (prev === -1) just seeds the baseline.
+  useEffect(() => {
+    const prev = prevUnreadRef.current;
+    prevUnreadRef.current = unread;
+    if (prev <= 0 && unread > 0 && prev !== -1) {
+      setPulse(true);
+      const t = setTimeout(() => setPulse(false), 1400);
+      return () => clearTimeout(t);
+    }
+  }, [unread]);
   return (
     <>
       <a href="#cm-content" className="cm-skip-link">
@@ -106,13 +125,19 @@ export function TopNav() {
           <Link
             href="/notifications"
             aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
-            className="relative inline-flex items-center justify-center rounded-md border border-transparent p-1.5 text-cm-muted transition-colors hover:border-cm-border hover:text-cm-fg"
+            className={[
+              'relative inline-flex items-center justify-center rounded-md border border-transparent p-1.5 text-cm-muted transition-colors hover:border-cm-border hover:text-cm-fg',
+              pulse ? 'cm-bell-pulse' : '',
+            ].join(' ')}
           >
             <IconBell size={15} />
             {unread > 0 && (
               <span
                 aria-hidden="true"
-                className="absolute -right-0.5 -top-0.5 min-w-[14px] rounded-full bg-cm-accent px-1 text-center text-[9px] font-medium leading-[14px] text-white"
+                className={[
+                  'absolute -right-0.5 -top-0.5 min-w-[14px] rounded-full bg-cm-accent px-1 text-center text-[9px] font-medium leading-[14px] text-white',
+                  pulse ? 'cm-bell-badge-pop' : '',
+                ].join(' ')}
               >
                 {unread > 99 ? '99+' : unread}
               </span>

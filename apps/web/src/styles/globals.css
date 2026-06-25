@@ -150,6 +150,32 @@ mark.cm-hi {
   .cm-stream-dot { animation: none; opacity: 0.8; }
 }
 
+/* Notification bell: a single, quiet pulse when the unread count rises from
+   0 to 1+. An accent ring expands outward from the bell once and fades; the
+   badge does a small one-shot pop. Deliberately NOT a constant blink — it's a
+   "you have new mail" signal that fires exactly once per arrival. */
+@keyframes cm-bell-ring {
+  0%   { box-shadow: 0 0 0 0 var(--cm-accent-line); }
+  70%  { box-shadow: 0 0 0 7px rgba(0, 0, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }
+}
+.cm-bell-pulse {
+  border-radius: 8px;
+  animation: cm-bell-ring 1.3s ease-out 1;
+}
+@keyframes cm-bell-badge-pop {
+  0%   { transform: scale(0.6); }
+  55%  { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+.cm-bell-badge-pop {
+  animation: cm-bell-badge-pop 0.5s ease-out 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-bell-pulse { animation: none; }
+  .cm-bell-badge-pop { animation: none; }
+}
+
 /* Token-color helpers used across pages so Tailwind utilities can blend
    with the existing CSS variable palette. */
 .bg-cm-bg { background: var(--cm-bg); }
