@@ -1,5 +1,6 @@
 'use client';
 import { CitationChip } from '@clawmind/ui';
+import { revealSourceCard } from '@/lib/sourceNav';
 
 interface SnippetSpan { start: number; end: number }
 interface Source {
@@ -57,8 +58,7 @@ function renderWithCitations(
           active={src.id === activeId}
           onClick={() => {
             onCite(src);
-            const el = document.getElementById('cm-source-' + src.id);
-            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            revealSourceCard(src.id);
           }}
         />,
       );

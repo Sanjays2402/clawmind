@@ -1,6 +1,7 @@
 'use client';
 import { useMemo, useState } from 'react';
 import { EmptyState } from '@clawmind/ui';
+import { sourceCardId } from '@/lib/sourceNav';
 
 interface SnippetSpan { start: number; end: number }
 interface Snippet { text: string; spans: SnippetSpan[] }
@@ -81,7 +82,7 @@ export function SourcesPane({
             // what's currently filtered).
             const originalIndex = sources.indexOf(s);
             return (
-              <li key={s.id + originalIndex} id={'cm-source-' + s.id}>
+              <li key={s.id + originalIndex} id={sourceCardId(s.id)}>
                 <button
                   type="button"
                   onClick={() => onSelect(s)}
