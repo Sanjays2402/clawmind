@@ -9,6 +9,8 @@ import { Composer } from './Composer';
 import { ShareAnswerButton } from './ShareAnswerButton';
 import { CopyAnswerButton } from './CopyAnswerButton';
 import { api } from '@/lib/api';
+import { revealSourceCard } from '@/lib/sourceNav';
+import { citedOrder, citePillId } from '@/lib/citations';
 
 interface Source {
   id: string;
@@ -46,6 +48,43 @@ export function ChatShell({
     setQuestion(initial);
   }, [searchParams]);
 
+  // `[` / `]` cycle through the citations in the answer body, in the order
+  // they first appear. Each step focuses the matching pill, marks its
+  // source active, and reveals the rail card (scroll + flash). The cycle
+  // only contains sources that are actually cited, so a 12-source rail
+  // with 3 citations steps through exactly those 3. Suppressed while the
+  // user is typing in the composer or a rail filter.
+  useEffect(() => {
+    if (!answer) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== '[' && e.key !== ']') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      const cited = citedOrder(answer, sources);
+      if (cited.length === 0) return;
+      e.preventDefault();
+      const curIdx = activeSource ? cited.findIndex((s) => s.id === activeSource.id) : -1;
+      const delta = e.key === ']' ? 1 : -1;
+      // From "no selection", `]` lands on the first and `[` on the last.
+      const nextIdx =
+        curIdx === -1
+          ? (delta === 1 ? 0 : cited.length - 1)
+          : (curIdx + delta + cited.length) % cited.length;
+      const next = cited[nextIdx];
+      if (!next) return;
+      setActiveSource(next);
+      revealSourceCard(next.id);
+      const pill = document.getElementById(citePillId(next.id));
+      if (pill) pill.focus({ preventScroll: true });
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [answer, sources, activeSource]);
+
   async function submit() {
     if (!question.trim() || loading) return;
     setLoading(true);
@@ -77,7 +116,7 @@ export function ChatShell({
         <div className="mx-auto flex w-full max-w-[1180px] items-center justify-between gap-4 px-6 py-3 sm:px-10">
           <NamespacePicker value={namespaces} onChange={setNamespaces} variant="breadcrumb" />
           <span className="cm-mono text-[11px] text-cm-faint">
-            cmd + enter to ask &middot; tab to cycle prompts
+            cmd + enter to ask &middot; tab to cycle prompts &middot; [ ] to step citations
           </span>
         </div>
       </div>

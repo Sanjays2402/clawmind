@@ -12,6 +12,7 @@ export function CitationChip({
   active,
   onClick,
   onHover,
+  buttonId,
 }: {
   n: number;
   path: string;
@@ -19,6 +20,9 @@ export function CitationChip({
   active?: boolean;
   onClick?: () => void;
   onHover?: (hovering: boolean) => void;
+  /** Optional DOM id placed on the pill button, used by keyboard nav to
+   *  focus a specific citation when cycling with `[` / `]`. */
+  buttonId?: string;
 }) {
   const [hover, setHover] = React.useState(false);
   return (
@@ -29,6 +33,7 @@ export function CitationChip({
     >
       <button
         type="button"
+        id={buttonId}
         onClick={onClick}
         aria-label={`Source ${n}: ${path}`}
         data-active={active ? 'true' : undefined}

@@ -1,6 +1,7 @@
 'use client';
 import { CitationChip } from '@clawmind/ui';
 import { revealSourceCard } from '@/lib/sourceNav';
+import { citePillId } from '@/lib/citations';
 
 interface SnippetSpan { start: number; end: number }
 interface Source {
@@ -38,6 +39,7 @@ function renderWithCitations(
   // Match either [^1] or bare [1] forms emitted by the model.
   const re = /\[\^?(\d+)\]/g;
   const out: React.ReactNode[] = [];
+  const seenPill = new Set<string>();
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;
@@ -49,6 +51,10 @@ function renderWithCitations(
       const snippet = src.snippet?.text || src.excerpt;
       const display = src.displayPath ?? src.path;
       const short = display.split('/').slice(-2).join('/') + ':' + src.startLine;
+      // Only the FIRST pill for a given source carries the keyboard-nav
+      // focus id, so `[` / `]` lands on a stable, single target per source.
+      const isFirst = !seenPill.has(src.id);
+      seenPill.add(src.id);
       out.push(
         <CitationChip
           key={`c-${i++}`}
@@ -56,6 +62,7 @@ function renderWithCitations(
           path={short}
           snippet={snippet}
           active={src.id === activeId}
+          buttonId={isFirst ? citePillId(src.id) : undefined}
           onClick={() => {
             onCite(src);
             revealSourceCard(src.id);

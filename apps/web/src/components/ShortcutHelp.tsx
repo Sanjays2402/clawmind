@@ -31,6 +31,7 @@ const GROUPS: ShortcutGroup[] = [
       { keys: ['⌘', 'Enter'], label: 'Send the current question' },
       { keys: ['Tab'], label: 'Cycle through saved starter prompts' },
       { keys: ['Shift', 'Tab'], label: 'Cycle back through saved starters' },
+      { keys: ['[', ']'], label: 'Step through the answer citations', hint: 'Focuses each cited source and reveals it in the rail' },
     ],
   },
   {
