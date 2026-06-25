@@ -37,7 +37,15 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-25 11:19 PDT (current) - nav discoverability + UI-primitive batch
+### Tick 2026-06-25 16:19 PDT (current) - source-viewer reading surface + nav/notify polish
+
+- [x] feat(web/sources/view): cited lines shown with surrounding context + gold highlight band + auto-scroll (0ed063c)
+- [x] feat(web/sources/view): dependency-free syntax highlighting (623a1bb)
+- [x] feat(web/nav): settings breadcrumb trail on every settings sub-page (7c5ee2b)
+- [x] feat(web/chat/sources): j/k + arrow keyboard navigation through the rail (0cfb745)
+- [x] feat(web/notifications): one-shot bell pulse on 0 -> 1+ unread (73b62ca)
+
+### Tick 2026-06-25 11:19 PDT - nav discoverability + UI-primitive batch
 
 - [x] feat(ui): shared Kbd + KbdGroup primitive replacing four duplicated kbd blocks (e300f3c)
 - [x] feat(web/nav): desktop "More" overflow dropdown for the secondary surfaces (1e01dde)
@@ -295,15 +303,15 @@ CHAT SURFACE (apps/web/src/components/Chat*, apps/web/src/app/chat):
 - [ ] feat(web/composer): drag-and-drop file pin onto the composer to pre-pin a source for the next question. The /pins page already exists; the composer should accept a file drop and surface a "Pinned: <path>" chip below the textarea that's submitted with the question.
 
 SOURCES RAIL + VIEWER:
-- [ ] feat(web/chat/sources): keyboard navigation through the rail — `j` / `k` (vim-style) AND ArrowDown / ArrowUp from the answer column cycles the active card; Enter opens the source viewer in a side-pane or new tab.
+- [x] feat(web/chat/sources): keyboard navigation through the rail — `j` / `k` (vim-style) AND ArrowDown / ArrowUp from the answer column cycles the active card; Enter opens the source viewer. SHIPPED 0cfb745: j/ArrowDown + k/ArrowUp step EVERY card in the (filtered) rail, wrap at both ends, cold-start lands first/last; each step marks active + reveals (scroll+flash) via revealSourceCard so it agrees with a citation click; Enter opens the active card's real-path deep link in a new tab (noopener) and only fires when a card is selected so it never hijacks a form submit; suppressed in inputs/textareas; deduped viewerHrefFor; surfaced in ShortcutHelp + chat breadcrumb.
 - [x] feat(web/chat/sources): per-source "open in viewer" button on each card. SHIPPED 3292b2b as a top-right OpenInViewer anchor opening /sources/view in a new tab without dismissing the active citation; stops click/mousedown propagation, calm-at-rest reveal on hover/focus-within, deep-links by s.path (NOT displayPath, which would 404 on aliased sources) and forwards start/end.
-- [ ] feat(web/sources/view): syntax highlighting for the source viewer (Prism or Shiki) so opened files render with code coloring rather than as plain text. Match the cm-paper background and the existing globals.css .cm-chat-stream pre styling.
-- [ ] feat(web/sources/view): "open at line N" deep-link from the rail — the rail already passes startLine, the viewer should scroll-and-highlight that line when arriving via deep link.
+- [x] feat(web/sources/view): syntax highlighting for the source viewer. SHIPPED 623a1bb as a dependency-free stateful line tokenizer (lib/highlight.ts) — NO Prism/Shiki bundle. Covers TS/JS/TSX, Python, JSON, CSS/SCSS, shell, YAML, Go, Rust, C-family by extension; carries LineState across lines so multi-line block comments + template literals colour correctly while single/double strings + line comments terminate at the newline (a stray quote can't tint the rest of the file). Restrained --cm-* palette (kw=accent-ink, str=success, com=faint, num=cite-gold). Unknown grammars fall back to plain text. components/CodeView.tsx renders + keeps the cited-line wash + auto-scroll anchor. Verified with a 23-case runtime harness incl. a byte-for-byte text-preservation round-trip.
+- [x] feat(web/sources/view): "open at line N" deep-link from the rail — the viewer should scroll-and-highlight that line when arriving via deep link. SHIPPED 0ed063c: the rail already passed start/end; the viewer now widens the fetch by CONTEXT_PAD (12) lines each side (lib/contextWindow.ts), renders the cited band with a gold wash + left rail (.cm-cited-line) + a "cited N-M" header pill, and auto-scrolls the band to viewport centre on arrival via ScrollToCited (prefers-reduced-motion aware). Non-cited opens keep whole-file behaviour.
 
 GLOBAL UX / NAV:
 - [x] feat(web/nav): collapsible "More" overflow menu in the TopNav secondary nav for the 20+ secondary surfaces. SHIPPED 1e01dde as a MoreMenu popover at the end of the desktop primary nav: a two-column grid of every secondary item, closes on Esc/click-outside/select, highlights the active item AND the "More" trigger when the current route lives in the secondary set. role=menu/menuitem + aria-haspopup/aria-expanded; reuses the existing `active` pathname computation. Added a shared IconCaretDown to @clawmind/ui for the trigger.
 - [x] feat(web/nav): per-route page-title in the document head (`Page · ClawMind`) - today every page is just "ClawMind". SHIPPED f6a2c85 as lib/pageTitle.ts (route->label resolver with curated TOP_LEVEL + SETTINGS maps, humanize fallback, opaque-id skip) + a DocumentTitle client component mounted once in the layout. Server-titled routes (trust/incidents/sbom/breach-register/offline) resolve to null and are left untouched. Settings sub-pages get breadcrumb titles ("Security . Settings . ClawMind").
-- [ ] feat(web/nav): breadcrumbs on settings sub-pages (Settings › Security › API key policy). The /settings tree is two levels deep and the user has no anchor today.
+- [x] feat(web/nav): breadcrumbs on settings sub-pages (Settings > Security > API key policy). The /settings tree is two levels deep and the user has no anchor today. SHIPPED 7c5ee2b as a thin "Settings / <Sub>" trail under the TopNav (SettingsBreadcrumb), rendered ONLY on /settings/<sub> (null on /settings itself, every non-settings route, and deeper paths). Reuses the curated SETTINGS map via a new shared settingsSubLabel() in lib/pageTitle so acronym pages (SSO/DPA/SCIM/MFA/PII) read right and can't drift from the document title. Mounted once in TopNav -> all ~50 leaves get it free. NOTE: shipped as a 2-level trail (Settings / Sub), not the 3-level Settings > Security > API key policy form, because the settings tree is flat-under-/settings (no intermediate category route exists to anchor a middle crumb); revisit if a category layer is ever introduced.
 - [x] feat(web/nav): focus-visible ring on every primary interactive element using --cm-accent-line so keyboard users always see where focus is. SHIPPED 9b453b9 as a base :focus-visible rule in globals.css covering a/button/input/textarea/select/summary + role=button|link|tab|menuitem with a 2px --cm-accent-line ring (tighter offset on inputs). :focus-visible means pointer clicks never ring; bespoke focus treatments (cite pill, skip link, open-viewer, share CTA) keep class-level specificity and override the base.
 - [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette, ShareAnswerButton, ShortcutHelp) on a single `<Dialog>` primitive in @clawmind/ui so future modals don't drift in radius / shadow / backdrop opacity.
 - [x] feat(web/ui): a `<KbdGroup keys={['⌘','K']} />` primitive so every kbd chip in the app shares one set of styles instead of the four duplicated kbd: CSSProperties blocks currently in use. SHIPPED e300f3c as Kbd (one key, sm/md size) + KbdGroup (key sequence, or boxed=one bordered pill for the TopNav legend) in @clawmind/ui; ShortcutHelp/CommandPalette/TopNav all dropped their local kbd consts and render the primitive. No visual change - chips render byte-identical at each size.
@@ -313,7 +321,7 @@ PAGE-LEVEL POLISH:
 - [ ] feat(web/dashboard): "what changed today" panel summarising the diff between yesterday and today's index (added documents, removed sources, new namespaces). Pairs naturally with the existing dashboard structure.
 - [x] feat(web/stats): horizontal-bar visualisation of per-namespace files/chunks/bytes. SHIPPED cba8f79: the bar viz already existed but was hard-wired to chunks; added a Files/Chunks/Bytes segmented toggle that re-sorts the namespaces desc by the chosen metric, rescales every bar to that metric's max, and swaps the value column (bytes via fmtBytes). The summary stat cards double as lens shortcuts with an accent ring when active. role=tablist/tab + aria-selected. (Outlier namespaces now pop under whichever lens you pick.)
 - [x] feat(web/history): per-day grouping with a small date header bar between groups. SHIPPED adcf288 via lib/dayGroups.ts (pure groupByDay + dayLabel: Today/Yesterday/weekday/Mon D/Mon D, YYYY) + a sticky DayHeader between groups; grouping preserves the API's newest-first order across and within groups. Verified labels against a 6-row fixture.
-- [ ] feat(web/notifications): bell badge animation on transition from 0 → 1+ unread (a subtle pulse, NOT a constant blink). Adds a quiet "you have new mail" signal.
+- [x] feat(web/notifications): bell badge animation on transition from 0 -> 1+ unread (a subtle pulse, NOT a constant blink). Adds a quiet "you have new mail" signal. SHIPPED 73b62ca: rising-edge-only one-shot (prevUnread ref seeded at -1 so the baseline poll never false-fires; pulse flag auto-clears after 1.4s; 2->3 does not re-pulse). cm-bell-ring (accent ring expands once + fades) + cm-bell-badge-pop keyframes run a single iteration from --cm-accent-line, fully disabled under prefers-reduced-motion.
 - [ ] feat(web/welcome): finish the welcome guide visually — today /welcome exists but feels minimal. Add a 3-card carousel with screenshots/illustrations of the chat + dashboard + sources pages so a first-run user has a 30-second tour.
 
 ACCESSIBILITY + THEMING:
@@ -322,9 +330,40 @@ ACCESSIBILITY + THEMING:
 - [x] feat(web/theming): system-theme auto-detect on first visit (prefers-color-scheme: dark/light) — the current useTheme hook hard-codes 'dark' as initial. SHIPPED fd83f5b: useTheme now resolves explicit persisted choice first, else the OS preference, in a mount effect (not the useState initialiser, so no SSR hydration mismatch against the light default). Live-follows OS dark/light flips via a matchMedia change listener while no explicit choice is pinned; the first toggle persists a fixed theme and stops the follow. System-driven changes deliberately don't persist.
 - [ ] feat(web/theming): inline preview of accent color in /settings so a future "pick your accent" feature has its surface ready.
 
-### Queued for later ticks
+### Queued frontend (refilled 2026-06-25 16:19 PDT)
 
-- [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved)
+Fresh batch so future ticks never run dry. Order is rough priority; group
+by what makes a clean batch theme.
+
+SOURCE VIEWER + READING (the surface this tick just deepened):
+- [ ] feat(web/sources/view): "copy lines" affordance on the cited band — a small button on the cited-band header that copies the exact cited line text (not the whole file) to the clipboard with a toast confirm. The band is already identified (.cm-cited-line / id=cm-cited); collect those lines and useToast.
+- [ ] feat(web/sources/view): "expand context" control — the viewer now shows CONTEXT_PAD (12) lines around the cited band; add a +/- pad stepper (or "show more above/below") that re-fetches a wider window without leaving the page. Pairs with the existing contextWindow() helper (lift pad into a query param the client can bump).
+- [ ] feat(web/sources/view): wrap-vs-scroll toggle for long lines — today the code <pre> scrolls horizontally; a soft-wrap toggle (persisted in localStorage) helps prose/markdown sources. Respect the existing mono styling.
+- [ ] feat(web/sources/view): language pill in the viewer header showing the detected grammar (from lib/highlight langForPath) — "TypeScript" / "Python" / "Plain text" — so the reader knows whether highlighting is active. Tiny, reuses the new highlighter's resolution.
+
+CHAT SURFACE (hottest area, used every session):
+- [ ] feat(web/chat): per-message conversation history within a thread — ChatShell loses the prior Q/A when a new question is asked. Vertical stack of Q/A pairs (newest at bottom), each with its own copy/share + a per-message collapsible citation rail. (Carried from earlier queue; still the single biggest chat gap.)
+- [ ] feat(web/chat): "scroll to bottom" floating button that appears when the user has scrolled up during a long streaming answer, so they can jump back to the live token edge. Hidden when already at the bottom.
+- [ ] feat(web/chat): keyboard shortcut to focus the composer from anywhere on the chat page (e.g. "/" when not in an input), mirroring the rail's j/k. Register in ShortcutHelp.
+- [ ] feat(web/chat): empty-state starter prompts become clickable — the EmptyReading "a few things to try" list items currently render as plain text; make each one a button that drops the prompt into the composer and focuses it.
+
+DASHBOARD + DATA-VIZ:
+- [ ] feat(web/dashboard): inline sparkline next to each StatCard — a small SVG line of "documents indexed over the last 14 days" turning the snapshot into a story. Backend can compute from ingestStatus/ingestHistory.
+- [ ] feat(web/dashboard): "what changed today" panel — diff yesterday vs today's index (added docs, removed sources, new namespaces).
+- [ ] feat(web/stats): donut/proportion chart of namespace share of total chunks alongside the existing bars, so the relative weight of each namespace reads at a glance.
+- [ ] feat(web/usage): a simple per-day bar of ask/search request counts over the current period (the /usage page shows totals but no shape).
+
+GLOBAL UX / POLISH:
+- [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette, ShareAnswerButton, ShortcutHelp) on a single <Dialog> primitive in @clawmind/ui (focus trap, Esc, backdrop, scroll-lock) so future modals don't drift in radius/shadow/backdrop opacity.
+- [ ] feat(web/ui): toast on copy/share success across the app — several copy buttons silently succeed; route them through the existing useToast for a consistent confirm.
+- [ ] feat(web/welcome): finish the welcome guide visually — a 3-card tour (chat + dashboard + sources) so a first-run user has a 30-second orientation.
+- [ ] feat(web/theming): inline accent-color preview swatch in /settings Appearance so a future "pick your accent" feature has its surface ready.
+- [ ] feat(web/nav): recent-pages section in the command palette (last 5 routes visited, stored in localStorage) above the static route list, so frequent jumps are one keystroke closer.
+- [ ] feat(web/a11y): roving-tabindex on the TopNav primary nav so arrow keys move between nav links (ARIA menubar pattern) for keyboard users.
+- [ ] feat(web/loading): consistent skeletons on the data-heavy settings sub-pages (security, retention, encryption) that currently show a bare Spinner — match the ChatAnswerSkeleton calm.
+
+### Queued for later ticks
+- [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved). NOTE for FRONTEND ticks: this is the lone red that fails `pnpm run ci:verify`; it lives entirely in packages/telemetry, untouched by any web slice. The web batch is gated independently via web typecheck + web build (both must be green before push).
 - [ ] fix(rag/hybrid): hybridMerge test on packages/rag/test/hybrid.test.ts expects `out[0].id === 'b'` but the merge orders 'a' (bm25 score 10) above 'b' under alpha=0.5; either the test fixture or the hybrid blend has drifted. Pre-existing failure (verified by typechecking parent commit 3cc6fd1), NOT introduced by any cron tick — was simply unknown because earlier ticks only ran `--filter @clawmind/cli test`, not `pnpm -r test`. Either rewrite the test against the current alpha-blend semantics OR re-derive the expected order from first principles.
 - [ ] fix(status): flake on `status --watch --json --check-after` test — `expect(process.exitCode).toBeFalsy()` occasionally observes 2 instead of undefined when the up-flip clearTimeout races the final cycle's `--check-after` debounce decision. Reproduces ~1 in every 5-10 runs of the full cli suite. Root cause likely: the test's `upFlip` setTimeout fires the up-state inversion at boundary of the cycle counter, and the cycle's exit-code decision happens before clearTimeout cancels the pending flip. Fix candidates: (a) advance fake timers deterministically with vi.useFakeTimers() through the whole --watch loop; (b) increase the cycle interval in the test fixture so the timing has more margin; (c) replace the wall-clock --check-after debounce with a counter-based one that decrements per JSON snapshot rather than per ms (then the test can deterministically count snapshots). Worth ~30min investigation in a future tick.
 - [ ] feat(forget): add list-by-pattern shim (forget --dry-run --paths-only is the closest, but a dedicated `forget list <pattern>` for "preview what forget would touch" without typing --dry-run + --paths-only every time would be the more natural ergonomic shape). Open question: does the API need a new endpoint or can the cli pre-flight against the existing /v1/sources list?
@@ -382,6 +421,39 @@ ACCESSIBILITY + THEMING:
 ## Tick log
 
 (updated by each tick at the bottom)
+
+- 2026-06-25 16:19 PDT (Cake/cron) — 5 FRONTEND features shipped directly on
+  main. Features: 0ed063c, 623a1bb, 7c5ee2b, 0cfb745, 73b62ca. Theme: deepen
+  the source-viewer reading surface + nav/notify polish, all in apps/web/.
+    1. sources/view cited-context window (0ed063c): opening a source from a
+       citation now widens the fetch by 12 lines each side (lib/contextWindow),
+       washes the cited band gold (.cm-cited-line) with a "cited N-M" header
+       pill, and auto-scrolls it to viewport centre (ScrollToCited, reduced-
+       motion aware). Was a stranded bare slice before.
+    2. sources/view syntax highlighting (623a1bb): dependency-free stateful
+       line tokenizer (lib/highlight.ts) — NO Prism/Shiki. TS/JS/Python/JSON/
+       CSS/shell/YAML/Go/Rust/C-family by ext; carries block-comment +
+       template-literal state across lines; restrained --cm-* palette;
+       byte-for-byte text-preserving. CodeView.tsx renders it. Verified with a
+       23-case runtime harness (transpiled + run under node).
+    3. settings breadcrumb (7c5ee2b): "Settings / <Sub>" trail under TopNav on
+       all ~50 /settings/<sub> leaves, null everywhere else; reuses the curated
+       SETTINGS label map (shared settingsSubLabel) so acronyms read right and
+       can't drift from the doc title. One mount, zero per-page edits.
+    4. rail j/k nav (0cfb745): vim j/k + Arrow stepping through EVERY rail card
+       (complements the cited-only [ / ] cycle), Enter opens the active card in
+       the viewer; wraps, input-suppressed, reveals each card via the shared
+       scroll+flash; deduped viewerHrefFor; surfaced in ShortcutHelp + hint.
+    5. notifications bell pulse (73b62ca): one-shot ring+badge-pop on a genuine
+       0->1+ unread rising edge (prevUnread seeded -1; auto-clears; 2->3 doesn't
+       re-fire); single-iteration keyframes, reduced-motion disabled.
+  Gate: web typecheck CLEAN, web build ✓ compiled successfully (exit 0, all ~95
+  routes incl. the modified /sources/view), web test ok. `pnpm run ci:verify`
+  still red ONLY on the pre-existing @clawmind/telemetry OpenTelemetry 1.x/2.x
+  peer mismatch (STATE roadmap; predates this loop, zero telemetry files in the
+  batch — all 12 changed files under apps/web/). Pushed d86435e..73b62ca.
+  Refilled the frontend roadmap with 17 fresh items (source-viewer follow-ups,
+  chat, dashboard data-viz, global polish).
 
 - 2026-06-20 04:25 PDT (Cake/cron) — 7 features shipped on feature/autoship.
   Bootstrap: 561f1fb. Features: 3010d31, aedb504, 7e1f329, c6be7ae, f9d7948,
