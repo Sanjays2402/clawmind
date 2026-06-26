@@ -37,6 +37,64 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### Queued frontend (refilled 2026-06-26 12:22 PDT)
+
+Fresh batch so future ticks never run dry. The biggest standing theme is the
+DESIGN-LANGUAGE DRIFT: ~540 uses of foreign CSS vars + raw Tailwind colors
+across ~50 files. Two clusters exist - (a) cm-palette pages with a few stray
+tokens (cheap fixes), and (b) whole pages built in a DIFFERENT shadcn-style
+language (bg-card / text-muted-foreground / bg-primary) that need a full
+re-theme. Group a re-theme batch by visual coherence.
+
+DESIGN-LANGUAGE RE-THEME (highest-value; the 06:49 + 12:22 ticks started this):
+- [ ] feat(web/settings/security): re-theme the IP-allowlist page off the shadcn
+  palette (bg-card/bg-background/text-muted-foreground/bg-primary/border) onto
+  cm-*. It's a flagship security surface linked from the hub. Once done, wire in
+  the SettingsCardSkeleton (already built) for its loading state.
+- [ ] feat(web/settings/notifications): re-theme onto cm-* (same shadcn classes),
+  then swap its bespoke loading list for the shared skeleton.
+- [ ] feat(web/posture): re-theme the security-posture dashboard - it uses
+  bg-[var(--bg)]/(--card)/(--border) + bg-amber-500 status dots that are
+  off-brand. A high-signal page (compliance scorecard) worth getting right.
+- [ ] feat(web/settings/invitations): re-theme (foreign --bg/--surface/--border +
+  amber-500 status chips) onto cm-*; the status-chip colors should use the
+  cm feedback inks like the search chips just did (95f55d4).
+- [ ] feat(web/settings/policies): re-theme (--surface/--surface-hover/--warning-bg
+  + green-600 accepted state) onto cm-*; route the accepted/pending states
+  through --cm-success / --cm-muted.
+
+CHAT SURFACE (still the biggest product gap):
+- [ ] feat(web/chat): per-message conversation history within a thread - ChatShell
+  loses the prior Q/A when a new question is asked. Vertical stack of Q/A pairs
+  (newest at bottom), each with its own copy/share + a per-message collapsible
+  citation rail. The single biggest chat gap; carried across many ticks.
+- [ ] feat(web/composer): drag-and-drop file pin onto the composer to pre-pin a
+  source for the next question (the /pins page exists; surface a "Pinned: <path>"
+  chip below the textarea submitted with the question).
+
+SOURCE VIEWER + READING:
+- [ ] feat(web/sources/view): "jump to next/prev cited line" stepper when the cited
+  band spans more rows than fit on screen - reuses id=cm-cited (add per-row ids).
+- [ ] feat(web/sources/view): in-file find (cmd+F-style overlay scoped to the
+  viewer) highlighting matches in the rendered code, dependency-free, reusing the
+  highlight token walk (native find doesn't see the token spans well).
+- [ ] feat(web/sources/view): the new line-permalink (3e7648c) should show a brief
+  selection wash on the clicked line even when it's OUTSIDE the cited band, so a
+  plain-file open (no citation) still gives visual feedback on which line you
+  linked. Today only the cited band gets .cm-cited-line; a plain selection has no
+  highlight until the round-trip re-renders.
+
+GLOBAL UX / POLISH:
+- [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette,
+  ShareAnswerButton, ShortcutHelp) on a single <Dialog> primitive in @clawmind/ui
+  (focus trap, Esc, backdrop, scroll-lock) so future modals don't drift.
+- [ ] feat(web/welcome): finish the welcome guide visually - a 3-card tour
+  (chat + dashboard + sources) for a 30-second first-run orientation.
+- [ ] feat(web/settings): inline accent-color preview swatch in the Appearance card
+  so a future "pick your accent" feature has its surface ready.
+
+### Roadmap (continued - newest first)
+
 ### Tick 2026-06-25 21:11 PDT (current) - source-viewer reading surface finished
 
 - [x] feat(web/sources/view): language pill in the viewer header (61ed4f9)
@@ -369,7 +427,7 @@ GLOBAL UX / POLISH:
 - [ ] feat(web/theming): inline accent-color preview swatch in /settings Appearance so a future "pick your accent" feature has its surface ready.
 - [ ] feat(web/nav): recent-pages section in the command palette (last 5 routes visited, stored in localStorage) above the static route list, so frequent jumps are one keystroke closer.
 - [ ] feat(web/a11y): roving-tabindex on the TopNav primary nav so arrow keys move between nav links (ARIA menubar pattern) for keyboard users.
-- [ ] feat(web/loading): consistent skeletons on the data-heavy settings sub-pages (security, retention, encryption) that currently show a bare Spinner — match the ChatAnswerSkeleton calm.
+- [x] feat(web/loading): consistent skeletons on the data-heavy settings sub-pages (security, retention, encryption) that currently show a bare Spinner — match the ChatAnswerSkeleton calm. SHIPPED c0f0ad9 as SettingsCardSkeleton in @clawmind/ui (card silhouette: header + sub-label, N label/control rows, save-bar; calm cm-pulse 1.6s reduced-motion friendly; cm-* tokens) wired into the three genuinely cm-palette bare-Spinner pages: the /settings hub (two stacked cards), /settings/retention (4 rows), /settings/encryption (3 rows). NOTE: security/notifications/api-key-policy use a DIFFERENT design language (shadcn-style bg-card/text-muted-foreground/bg-primary classes), so they need a full page re-theme first before the cm-palette skeleton fits — deferred to a future re-theme tick rather than dropping a mismatched skeleton in.
 
 ### Queued frontend (refilled 2026-06-25 21:11 PDT)
 
@@ -378,7 +436,7 @@ The SOURCE VIEWER + READING group is now fully shipped (5 items this tick
 Order is rough priority; group by what makes a clean batch theme.
 
 SOURCE VIEWER + READING (follow-ups now the core reading surface is done):
-- [ ] feat(web/sources/view): line-number anchor + copy-permalink — clicking a gutter line number selects that line and updates the URL (?start=&end=) so a reader can deep-link to any line, not just the cited band. Pairs with the existing start/end query contract.
+- [x] feat(web/sources/view): line-number anchor + copy-permalink — clicking a gutter line number selects that line and updates the URL (?start=&end=) so a reader can deep-link to any line, not just the cited band. Pairs with the existing start/end query contract. SHIPPED 3e7648c: new lib/lineLink.ts pure core (lineSelection plain->single / shift-extend-from-band-start / floor+clamp>=1; lineQueryString/lineLinkHref/linePermalink build the ?start=&end= URL with path encoded + pad deliberately omitted so a shared link lands on the default window; linePermalink trims trailing origin slashes; lineRangeLabel). Every CodeView gutter number is now a button: click -> router.push(scroll:false) re-highlights the band via the existing start/end contract + best-effort clipboard copy routed through the global toast (blocked clipboard still applies the selection). New .cm-line-no style stays calm at rest, warms to accent on hover/focus. 19-case tsx harness.
 - [ ] feat(web/sources/view): "jump to next/prev cited line" when the band spans more rows than fit on screen — small up/down stepper in the band header that scrolls between the first and last cited rows. Only meaningful when cited end-start exceeds a viewport; reuses the id=cm-cited anchor pattern (add per-row ids).
 - [ ] feat(web/sources/view): in-file find (cmd+F-style overlay scoped to the viewer) that highlights matches in the rendered code without leaving the page — the browser's native find doesn't see virtualized rows well and can't respect the token spans. Keep it dependency-free, reuse the highlight token walk.
 - [x] feat(web/sources/view): remember the soft-wrap preference per-language (a .md file usually wants wrap, a .ts file usually wants scroll) — extend the cm-code-wrap localStorage key to a small per-extension map. SHIPPED f62caa8: new lib/wrapPref.ts owns an ext->bool JSON map (cm-code-wrap-by-ext) with a pure core (extOf / defaultWrapForExt prose-vs-code / resolveWrap precedence explicit>legacy>default / nextWrapMap immutable / defensive parsers); legacy cm-code-wrap honored as a fallback so no setting is lost; CodeView seeds the per-ext default on SSR+first render then applies the resolved pref in a path-keyed mount effect. Prose wraps, code scrolls by default. 36-case node harness.
@@ -401,7 +459,7 @@ GLOBAL UX / POLISH:
 - [ ] feat(web/welcome): finish the welcome guide visually — a 3-card tour (chat + dashboard + sources).
 - [x] feat(web/nav): recent-pages section in the command palette (last 5 routes, localStorage) above the static route list. SHIPPED 49abbd8: new lib/recentPages.ts (pure core parseRecent/pushRecent move-to-front-dedupe-cap-immutable/bestRouteHref collapse a visited path onto its owning route, most-specific wins, query/hash/slash tolerant; readRecent/recordRecent SSR-safe wrappers) + RecentPagesRecorder mounted in the layout records each navigation. The palette builds up to 5 recent rows on open (collapsed to known routes, current page dropped, deduped, reusing each route's icon+label); on empty query they lead under a "Recent" label + "Jump to" divider with their routes removed from the main list so nothing reads twice; fold away once the user types. Result cap also raised 24->40. 27-case tsx harness.
 - [ ] feat(web/a11y): roving-tabindex on the TopNav primary nav (ARIA menubar pattern) for keyboard arrow-key movement.
-- [ ] feat(web/loading): consistent skeletons on the data-heavy settings sub-pages (security, retention, encryption) — match the ChatAnswerSkeleton calm.
+- [x] feat(web/loading): consistent skeletons on the data-heavy settings sub-pages (security, retention, encryption) — match the ChatAnswerSkeleton calm. SHIPPED c0f0ad9 (SettingsCardSkeleton in @clawmind/ui; wired into the /settings hub + /settings/retention + /settings/encryption; shadcn-styled sub-pages deferred to a re-theme tick).
 
 ### Queued for later ticks
 - [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved). NOTE for FRONTEND ticks: this is the lone red that fails `pnpm run ci:verify`; it lives entirely in packages/telemetry, untouched by any web slice. The web batch is gated independently via web typecheck + web build (both must be green before push).
@@ -462,6 +520,70 @@ GLOBAL UX / POLISH:
 ## Tick log
 
 (updated by each tick at the bottom)
+
+- 2026-06-26 12:22 PDT (Cake/cron) - 5 FRONTEND features shipped directly on
+  main, all in apps/web/ (+ one new @clawmind/ui primitive). Theme: keep
+  fixing the design-language drift the 06:49 tick FLAGGED (off-brand foreign
+  CSS vars) on the highest-traffic surfaces, plus two new reading/chat
+  conveniences. SHAs f79efba, 95f55d4, df05edb, 3e7648c, c0f0ad9.
+    1. settings hub re-theme (f79efba): /settings - the entry point to ~70
+       settings sub-pages - rendered ENTIRELY in the foreign palette
+       (var(--bg)/(--border)/(--fg)/(--fg-muted)/(--bg-elev) + hard-coded
+       bg-violet-500/red-500/amber-500/emerald-500). The quota bar showed up
+       VIOLET on warm paper-cream; system-status pills lit raw Tailwind
+       red/green. Swapped every token for cm-* (cm-paper cards, cm-border,
+       cm-fg/cm-muted, cm-bg/cm-subtle insets); quota bar now uses the same
+       accent->cite-gold->danger ramp as the /usage page it links to; the
+       destructive delete zone routes through --cm-danger; status pills use
+       --cm-success/--cm-danger. Pure presentation, zero logic touched.
+    2. search tag-chip re-theme (95f55d4): the include/exclude filter chips
+       used emerald-300/rose-300 text - 300-level inks that wash out to
+       near-invisible on the light theme, so a reader couldn't tell include
+       from exclude. Routed include -> --cm-success, exclude -> --cm-danger
+       (the brand feedback inks), 10% tint fills, opacity-hover remove x.
+    3. chat namespace persistence (df05edb): ChatShell hard-coded its active
+       namespaces in a useState initialiser and never persisted toggles, so
+       every reload threw away the reader's workspace narrowing. New
+       lib/nsPref.ts pure core (sanitizeNs order/dedupe/drop-unknown;
+       parseNsPref defensive null on absent/malformed/non-array/all-invalid;
+       empty-sanitized treated as "no pref" so we never persist a selection
+       that searches nothing; SSR-safe read/write wrappers). Restored in a
+       mount effect (no hydration mismatch), persisted on every picker toggle.
+       18-case tsx harness.
+    4. viewer gutter line permalinks (3e7648c): the viewer could only ever
+       highlight the cited band it opened on - no way to point a colleague at
+       a DIFFERENT line. New lib/lineLink.ts pure core (lineSelection plain ->
+       single / shift -> range from the band's start anchor / floor+clamp>=1;
+       lineQueryString/lineLinkHref/linePermalink build the ?start=&end= URL,
+       path-encoded, pad omitted so a shared link lands on the default window;
+       trims trailing origin slashes; lineRangeLabel). Every CodeView gutter
+       number is now a button: click -> router.push(scroll:false) re-highlights
+       via the existing start/end contract + best-effort clipboard copy through
+       the toast (blocked clipboard still applies the selection). .cm-line-no
+       warms to accent on hover/focus. 19-case tsx harness.
+    5. settings loading skeleton (c0f0ad9): the cm-palette settings pages that
+       fetch a form (hub, retention, encryption) flashed a bare "<spinner>
+       Loading" then jumped to a full card. New SettingsCardSkeleton in
+       @clawmind/ui draws the card silhouette (header + sub-label, N
+       label/control rows, save-bar) with the existing calm cm-pulse, wired
+       into all three. NOTE: security/notifications/api-key-policy use a
+       DIFFERENT (shadcn-style bg-card/text-muted-foreground) design language
+       and need a full re-theme before the cm skeleton fits - deferred, NOT
+       dropped in mismatched.
+  Gate: web typecheck CLEAN; @clawmind/ui typecheck CLEAN; web build
+  "Compiled successfully", exit 0, all routes generated incl. the modified
+  /sources/view (6.68 kB, up from 6.31), /settings, /usage, /search. Web batch
+  gated independently via web typecheck + web build (both green) per the
+  standing note that `pnpm run ci:verify` stays red ONLY on the pre-existing
+  @clawmind/telemetry OTel 1.x/2.x peer mismatch + rag/hybrid test (both
+  roadmap, zero files in this batch). Pushed 1f46f89..c0f0ad9. All 9 changed
+  files under apps/web/ + 1 under packages/ui/. Pure-lib harnesses (nsPref 18,
+  lineLink 19) ran green under tsx, live in .cron-tmp/ (uncommitted).
+  STANDING FINDING (carried from 06:49): ~540 uses of foreign CSS vars + raw
+  Tailwind colors across ~50 files remain - this tick fixed the settings hub +
+  search chips (two of the worst). The shadcn-styled settings sub-pages
+  (security, notifications, posture, invitations, policies, ...) are the next
+  re-theme cluster.
 
 - 2026-06-26 06:49 PDT (Cake/cron) - 5 FRONTEND features shipped directly on
   main, all in apps/web/. Theme: make everyday navigation + the secondary
