@@ -3,6 +3,7 @@ import { TopNav } from '@/components/TopNav';
 import { FeedbackForm } from '@/components/FeedbackForm';
 import { TagEditor } from '@/components/TagEditor';
 import { ScrollToCited } from '@/components/ScrollToCited';
+import { BackToCited } from '@/components/BackToCited';
 import { CodeView } from '@/components/CodeView';
 import { CopyCitedLines } from '@/components/CopyCitedLines';
 import { ContextStepper } from '@/components/ContextStepper';
@@ -87,6 +88,16 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
     <Shell>
       <Header path={path} meta={meta} />
       {win.hasCited && <ScrollToCited target={scrollKey} />}
+      {win.cited && (
+        <BackToCited
+          target={scrollKey}
+          label={
+            win.cited.end !== win.cited.start
+              ? `cited lines ${win.cited.start}-${win.cited.end}`
+              : `cited line ${win.cited.start}`
+          }
+        />
+      )}
 
       <section style={{ marginTop: 20, display: 'grid', gridTemplateColumns: 'minmax(0, 1fr)', gap: 16 }}>
         <FeedbackForm path={path} initial={fb ? { ups: fb.ups, downs: fb.downs, boost: fb.boost } : null} />

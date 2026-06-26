@@ -115,6 +115,28 @@ mark.cm-hi {
   box-shadow: inset 3px 0 0 var(--cm-cite-line);
 }
 
+/* Source viewer: floating "back to cited lines" pill. Appears at the bottom
+   centre of the viewport when the cited band has scrolled off screen (e.g.
+   after expanding the context window). Rises in gently; the rise is dropped
+   for reduced-motion users, who still get the pill. */
+@keyframes cm-back-to-cited-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.cm-back-to-cited {
+  animation: cm-back-to-cited-in 180ms ease-out;
+}
+.cm-back-to-cited:hover {
+  background: var(--cm-cite-bg);
+}
+.cm-back-to-cited:focus-visible {
+  outline: 2px solid var(--cm-cite-line);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-back-to-cited { animation: none; }
+}
+
 /* Transient flash on a source card when it's targeted by a citation
    click or keyboard navigation. Distinct from the persistent active
    border: a brief gold ring that pulses outward once and fades on its
