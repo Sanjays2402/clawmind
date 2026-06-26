@@ -435,14 +435,15 @@ export default function SearchPage() {
               {includeTags.map((t) => (
                 <span
                   key={'i-' + t}
-                  className="inline-flex items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-300"
+                  className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+                  style={{ borderColor: 'var(--cm-success)', background: 'rgba(47, 122, 85, 0.10)', color: 'var(--cm-success)' }}
                 >
                   +{t}
                   <button
                     type="button"
                     onClick={() => setIncludeTags((prev) => prev.filter((x) => x !== t))}
                     aria-label={`Remove include tag ${t}`}
-                    className="text-emerald-200/80 hover:text-white"
+                    className="opacity-70 hover:opacity-100"
                   >
                     ×
                   </button>
@@ -451,14 +452,15 @@ export default function SearchPage() {
               {excludeTags.map((t) => (
                 <span
                   key={'e-' + t}
-                  className="inline-flex items-center gap-1 rounded-full border border-rose-500/40 bg-rose-500/10 px-2 py-0.5 text-xs text-rose-300"
+                  className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs"
+                  style={{ borderColor: 'var(--cm-danger)', background: 'rgba(180, 66, 60, 0.10)', color: 'var(--cm-danger)' }}
                 >
                   -{t}
                   <button
                     type="button"
                     onClick={() => setExcludeTags((prev) => prev.filter((x) => x !== t))}
                     aria-label={`Remove exclude tag ${t}`}
-                    className="text-rose-200/80 hover:text-white"
+                    className="opacity-70 hover:opacity-100"
                   >
                     ×
                   </button>
