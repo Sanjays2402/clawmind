@@ -5,14 +5,15 @@ import { TagEditor } from '@/components/TagEditor';
 import { ScrollToCited } from '@/components/ScrollToCited';
 import { CodeView } from '@/components/CodeView';
 import { CopyCitedLines } from '@/components/CopyCitedLines';
+import { ContextStepper } from '@/components/ContextStepper';
 import { api, fmtBytes, fmtRelative } from '@/lib/api';
-import { contextWindow, citedText } from '@/lib/contextWindow';
+import { contextWindow, citedText, CONTEXT_PAD } from '@/lib/contextWindow';
 import { langForPath, langLabelForPath } from '@/lib/highlight';
 import { IconFolder, IconArrowRight, IconWarning } from '@clawmind/ui';
 
 export const dynamic = 'force-dynamic';
 
-type SP = Promise<{ path?: string; start?: string; end?: string }>;
+type SP = Promise<{ path?: string; start?: string; end?: string; pad?: string }>;
 
 export default async function SourceView({ searchParams }: { searchParams: SP }) {
   const sp = await searchParams;
@@ -30,9 +31,18 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
   const start = sp.start ? Number(sp.start) : undefined;
   const end = sp.end ? Number(sp.end) : undefined;
 
+  // The reader can widen/narrow the context shown around the cited band via
+  // the ContextStepper, which round-trips through a `pad` query param. Clamp
+  // it to a sane range; fall back to the viewer's default pad when absent or
+  // unparseable.
+  const padParam = sp.pad !== undefined ? Number(sp.pad) : NaN;
+  const pad = Number.isFinite(padParam)
+    ? Math.max(0, Math.min(200, Math.floor(padParam)))
+    : CONTEXT_PAD;
+
   // Widen the requested band so the reader lands on the cited lines WITH
   // surrounding context above and below, instead of a stranded slice.
-  const win = contextWindow(start, end);
+  const win = contextWindow(start, end, pad);
 
   const [fileRes, listRes, feedbackRes] = await Promise.all([
     api.sourceFile(path, win.fetchStart, win.fetchEnd).catch((e: Error) => ({ error: e.message })),
@@ -84,7 +94,7 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
 
         <div style={{ border: '1px solid var(--cm-border)', borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid var(--cm-border)', background: 'var(--cm-subtle)' }}>
-            <div style={{ fontSize: 13, color: 'var(--cm-muted)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontSize: 13, color: 'var(--cm-muted)', display: 'inline-flex', flexWrap: 'wrap', rowGap: 6, alignItems: 'center', gap: 6 }}>
               <IconFolder /> Lines {fileRes.start}-{fileRes.end}
               {win.cited && (
                 <span
@@ -109,6 +119,15 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
                   text={citedBody}
                   start={win.cited.start}
                   end={win.cited.end}
+                />
+              )}
+              {win.cited && (
+                <ContextStepper
+                  path={path}
+                  start={win.cited.start}
+                  end={win.cited.end}
+                  pad={pad}
+                  defaultPad={CONTEXT_PAD}
                 />
               )}
             </div>
