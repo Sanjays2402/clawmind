@@ -165,6 +165,24 @@ mark.cm-hi {
   .cm-back-to-cited { animation: none; }
 }
 
+/* Chat: floating "jump to latest" pill. Appears at the bottom centre of the
+   viewport while an answer is streaming and the reader has scrolled above the
+   live token edge. Shares the back-to-cited rise-in; accent-tinted (vs the
+   citation gold) so the two never read as the same control. */
+.cm-jump-latest {
+  animation: cm-back-to-cited-in 180ms ease-out;
+}
+.cm-jump-latest:hover {
+  background: var(--cm-accent-soft);
+}
+.cm-jump-latest:focus-visible {
+  outline: 2px solid var(--cm-accent-line);
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-jump-latest { animation: none; }
+}
+
 /* Transient flash on a source card when it's targeted by a citation
    click or keyboard navigation. Distinct from the persistent active
    border: a brief gold ring that pulses outward once and fades on its

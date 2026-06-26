@@ -10,6 +10,7 @@ import { ShareAnswerButton } from './ShareAnswerButton';
 import { CopyAnswerButton } from './CopyAnswerButton';
 import { ChatError } from './ChatError';
 import { StreamProgress } from './StreamProgress';
+import { JumpToLatest } from './JumpToLatest';
 import { api } from '@/lib/api';
 import { revealSourceCard } from '@/lib/sourceNav';
 import { citedOrder, citePillId } from '@/lib/citations';
@@ -212,6 +213,10 @@ export function ChatShell({
                 {loading && (
                   <StreamProgress tokens={tokenCount} lastMs={lastTokenMs} />
                 )}
+                {/* Sentinel parked at the live token edge. JumpToLatest
+                    observes it to know when the reader has scrolled above the
+                    streaming text. */}
+                <div id="cm-stream-end" aria-hidden="true" />
                 {!loading && (
                   <div className="mt-6 flex items-center justify-end gap-2 border-t border-cm-border pt-4">
                     <CopyAnswerButton
@@ -239,6 +244,10 @@ export function ChatShell({
           )}
         </aside>
       </div>
+
+      {/* Floating "jump to latest" while the answer streams and the reader
+          has scrolled above the live token edge. */}
+      <JumpToLatest active={loading && answer !== ''} />
     </main>
   );
 }
