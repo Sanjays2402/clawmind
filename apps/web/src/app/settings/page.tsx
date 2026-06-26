@@ -70,7 +70,7 @@ export default function SettingsPage() {
   }, [load]);
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen bg-cm-bg">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-6 flex items-center justify-between gap-3">
@@ -82,7 +82,7 @@ export default function SettingsPage() {
             type="button"
             onClick={load}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg-muted)] hover:bg-[var(--bg-elev)] disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:bg-cm-subtle disabled:opacity-50"
             aria-label="Refresh"
           >
             <IconRefresh size={14} />
@@ -91,7 +91,7 @@ export default function SettingsPage() {
         </div>
 
         {loading && !usage ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
+          <div className="flex items-center gap-2 text-sm text-cm-muted">
             <Spinner /> Loading account
           </div>
         ) : error ? (
@@ -126,11 +126,11 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-5">
+    <section className="rounded-xl border border-cm-border bg-cm-paper p-5">
       <div className="mb-3">
-        <h2 className="text-sm font-semibold text-[var(--fg)]">{title}</h2>
+        <h2 className="text-sm font-semibold text-cm-fg">{title}</h2>
         {description ? (
-          <p className="mt-0.5 text-xs text-[var(--fg-muted)]">{description}</p>
+          <p className="mt-0.5 text-xs text-cm-muted">{description}</p>
         ) : null}
       </div>
       {children}
@@ -209,30 +209,30 @@ function ProfileCard({
         <>
           <dl className="grid gap-2 text-sm">
             <Row label="User ID">
-              <code className="cm-mono text-[12px] text-[var(--fg)]">{userId}</code>
+              <code className="cm-mono text-[12px] text-cm-fg">{userId}</code>
             </Row>
             <Row label="Display name">
-              <span className="text-[var(--fg)]">{profile?.displayName ?? userId}</span>
+              <span className="text-cm-fg">{profile?.displayName ?? userId}</span>
             </Row>
             <Row label="Timezone">
-              <span className="text-[var(--fg)]">{profile?.timezone ?? 'UTC'}</span>
+              <span className="text-cm-fg">{profile?.timezone ?? 'UTC'}</span>
             </Row>
             <Row label="Default model">
-              <span className="text-[var(--fg)]">
+              <span className="text-cm-fg">
                 {profile?.defaultModel ?? (
-                  <span className="text-[var(--fg-muted)]">server default</span>
+                  <span className="text-cm-muted">server default</span>
                 )}
               </span>
             </Row>
             <Row label="Plan">
-              <span className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-0.5 text-[12px] capitalize text-[var(--fg)]">
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2 py-0.5 text-[12px] capitalize text-cm-fg">
                 {plan}
               </span>
             </Row>
           </dl>
           <div className="mt-4 flex items-center justify-between gap-3">
             {savedAt ? (
-              <span className="inline-flex items-center gap-1.5 text-xs text-[var(--fg-muted)]">
+              <span className="inline-flex items-center gap-1.5 text-xs text-cm-muted">
                 <IconCheck size={12} /> Saved
               </span>
             ) : (
@@ -241,7 +241,7 @@ function ProfileCard({
             <button
               type="button"
               onClick={begin}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg)] hover:bg-[var(--bg)]"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-cm-border px-3 py-1.5 text-sm text-cm-fg hover:bg-cm-subtle"
             >
               <IconPencil size={14} /> Edit profile
             </button>
@@ -250,19 +250,19 @@ function ProfileCard({
       ) : (
         <form onSubmit={submit} className="grid gap-3 text-sm">
           <label className="grid gap-1">
-            <span className="text-xs text-[var(--fg-muted)]">Display name</span>
+            <span className="text-xs text-cm-muted">Display name</span>
             <input
               type="text"
               required
               maxLength={80}
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--fg)] outline-none focus:border-[var(--fg-muted)]"
+              className="rounded-lg border border-cm-border bg-cm-bg px-3 py-2 text-cm-fg outline-none focus:border-cm-border-strong"
               autoFocus
             />
           </label>
           <label className="grid gap-1">
-            <span className="text-xs text-[var(--fg-muted)]">
+            <span className="text-xs text-cm-muted">
               Timezone (IANA, e.g. America/Los_Angeles)
             </span>
             <div className="flex gap-2">
@@ -272,19 +272,19 @@ function ProfileCard({
                 maxLength={64}
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
-                className="flex-1 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--fg)] outline-none focus:border-[var(--fg-muted)]"
+                className="flex-1 rounded-lg border border-cm-border bg-cm-bg px-3 py-2 text-cm-fg outline-none focus:border-cm-border-strong"
               />
               <button
                 type="button"
                 onClick={useLocalTz}
-                className="rounded-lg border border-[var(--border)] px-3 py-2 text-xs text-[var(--fg-muted)] hover:bg-[var(--bg)]"
+                className="rounded-lg border border-cm-border px-3 py-2 text-xs text-cm-muted hover:bg-cm-subtle"
               >
                 Use local
               </button>
             </div>
           </label>
           <label className="grid gap-1">
-            <span className="text-xs text-[var(--fg-muted)]">
+            <span className="text-xs text-cm-muted">
               Default model (leave empty for server default)
             </span>
             <input
@@ -293,11 +293,12 @@ function ProfileCard({
               value={defaultModel}
               onChange={(e) => setDefaultModel(e.target.value)}
               placeholder="gpt-4o-mini"
-              className="rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--fg)] outline-none focus:border-[var(--fg-muted)]"
+              className="rounded-lg border border-cm-border bg-cm-bg px-3 py-2 text-cm-fg outline-none focus:border-cm-border-strong"
             />
           </label>
           {err ? (
-            <div className="flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-2 text-xs text-[var(--fg)]">
+            <div className="flex items-start gap-2 rounded-lg border p-2 text-xs text-cm-fg"
+              style={{ borderColor: 'var(--cm-danger)', background: 'rgba(180, 66, 60, 0.08)' }}>
               <IconWarning size={14} /> <span>{err}</span>
             </div>
           ) : null}
@@ -306,14 +307,15 @@ function ProfileCard({
               type="button"
               onClick={() => setEditing(false)}
               disabled={saving}
-              className="rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg-muted)] hover:bg-[var(--bg)] disabled:opacity-50"
+              className="rounded-lg border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:bg-cm-subtle disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--fg)] px-3 py-1.5 text-sm text-[var(--bg)] disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-cm-border px-3 py-1.5 text-sm disabled:opacity-50"
+              style={{ background: 'var(--cm-fg)', color: 'var(--cm-bg)' }}
             >
               {saving ? <Spinner /> : <IconCheck size={14} />}
               {saving ? 'Saving' : 'Save profile'}
@@ -340,7 +342,9 @@ function UsageCard({ usage }: { usage: UsageSummary | null }) {
   const pct = Math.min(100, (usage.used / Math.max(1, usage.limit)) * 100);
   const over = usage.used >= usage.limit;
   const near = usage.used / Math.max(1, usage.limit) >= 0.8;
-  const bar = over ? 'bg-red-500' : near ? 'bg-amber-500' : 'bg-violet-500';
+  // Warm-palette quota tint, matching the /usage page: accent at rest,
+  // citation gold as the "getting close" caution, danger red once capped.
+  const barColor = over ? 'var(--cm-danger)' : near ? 'var(--cm-cite)' : 'var(--cm-accent)';
   return (
     <Section
       title="Usage"
@@ -348,30 +352,31 @@ function UsageCard({ usage }: { usage: UsageSummary | null }) {
         usage.resetsAt,
       )}.`}
     >
-      <div className="mb-3 h-2 w-full overflow-hidden rounded-full bg-[var(--bg)]">
+      <div className="mb-3 h-2 w-full overflow-hidden rounded-full bg-cm-subtle">
         <div
-          className={`h-full ${bar} transition-all`}
-          style={{ width: `${pct}%` }}
+          className="h-full transition-all"
+          style={{ width: `${pct}%`, background: barColor }}
           role="progressbar"
           aria-valuenow={Math.round(pct)}
           aria-valuemin={0}
           aria-valuemax={100}
         />
       </div>
-      <div className="flex items-center justify-between text-xs text-[var(--fg-muted)]">
+      <div className="flex items-center justify-between text-xs text-cm-muted">
         <span>
           Ask {usage.byKind.ask.toLocaleString()} / Search {usage.byKind.search.toLocaleString()}
         </span>
         <Link
           href="/usage"
-          className="inline-flex items-center gap-1 text-[var(--fg)] hover:underline"
+          className="inline-flex items-center gap-1 text-cm-fg hover:underline"
         >
           Full breakdown <IconArrowRight size={12} />
         </Link>
       </div>
       {over ? (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs text-[var(--fg)]">
-          <IconWarning size={14} />
+        <div className="mt-3 flex items-start gap-2 rounded-lg border p-3 text-xs text-cm-fg"
+          style={{ borderColor: 'var(--cm-cite-line)', background: 'var(--cm-cite-bg)' }}>
+          <span style={{ color: 'var(--cm-cite)' }}><IconWarning size={14} /></span>
           <span>
             Free quota reached. Usage resets {fmtResetDate(usage.resetsAt)}. Upgrade is on the roadmap.
           </span>
@@ -385,7 +390,7 @@ function AppearanceCard() {
   return (
     <Section title="Appearance" description="Theme preference stored locally in your browser.">
       <div className="flex items-center justify-between">
-        <span className="text-sm text-[var(--fg-muted)]">Dark or light mode</span>
+        <span className="text-sm text-cm-muted">Dark or light mode</span>
         <ThemeToggle />
       </div>
     </Section>
@@ -478,16 +483,16 @@ function ShortcutsCard() {
           <li key={href}>
             <Link
               href={href}
-              className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-[var(--bg)]"
+              className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2 text-sm hover:bg-cm-subtle"
             >
-              <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] text-[var(--fg-muted)]">
+              <span className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-cm-border text-cm-muted">
                 <Icon size={14} />
               </span>
               <span className="flex-1">
-                <span className="block text-[var(--fg)]">{label}</span>
-                <span className="block text-xs text-[var(--fg-muted)]">{description}</span>
+                <span className="block text-cm-fg">{label}</span>
+                <span className="block text-xs text-cm-muted">{description}</span>
               </span>
-              <IconArrowRight size={14} className="text-[var(--fg-muted)]" />
+              <IconArrowRight size={14} className="text-cm-muted" />
             </Link>
           </li>
         ))}
@@ -565,7 +570,7 @@ function DataCard({ onChanged }: { onChanged: () => void }) {
         <div className="flex flex-col gap-2">
           <a
             href={`${API_BASE}/v1/me/export`}
-            className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--bg)]"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-cm-border px-3 py-2 text-sm text-cm-fg hover:bg-cm-subtle"
             download
           >
             <IconDownload size={14} />
@@ -573,22 +578,22 @@ function DataCard({ onChanged }: { onChanged: () => void }) {
           </a>
           <a
             href={`${API_BASE}/v1/me/export.zip`}
-            className="inline-flex items-center justify-center gap-2 rounded-lg border border-[var(--border)] px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--bg)]"
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-cm-border px-3 py-2 text-sm text-cm-fg hover:bg-cm-subtle"
             download
           >
             <IconDownload size={14} />
             Export my data (ZIP, JSON + CSV)
           </a>
-          <p className="text-[11px] text-[var(--fg-muted)]">
+          <p className="text-[11px] text-cm-muted">
             ZIP archive ships the structured JSON alongside per-table CSVs and a manifest, suitable for BI imports and legal hold.
           </p>
         </div>
-        <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3">
-          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-[var(--fg)]">
-            <IconTrash size={14} className="text-red-500" />
+        <div className="rounded-lg border p-3" style={{ borderColor: 'var(--cm-danger)', background: 'rgba(180, 66, 60, 0.06)' }}>
+          <div className="mb-2 flex items-center gap-2 text-sm font-medium text-cm-fg">
+            <IconTrash size={14} className="text-cm-danger" />
             Delete my data
           </div>
-          <p className="mb-2 text-xs text-[var(--fg-muted)]">
+          <p className="mb-2 text-xs text-cm-muted">
             Removes history, conversations, saved items, feedback votes, and API keys for this
             account. Type DELETE to confirm. Use Preview first to see counts before erasing.
           </p>
@@ -597,24 +602,24 @@ function DataCard({ onChanged }: { onChanged: () => void }) {
               type="button"
               onClick={onPreview}
               disabled={previewing || deleting}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1 text-[11px] font-medium text-[var(--fg)] hover:bg-[var(--bg-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-bg px-2.5 py-1 text-[11px] font-medium text-cm-fg hover:bg-cm-subtle disabled:cursor-not-allowed disabled:opacity-50"
             >
               {previewing ? <Spinner /> : <IconWarning size={12} />}
               Preview deletion
             </button>
             {preview ? (
-              <span className="text-[11px] text-[var(--fg-muted)]">
+              <span className="text-[11px] text-cm-muted">
                 {previewTotal} record{previewTotal === 1 ? '' : 's'} would be erased
               </span>
             ) : null}
           </div>
           {preview ? (
-            <ul className="mb-2 grid grid-cols-2 gap-x-3 gap-y-0.5 rounded-md border border-[var(--border)] bg-[var(--bg)] p-2 text-[11px] text-[var(--fg-muted)]" role="status">
-              <li>History items: <span className="cm-mono text-[var(--fg)]">{preview.wouldRemove.historyItems}</span></li>
-              <li>Conversations: <span className="cm-mono text-[var(--fg)]">{preview.wouldRemove.conversations}</span></li>
-              <li>Saved items: <span className="cm-mono text-[var(--fg)]">{preview.wouldRemove.savedItems}</span></li>
-              <li>Feedback votes: <span className="cm-mono text-[var(--fg)]">{preview.wouldRemove.feedbackVotes}</span></li>
-              <li>API keys: <span className="cm-mono text-[var(--fg)]">{preview.wouldRemove.apiKeys}</span></li>
+            <ul className="mb-2 grid grid-cols-2 gap-x-3 gap-y-0.5 rounded-md border border-cm-border bg-cm-bg p-2 text-[11px] text-cm-muted" role="status">
+              <li>History items: <span className="cm-mono text-cm-fg">{preview.wouldRemove.historyItems}</span></li>
+              <li>Conversations: <span className="cm-mono text-cm-fg">{preview.wouldRemove.conversations}</span></li>
+              <li>Saved items: <span className="cm-mono text-cm-fg">{preview.wouldRemove.savedItems}</span></li>
+              <li>Feedback votes: <span className="cm-mono text-cm-fg">{preview.wouldRemove.feedbackVotes}</span></li>
+              <li>API keys: <span className="cm-mono text-cm-fg">{preview.wouldRemove.apiKeys}</span></li>
             </ul>
           ) : null}
           <div className="flex items-center gap-2">
@@ -624,25 +629,27 @@ function DataCard({ onChanged }: { onChanged: () => void }) {
               onChange={(e) => setConfirm(e.target.value)}
               placeholder="DELETE"
               aria-label="Type DELETE to confirm"
-              className="cm-mono w-32 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-[12px] outline-none focus:border-red-500"
+              className="cm-mono w-32 rounded-md border border-cm-border bg-cm-bg px-2 py-1.5 text-[12px] outline-none"
+              style={{ caretColor: 'var(--cm-danger)' }}
             />
             <button
               type="button"
               onClick={onDelete}
               disabled={confirm !== 'DELETE' || deleting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-red-500 px-3 py-1.5 text-[12px] font-medium text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-[12px] font-medium text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ background: 'var(--cm-danger)' }}
             >
               {deleting ? <Spinner /> : <IconTrash size={12} />}
               Erase
             </button>
           </div>
           {err ? (
-            <div className="mt-2 text-xs text-red-500" role="alert">
+            <div className="mt-2 text-xs text-cm-danger" role="alert">
               {err}
             </div>
           ) : null}
           {done ? (
-            <div className="mt-2 text-xs text-[var(--fg)]" role="status">
+            <div className="mt-2 text-xs text-cm-fg" role="status">
               Removed {total} records: {Object.entries(done.removed)
                 .filter(([, v]) => v)
                 .map(([k, v]) => `${v} ${k}`)
@@ -658,7 +665,7 @@ function DataCard({ onChanged }: { onChanged: () => void }) {
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <dt className="text-[var(--fg-muted)]">{label}</dt>
+      <dt className="text-cm-muted">{label}</dt>
       <dd>{children}</dd>
     </div>
   );
@@ -667,13 +674,17 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function Status({ ok }: { ok: boolean }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[12px] ${
-        ok
-          ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-500'
-          : 'border-red-500/40 bg-red-500/10 text-red-500'
-      }`}
+      className="inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-[12px]"
+      style={{
+        borderColor: ok ? 'var(--cm-success)' : 'var(--cm-danger)',
+        color: ok ? 'var(--cm-success)' : 'var(--cm-danger)',
+        background: ok ? 'rgba(47, 122, 85, 0.10)' : 'rgba(180, 66, 60, 0.10)',
+      }}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${ok ? 'bg-emerald-500' : 'bg-red-500'}`} />
+      <span
+        className="h-1.5 w-1.5 rounded-full"
+        style={{ background: ok ? 'var(--cm-success)' : 'var(--cm-danger)' }}
+      />
       {ok ? 'ok' : 'down'}
     </span>
   );
