@@ -391,15 +391,15 @@ CHAT SURFACE (hottest area, used every session — still the biggest gaps):
 - [x] feat(web/chat): empty-state starter prompts become clickable — the EmptyReading "a few things to try" items render as plain text today; make each a button that drops the prompt into the composer and focuses it. SHIPPED 4eda6ad: STARTER_PROMPTS hoisted; each renders as a cm-starter-prompt button (lead arrow slides in on hover/focus, accent-soft wash) that seeds the composer via pickStarter (sets question + bumps composerFocus).
 
 DASHBOARD + DATA-VIZ:
-- [ ] feat(web/dashboard): inline sparkline next to each StatCard — a small SVG line of "documents indexed over the last 14 days" turning the snapshot into a story. Backend can compute from ingestStatus/ingestHistory.
-- [ ] feat(web/dashboard): "what changed today" panel — diff yesterday vs today's index (added docs, removed sources, new namespaces).
-- [ ] feat(web/stats): donut/proportion chart of namespace share of total chunks alongside the existing bars.
-- [ ] feat(web/usage): per-day bar of ask/search request counts over the current period.
+- [ ] feat(web/dashboard): inline sparkline next to each StatCard — a small SVG line of "documents indexed over the last 14 days" turning the snapshot into a story. Backend can compute from ingestStatus/ingestHistory. NOTE: blocked — no ingestHistory/per-day endpoint exists today; needs an API addition before the sparkline has data.
+- [ ] feat(web/dashboard): "what changed today" panel — diff yesterday vs today's index (added docs, removed sources, new namespaces). NOTE: same blocker — no day-over-day index snapshot endpoint exists.
+- [x] feat(web/stats): donut/proportion chart of namespace share of total chunks alongside the existing bars. SHIPPED 11fa810: new dependency-free lib/donut.ts (polarToXy / ringArcPath largeArc+full-ring-split / donutSegments drops zero+NaN+neg & normalizes / fmtShare <1% floor) + NamespaceDonut component (ring + legend driven by the SAME files/chunks/bytes metric toggle as the bars; cm-* derived palette; long tail folds into one "Other" slice; SVG aria-hidden w/ per-slice <title>, legend carries the accessible name/value/share table; center shows the dominant share). Renders only when >1 namespace. 32-case tsx harness.
+- [ ] feat(web/usage): per-day bar of ask/search request counts over the current period. NOTE: blocked — /v1/usage returns period totals (byKind.ask/search) only, no per-day breakdown. The 2026-06-26 06:49 tick instead shipped the ASK-vs-SEARCH proportion bar (c6fd748) from the totals already on hand; the per-day shape still needs an API addition.
 
 GLOBAL UX / POLISH:
 - [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette, ShareAnswerButton, ShortcutHelp) on a single <Dialog> primitive in @clawmind/ui (focus trap, Esc, backdrop, scroll-lock).
 - [ ] feat(web/welcome): finish the welcome guide visually — a 3-card tour (chat + dashboard + sources).
-- [ ] feat(web/nav): recent-pages section in the command palette (last 5 routes, localStorage) above the static route list.
+- [x] feat(web/nav): recent-pages section in the command palette (last 5 routes, localStorage) above the static route list. SHIPPED 49abbd8: new lib/recentPages.ts (pure core parseRecent/pushRecent move-to-front-dedupe-cap-immutable/bestRouteHref collapse a visited path onto its owning route, most-specific wins, query/hash/slash tolerant; readRecent/recordRecent SSR-safe wrappers) + RecentPagesRecorder mounted in the layout records each navigation. The palette builds up to 5 recent rows on open (collapsed to known routes, current page dropped, deduped, reusing each route's icon+label); on empty query they lead under a "Recent" label + "Jump to" divider with their routes removed from the main list so nothing reads twice; fold away once the user types. Result cap also raised 24->40. 27-case tsx harness.
 - [ ] feat(web/a11y): roving-tabindex on the TopNav primary nav (ARIA menubar pattern) for keyboard arrow-key movement.
 - [ ] feat(web/loading): consistent skeletons on the data-heavy settings sub-pages (security, retention, encryption) — match the ChatAnswerSkeleton calm.
 
@@ -463,6 +463,65 @@ GLOBAL UX / POLISH:
 
 (updated by each tick at the bottom)
 
+- 2026-06-26 06:49 PDT (Cake/cron) - 5 FRONTEND features shipped directly on
+  main, all in apps/web/. Theme: make everyday navigation + the secondary
+  surfaces feel finished and ON-BRAND. SHAs c6fd748, 8bb916a, 840181f, 49abbd8,
+  11fa810.
+    1. usage re-theme + request-mix bar (c6fd748): the /usage page rendered
+       off-brand - it used foreign CSS vars that don't exist in the cm-* set
+       (var(--bg)/(--border)/(--fg-muted)) plus hard-coded bg-violet-500 /
+       bg-red-500 / bg-amber-500, so it showed in the WRONG palette entirely.
+       Swapped every token/utility for cm-* (cm-card, text-cm-muted, warm quota
+       tints: accent->cite-gold->danger). Added a "Request mix" panel: a
+       two-segment ask-vs-search proportion bar (accent + cite gold) with a
+       percent-share legend, derived from the existing usage.byKind payload.
+    2. welcome re-theme (8bb916a): the first-run guide's progress bar, next-step
+       ring, step rings and completed checks all used var(--accent,#22c55e) - a
+       GREEN fallback unrelated to the warm-orange brand - plus var(--bg-elev) /
+       text-red-500. Moved everything to bg-cm-accent / cm-subtle / cm-border;
+       the next-step emphasis is now an inset accent-line box-shadow (the calm
+       stats stat-card treatment); errors read in cm-danger. Logic untouched.
+    3. command palette reaches every nav surface (840181f): the palette (mod+K)
+       listed 18 routes while the TopNav exposes ~27, so ~a third of the app
+       (Explain, Collections, Feedback, Webhooks, Shares, Inbox, Batch, Usage,
+       Admin, Welcome) was unreachable by keyboard jump. Added the 10 missing
+       surfaces (primary-then-secondary order mirroring the More menu), fixed
+       two icon mismatches (Settings was IconChartBar), raised the result cap
+       24->40 so an empty query reveals the whole list.
+    4. recent-pages section in the palette (49abbd8): a daily user keeps jumping
+       to the same handful of pages but the list was always static. New
+       lib/recentPages.ts (pure core: parseRecent / pushRecent move-to-front-
+       dedupe-cap-immutable / bestRouteHref collapse a visited path onto its
+       owning route, most-specific wins, query/hash/slash tolerant) +
+       RecentPagesRecorder mounted in the layout. The palette builds up to 5
+       recent rows on open (collapsed to known routes, current page dropped,
+       deduped, reusing each route's icon+label); on empty query they lead under
+       a "Recent" label + "Jump to" divider with their routes removed from the
+       main list so nothing reads twice; they fold away once the user types.
+       27-case tsx harness.
+    5. namespace-share donut on /stats (11fa810): the stats page ranked
+       namespaces by magnitude (bars) but had no view of relative weight. New
+       dependency-free lib/donut.ts (polarToXy 0deg-at-12-o'clock CW /
+       ringArcPath largeArc-aware + full-ring-split / donutSegments drops
+       zero+NaN+neg & normalizes to 1 / fmtShare <1% floor) - NO Recharts/D3 -
+       plus a NamespaceDonut (ring + legend driven by the SAME files/chunks/bytes
+       metric toggle as the bars; cm-* derived palette; long tail folds into one
+       "Other" slice; SVG aria-hidden w/ per-slice <title>, legend carries the
+       accessible name/value/share table; center shows the dominant share).
+       Renders only when >1 namespace. 32-case tsx harness.
+  Gate: web typecheck CLEAN; web build "Compiled successfully in 3.5s", exit 0,
+  all 102 routes generated incl. the modified /stats (3.28 kB), /usage (2.51 kB),
+  /welcome (2.72 kB). The lone build lint WARNING (line 552, a pre-existing
+  `sources` useMemo dep in src/app/search/page.tsx - 615 lines, NOT in this
+  batch) is a warning, not an error. `pnpm run ci:verify` still red ONLY on the
+  pre-existing @clawmind/telemetry OTel 1.x/2.x peer mismatch + rag/hybrid test
+  (both roadmap, zero files in this batch; all 9 changed files under apps/web/).
+  Pushed 89292d4..11fa810. Pure-lib harnesses live in .cron-state/harness/.
+  FINDING surfaced for a future tick: ~541 uses of foreign CSS vars
+  (var(--bg)/(--border)/(--fg-muted)/(--accent,#22c55e)) + raw violet/red/amber
+  Tailwind colors across ~50 files (esp. settings sub-pages, invitations,
+  posture, admin) - a real design-language drift worth a dedicated re-theme
+  sweep. This tick fixed the two highest-traffic offenders (usage, welcome).
 - 2026-06-26 01:37 PDT (Cake/cron) - 5 FRONTEND features shipped directly on
   main, all in apps/web/. Theme: make the two hottest READING surfaces (chat +
   source viewer) feel finished - close the chat-surface gaps + connect the
