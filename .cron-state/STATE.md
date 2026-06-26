@@ -381,14 +381,14 @@ SOURCE VIEWER + READING (follow-ups now the core reading surface is done):
 - [ ] feat(web/sources/view): line-number anchor + copy-permalink — clicking a gutter line number selects that line and updates the URL (?start=&end=) so a reader can deep-link to any line, not just the cited band. Pairs with the existing start/end query contract.
 - [ ] feat(web/sources/view): "jump to next/prev cited line" when the band spans more rows than fit on screen — small up/down stepper in the band header that scrolls between the first and last cited rows. Only meaningful when cited end-start exceeds a viewport; reuses the id=cm-cited anchor pattern (add per-row ids).
 - [ ] feat(web/sources/view): in-file find (cmd+F-style overlay scoped to the viewer) that highlights matches in the rendered code without leaving the page — the browser's native find doesn't see virtualized rows well and can't respect the token spans. Keep it dependency-free, reuse the highlight token walk.
-- [ ] feat(web/sources/view): remember the soft-wrap preference per-language (a .md file usually wants wrap, a .ts file usually wants scroll) — extend the cm-code-wrap localStorage key to a small per-extension map. Tiny follow-up to the wrap toggle shipped this tick.
-- [ ] feat(web/sources): the /sources list rows should deep-link into the viewer on click (today they may only show metadata) — wire each row to /sources/view?path= so the list and the viewer connect. Audit the current /sources page first.
+- [x] feat(web/sources/view): remember the soft-wrap preference per-language (a .md file usually wants wrap, a .ts file usually wants scroll) — extend the cm-code-wrap localStorage key to a small per-extension map. SHIPPED f62caa8: new lib/wrapPref.ts owns an ext->bool JSON map (cm-code-wrap-by-ext) with a pure core (extOf / defaultWrapForExt prose-vs-code / resolveWrap precedence explicit>legacy>default / nextWrapMap immutable / defensive parsers); legacy cm-code-wrap honored as a fallback so no setting is lost; CodeView seeds the per-ext default on SSR+first render then applies the resolved pref in a path-keyed mount effect. Prose wraps, code scrolls by default. 36-case node harness.
+- [x] feat(web/sources): the /sources list rows should deep-link into the viewer on click (today they may only show metadata) — wire each row to /sources/view?path= so the list and the viewer connect. SHIPPED b805f38: audited /sources (rows set an inline 200-line preview only); added a hover/focus-reveal .cm-open-viewer corner link on every row (matches the chat rail; stops click propagation so it doesn't re-select the row) PLUS a first-class "Open in viewer ->" button in the detail header. Both deep-link by real path into /sources/view?path=.
 
 CHAT SURFACE (hottest area, used every session — still the biggest gaps):
 - [ ] feat(web/chat): per-message conversation history within a thread — ChatShell loses the prior Q/A when a new question is asked. Vertical stack of Q/A pairs (newest at bottom), each with its own copy/share + a per-message collapsible citation rail. (Carried; still the single biggest chat gap.)
-- [ ] feat(web/chat): "scroll to bottom" floating button during a long streaming answer when the user has scrolled up — hidden when already at the live token edge. (Mirrors the BackToCited IntersectionObserver pattern shipped this tick — could share a primitive.)
-- [ ] feat(web/chat): "/" focuses the composer from anywhere on the chat page (mirroring the rail's j/k); register in ShortcutHelp.
-- [ ] feat(web/chat): empty-state starter prompts become clickable — the EmptyReading "a few things to try" items render as plain text today; make each a button that drops the prompt into the composer and focuses it.
+- [x] feat(web/chat): "scroll to bottom" floating button during a long streaming answer when the user has scrolled up — hidden when already at the live token edge. SHIPPED 9e48f47 as JumpToLatest: a sentinel (id=cm-stream-end) at the bottom of the answer column watched by an IntersectionObserver (the BackToCited pattern); accent-tinted pill with a breathing cm-stream-dot shows only while streaming + the reader is above the live edge; smooth scroll to the edge, reduced-motion aware.
+- [x] feat(web/chat): "/" focuses the composer from anywhere on the chat page (mirroring the rail's j/k); register in ShortcutHelp. SHIPPED 473d967: global keydown on the chat page bumps composerFocus (caret-at-end), suppressed in inputs/textareas + when a modifier is held (cmd+/ stays the saved-prompt picker); registered in the ShortcutHelp Chat group + advertised in the breadcrumb hint.
+- [x] feat(web/chat): empty-state starter prompts become clickable — the EmptyReading "a few things to try" items render as plain text today; make each a button that drops the prompt into the composer and focuses it. SHIPPED 4eda6ad: STARTER_PROMPTS hoisted; each renders as a cm-starter-prompt button (lead arrow slides in on hover/focus, accent-soft wash) that seeds the composer via pickStarter (sets question + bumps composerFocus).
 
 DASHBOARD + DATA-VIZ:
 - [ ] feat(web/dashboard): inline sparkline next to each StatCard — a small SVG line of "documents indexed over the last 14 days" turning the snapshot into a story. Backend can compute from ingestStatus/ingestHistory.
@@ -462,6 +462,49 @@ GLOBAL UX / POLISH:
 ## Tick log
 
 (updated by each tick at the bottom)
+
+- 2026-06-26 01:37 PDT (Cake/cron) - 5 FRONTEND features shipped directly on
+  main, all in apps/web/. Theme: make the two hottest READING surfaces (chat +
+  source viewer) feel finished - close the chat-surface gaps + connect the
+  sources list to the viewer. SHAs 4eda6ad, 473d967, 9e48f47, b805f38, f62caa8.
+    1. clickable starter prompts (4eda6ad): the chat empty-state "a few things
+       to try" list was plain text; each is now a cm-starter-prompt button
+       (lead arrow slides in on hover/focus, accent-soft wash) that seeds the
+       composer via pickStarter (sets question + bumps composerFocus so the
+       caret lands at end). Reduced-motion drops the arrow slide.
+    2. "/" focuses composer (473d967): global keydown on the chat page bumps
+       composerFocus from anywhere (mirrors rail j/k); suppressed in
+       inputs/textareas + when a modifier is held (cmd+/ stays the saved-prompt
+       picker); preventDefault stops the slash typing into the field. Added to
+       ShortcutHelp Chat group + the breadcrumb hint.
+    3. jump-to-latest (9e48f47): new JumpToLatest watches a sentinel
+       (id=cm-stream-end) at the bottom of the answer column with an
+       IntersectionObserver (the BackToCited pattern). Accent-tinted pill with
+       a breathing cm-stream-dot shows ONLY while streaming (loading + answer
+       non-empty) AND the reader has scrolled above the live edge; smooth
+       scroll back, reduced-motion aware. Sentinel is aria-hidden.
+    4. sources list -> viewer deep-link (b805f38): /sources rows only had a
+       capped 200-line inline preview; the rich /sources/view was unreachable.
+       Added a hover/focus-reveal .cm-open-viewer corner link on every row
+       (reuses the chat rail affordance; stops click propagation so it never
+       re-selects the row) + a first-class "Open in viewer ->" button in the
+       detail header. Both deep-link by real path.
+    5. per-file-type wrap memory (f62caa8): the wrap toggle persisted one global
+       boolean (cm-code-wrap) so wrapping a .md wrapped every .ts. New
+       lib/wrapPref.ts owns an ext->bool JSON map (cm-code-wrap-by-ext) with a
+       pure core (extOf / prose-vs-code default / resolveWrap precedence
+       explicit>legacy>default / immutable nextWrapMap / defensive parsers);
+       legacy key honored as fallback so no setting is lost; CodeView seeds the
+       per-ext default on SSR+first render then applies the resolved pref in a
+       path-keyed mount effect. 36-case node harness.
+  Gate: web typecheck CLEAN; web build "Compiled successfully" in 2.8s, exit 0,
+  all 102 routes generated incl. /sources/view (6.31 kB, up from 5.95) and
+  /sources (2.96 kB). The lone build lint WARNING (line 552, a pre-existing
+  `sources` useMemo dep in another file) is untouched by this batch - a warning,
+  not an error. `pnpm run ci:verify` still red ONLY on the pre-existing
+  @clawmind/telemetry OTel 1.x/2.x peer mismatch + rag/hybrid test (both in the
+  roadmap, zero files in this batch; all 7 changed files under apps/web/).
+  Pushed 1bba1b8..f62caa8. Roadmap still has 35 open frontend items; no refill.
 
 - 2026-06-25 21:11 PDT (Cake/cron) - 5 FRONTEND features shipped directly on
   main, all in apps/web/. Theme: FINISH the source-viewer reading surface (the
