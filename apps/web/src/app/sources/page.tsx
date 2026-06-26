@@ -1,5 +1,6 @@
 'use client';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
 import {
   api,
@@ -17,6 +18,7 @@ import {
   IconThumbsUp,
   IconThumbsDown,
   IconRefresh,
+  IconArrowRight,
 } from '@clawmind/ui';
 
 const sortLabels: Record<'recent' | 'path' | 'chunks', string> = {
@@ -157,11 +159,11 @@ export default function SourcesPage() {
                   const fb = feedbackMap[it.path];
                   const isActive = active?.path === it.path;
                   return (
-                    <li key={it.path}>
+                    <li key={it.path} className="relative">
                       <button
                         onClick={() => setActive(it)}
                         className={[
-                          'block w-full px-3 py-2.5 text-left text-sm transition-colors',
+                          'block w-full px-3 py-2.5 pr-10 text-left text-sm transition-colors',
                           isActive ? 'bg-cm-accent-soft' : 'hover:bg-cm-bg',
                         ].join(' ')}
                       >
@@ -181,6 +183,19 @@ export default function SourcesPage() {
                           )}
                         </div>
                       </button>
+                      <Link
+                        href={`/sources/view?path=${encodeURIComponent(it.path)}`}
+                        className="cm-open-viewer"
+                        aria-label={`Open ${it.path} in the source viewer`}
+                        title="Open in viewer"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <path d="M14 4h6v6" />
+                          <path d="M20 4 11 13" />
+                          <path d="M19 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+                        </svg>
+                      </Link>
                     </li>
                   );
                 })}
@@ -248,6 +263,13 @@ function SourceDetail({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
+          <Link
+            href={`/sources/view?path=${encodeURIComponent(source.path)}`}
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1.5 text-sm text-cm-muted transition-colors hover:bg-cm-accent-soft hover:text-cm-fg"
+            title="Open this file in the full source viewer"
+          >
+            Open in viewer <IconArrowRight size={14} />
+          </Link>
           <button
             onClick={() => onVote(source.path, 1)}
             title="Boost this source"
