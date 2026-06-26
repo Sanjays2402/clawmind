@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { highlight, langForPath, type Token, type TokenType } from '@/lib/highlight';
 import { isCitedLine, type ContextWindow } from '@/lib/contextWindow';
+import { readWrapPref, writeWrapPref, defaultWrapForExt, extOf } from '@/lib/wrapPref';
 
 const TOKEN_COLOR: Record<TokenType, string> = {
   kw: 'var(--cm-accent-ink)',
@@ -12,11 +13,6 @@ const TOKEN_COLOR: Record<TokenType, string> = {
   plain: 'var(--cm-fg)',
 };
 
-// localStorage key for the soft-wrap preference. Read once after mount so the
-// SSR markup (scroll, the default) and the first client render agree, then the
-// effect applies the persisted choice without a hydration mismatch.
-const WRAP_KEY = 'cm-code-wrap';
-
 /**
  * Read-only code renderer for the source viewer. Highlights by file extension
  * with a restrained ink-on-paper palette (keywords in the accent ink, strings
@@ -25,8 +21,10 @@ const WRAP_KEY = 'cm-code-wrap';
  * .cm-cited-line wash + the id="cm-cited" auto-scroll anchor on its first row.
  *
  * A soft-wrap toggle in the control strip lets the reader switch between
- * horizontal scroll (default, faithful to the file's columns) and wrapped
- * long lines (better for prose/markdown). The choice persists in localStorage.
+ * horizontal scroll (default for code, faithful to the file's columns) and
+ * wrapped long lines (default for prose). The choice is remembered PER FILE
+ * TYPE (lib/wrapPref) so flipping a .md file to wrap doesn't also wrap every
+ * .ts file. The default before any choice is prose-vs-code by extension.
  */
 export function CodeView({
   content,
@@ -46,25 +44,19 @@ export function CodeView({
     [content, spec],
   );
 
-  // Default to scroll (false) on both server and first client render; apply the
-  // persisted choice after mount.
-  const [wrap, setWrap] = useState(false);
+  // Render the per-extension default on both server and first client render so
+  // the markup agrees, then apply the persisted per-ext choice after mount (no
+  // hydration mismatch). Re-resolve when the file (extension) changes.
+  const ext = useMemo(() => extOf(path), [path]);
+  const [wrap, setWrap] = useState(() => defaultWrapForExt(ext));
   useEffect(() => {
-    try {
-      if (localStorage.getItem(WRAP_KEY) === '1') setWrap(true);
-    } catch {
-      /* localStorage blocked (private mode); keep the default */
-    }
-  }, []);
+    setWrap(readWrapPref(path));
+  }, [path]);
 
   function toggleWrap() {
     setWrap((w) => {
       const next = !w;
-      try {
-        localStorage.setItem(WRAP_KEY, next ? '1' : '0');
-      } catch {
-        /* ignore persistence failure */
-      }
+      writeWrapPref(path, next);
       return next;
     });
   }
