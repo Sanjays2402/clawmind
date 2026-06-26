@@ -161,7 +161,7 @@ export default function WelcomePage() {
   const pct = Math.round((done / Math.max(1, total)) * 100);
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <header className="mb-6 flex items-center justify-between gap-3">
@@ -173,7 +173,7 @@ export default function WelcomePage() {
             type="button"
             onClick={load}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg-muted)] hover:bg-[var(--bg-elev)] disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg disabled:opacity-50"
             aria-label="Refresh"
           >
             <IconRefresh size={14} />
@@ -181,7 +181,7 @@ export default function WelcomePage() {
           </button>
         </header>
 
-        <p className="mb-6 text-sm text-[var(--fg-muted)]">
+        <p className="mb-6 text-sm text-cm-muted">
           Three small steps and you have a working private RAG setup. Each step does the real
           thing, no demo data.
         </p>
@@ -201,7 +201,7 @@ export default function WelcomePage() {
                 <span className="font-medium">
                   {done} of {total} complete
                 </span>
-                <span className="text-[var(--fg-muted)]" aria-hidden="true">
+                <span className="text-cm-muted" aria-hidden="true">
                   {pct}%
                 </span>
               </div>
@@ -211,21 +211,21 @@ export default function WelcomePage() {
                 aria-valuemax={total}
                 aria-valuenow={done}
                 aria-label="Onboarding progress"
-                className="h-2 w-full overflow-hidden rounded-full bg-[var(--bg-elev)]"
+                className="h-2 w-full overflow-hidden rounded-full bg-cm-subtle"
               >
                 <div
-                  className="h-full bg-[var(--accent,#22c55e)] transition-all"
+                  className="h-full bg-cm-accent transition-all"
                   style={{ width: `${pct}%` }}
                 />
               </div>
               {allDone ? (
                 <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <span className="inline-flex items-center gap-1.5 text-sm text-[var(--fg)]">
-                    <IconCheck size={14} /> You are all set.
+                  <span className="inline-flex items-center gap-1.5 text-sm text-cm-fg">
+                    <span className="text-cm-success"><IconCheck size={14} /></span> You are all set.
                   </span>
                   <Link
                     href="/dashboard"
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-[var(--bg-elev)]"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-cm-border px-3 py-1.5 text-sm text-cm-fg hover:bg-cm-subtle"
                   >
                     Go to dashboard <IconArrowRight size={14} />
                   </Link>
@@ -242,14 +242,15 @@ export default function WelcomePage() {
                 return (
                   <li key={step.id}>
                     <Card
-                      className={`p-4 sm:p-5 ${isNext ? 'ring-1 ring-[var(--accent,#22c55e)]' : ''}`}
+                      className="p-4 sm:p-5"
+                      style={isNext ? { boxShadow: 'inset 0 0 0 1px var(--cm-accent-line)' } : undefined}
                     >
                       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
                         <div
                           className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full border ${
                             isDone
-                              ? 'border-transparent bg-[var(--accent,#22c55e)] text-white'
-                              : 'border-[var(--border)] text-[var(--fg-muted)]'
+                              ? 'border-transparent bg-cm-accent text-white'
+                              : 'border-cm-border text-cm-muted'
                           }`}
                           aria-hidden="true"
                         >
@@ -257,21 +258,21 @@ export default function WelcomePage() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-mono text-[var(--fg-muted)]">
+                            <span className="cm-mono text-xs text-cm-muted">
                               Step {idx + 1}
                             </span>
                             <h2 className="text-base font-semibold">{step.title}</h2>
                             {isDone ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-[var(--bg-elev)] px-2 py-0.5 text-xs text-[var(--fg-muted)]">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-cm-subtle px-2 py-0.5 text-xs text-cm-muted">
                                 <IconCheck size={12} /> Done
                               </span>
                             ) : null}
                           </div>
-                          <p className="mt-1 text-sm text-[var(--fg-muted)]">{step.blurb}</p>
+                          <p className="mt-1 text-sm text-cm-muted">{step.blurb}</p>
                           <div className="mt-3 flex flex-wrap items-center gap-2">
                             <Link
                               href={step.href}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--bg-elev)] px-3 py-1.5 text-sm hover:bg-[var(--bg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-cm-border bg-cm-subtle px-3 py-1.5 text-sm text-cm-fg hover:bg-cm-bg"
                             >
                               {step.cta} <IconArrowRight size={14} />
                             </Link>
@@ -280,7 +281,7 @@ export default function WelcomePage() {
                                 type="button"
                                 onClick={onSeed}
                                 disabled={seeding}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--accent,#22c55e)] bg-[var(--accent,#22c55e)] px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-cm-accent-line bg-cm-accent px-3 py-1.5 text-sm text-white hover:opacity-90 disabled:opacity-50"
                               >
                                 {seeding ? <Spinner /> : <IconDatabase size={14} />}
                                 {seeding ? 'Indexing sample pack…' : 'Index sample pack now'}
@@ -288,10 +289,10 @@ export default function WelcomePage() {
                             ) : null}
                           </div>
                           {step.id === 'ingest' && seedMsg ? (
-                            <p className="mt-2 text-xs text-[var(--fg-muted)]">{seedMsg}</p>
+                            <p className="mt-2 text-xs text-cm-muted">{seedMsg}</p>
                           ) : null}
                           {step.id === 'ingest' && seedErr ? (
-                            <p className="mt-2 text-xs text-red-500">{seedErr}</p>
+                            <p className="mt-2 text-xs text-cm-danger">{seedErr}</p>
                           ) : null}
                         </div>
                       </div>
@@ -301,7 +302,7 @@ export default function WelcomePage() {
               })}
             </ol>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--border)] pt-4 text-sm text-[var(--fg-muted)]">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-cm-border pt-4 text-sm text-cm-muted">
               <div>
                 {record.dismissed
                   ? 'This guide is hidden on the home page.'
@@ -312,7 +313,7 @@ export default function WelcomePage() {
                   <button
                     type="button"
                     onClick={onReset}
-                    className="rounded-lg border border-[var(--border)] px-3 py-1.5 hover:bg-[var(--bg-elev)]"
+                    className="rounded-lg border border-cm-border px-3 py-1.5 text-cm-fg hover:bg-cm-subtle"
                   >
                     Show on home
                   </button>
@@ -320,7 +321,7 @@ export default function WelcomePage() {
                   <button
                     type="button"
                     onClick={onSkip}
-                    className="rounded-lg border border-[var(--border)] px-3 py-1.5 hover:bg-[var(--bg-elev)]"
+                    className="rounded-lg border border-cm-border px-3 py-1.5 text-cm-fg hover:bg-cm-subtle"
                   >
                     Hide from home
                   </button>
