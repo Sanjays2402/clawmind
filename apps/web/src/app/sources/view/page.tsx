@@ -6,6 +6,7 @@ import { ScrollToCited } from '@/components/ScrollToCited';
 import { CodeView } from '@/components/CodeView';
 import { api, fmtBytes, fmtRelative } from '@/lib/api';
 import { contextWindow } from '@/lib/contextWindow';
+import { langForPath, langLabelForPath } from '@/lib/highlight';
 import { IconFolder, IconArrowRight, IconWarning } from '@clawmind/ui';
 
 export const dynamic = 'force-dynamic';
@@ -61,6 +62,12 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
   // when the path or cited range changes so a soft navigation re-scrolls.
   const scrollKey = `${path}#${win.cited?.start ?? ''}-${win.cited?.end ?? ''}`;
 
+  // Language pill: the file's language by extension, plus whether the
+  // tokenizer actually colours it (so a Markdown file honestly reads
+  // "Markdown - plain text" rather than implying highlighting is on).
+  const langLabel = langLabelForPath(path);
+  const highlighted = langForPath(path) !== null;
+
   return (
     <Shell>
       <Header path={path} meta={meta} />
@@ -94,6 +101,36 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
               )}
             </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
+              <span
+                className="cm-mono"
+                title={
+                  highlighted
+                    ? `${langLabel} - syntax highlighting on`
+                    : `${langLabel} - shown as plain text`
+                }
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 5,
+                  padding: '1px 8px',
+                  borderRadius: 999,
+                  fontSize: 11,
+                  color: 'var(--cm-muted)',
+                  background: 'var(--cm-subtle)',
+                  border: '1px solid var(--cm-border)',
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 999,
+                    background: highlighted ? 'var(--cm-accent)' : 'var(--cm-faint)',
+                  }}
+                />
+                {langLabel}
+              </span>
               <Link href={`/related?path=${encodeURIComponent(path)}`} style={{ ...link, fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                 Related <IconArrowRight />
               </Link>

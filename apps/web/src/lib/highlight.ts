@@ -126,6 +126,38 @@ export function langForPath(path: string): LangSpec | null {
   return SPECS[lang] ?? null;
 }
 
+// Human-readable language names by extension, for the viewer's language pill.
+// This map is deliberately WIDER than EXT_LANG: it names languages the reader
+// recognizes (Markdown, HTML, TOML, ...) even when this small tokenizer does
+// NOT colour them, so the pill can honestly read "Markdown" + a "shown as
+// plain text" cue rather than pretending an unknown file has no type.
+const EXT_LABEL: Record<string, string> = {
+  ts: 'TypeScript', tsx: 'TypeScript', mts: 'TypeScript', cts: 'TypeScript',
+  js: 'JavaScript', jsx: 'JavaScript', mjs: 'JavaScript', cjs: 'JavaScript',
+  py: 'Python', pyi: 'Python',
+  json: 'JSON', jsonc: 'JSON',
+  css: 'CSS', scss: 'SCSS', less: 'Less',
+  sh: 'Shell', bash: 'Shell', zsh: 'Shell',
+  yaml: 'YAML', yml: 'YAML',
+  go: 'Go', rs: 'Rust', java: 'Java',
+  c: 'C', h: 'C', cpp: 'C++', hpp: 'C++', cc: 'C++',
+  cs: 'C#', swift: 'Swift', kt: 'Kotlin',
+  md: 'Markdown', markdown: 'Markdown', mdx: 'MDX',
+  html: 'HTML', xml: 'XML', toml: 'TOML', sql: 'SQL', txt: 'Plain text',
+};
+
+/**
+ * Human label for the viewer's language pill: the file's language by
+ * extension ("TypeScript", "Python", "Markdown", ...), or "Plain text" when
+ * the extension is unknown or absent. Pair with `langForPath(path) !== null`
+ * to tell whether syntax highlighting is actually active for the file.
+ */
+export function langLabelForPath(path: string): string {
+  const m = /\.([a-z0-9]+)$/i.exec(path);
+  if (!m) return 'Plain text';
+  return EXT_LABEL[m[1]!.toLowerCase()] ?? 'Plain text';
+}
+
 const ID_START = /[A-Za-z_$]/;
 const ID_CHAR = /[A-Za-z0-9_$]/;
 const DIGIT = /[0-9]/;
