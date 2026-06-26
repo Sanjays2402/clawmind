@@ -22,6 +22,13 @@ import {
   IconClockCountdown,
   IconStethoscope,
   IconArrowRight,
+  IconThumbsUp,
+  IconWebhook,
+  IconLink,
+  IconBell,
+  IconArchive,
+  IconShield,
+  IconSettings,
   Kbd,
 } from '@clawmind/ui';
 import { api } from '@/lib/api';
@@ -56,24 +63,37 @@ type HistoryItem = {
 type Item = RouteItem | ActionItem | HistoryItem;
 
 const ROUTES: RouteItem[] = [
+  // Primary surfaces (mirror the TopNav primary nav).
   { id: 'r-dashboard', kind: 'route', label: 'Dashboard', href: '/dashboard', Icon: IconChartBar, hint: 'Overview' },
   { id: 'r-chat', kind: 'route', label: 'Chat', href: '/chat', Icon: IconSpark, hint: 'Ask a question' },
   { id: 'r-threads', kind: 'route', label: 'Threads', href: '/conversations', Icon: IconChat, hint: 'Conversations' },
   { id: 'r-search', kind: 'route', label: 'Search', href: '/search', Icon: IconSearch, hint: 'Find in index' },
+  { id: 'r-explain', kind: 'route', label: 'Explain', href: '/explain', Icon: IconChartBar, hint: 'Retrieval funnel' },
   { id: 'r-sources', kind: 'route', label: 'Sources', href: '/sources', Icon: IconFolder, hint: 'Indexed files' },
+  { id: 'r-saved', kind: 'route', label: 'Saved searches', href: '/saved', Icon: IconBook },
+  { id: 'r-collections', kind: 'route', label: 'Collections', href: '/collections', Icon: IconFolder, hint: 'Grouped saved searches' },
+  // Secondary surfaces — everything tucked under the TopNav "More" menu, so
+  // the palette can reach every page the nav exposes (not a curated subset).
   { id: 'r-pins', kind: 'route', label: 'Pins', href: '/pins', Icon: IconPushPin },
   { id: 'r-mutes', kind: 'route', label: 'Mutes', href: '/mutes', Icon: IconSpeakerSlash },
+  { id: 'r-feedback', kind: 'route', label: 'Feedback', href: '/feedback', Icon: IconThumbsUp, hint: 'Source up/down votes' },
   { id: 'r-tags', kind: 'route', label: 'Tags', href: '/tags', Icon: IconTag },
   { id: 'r-aliases', kind: 'route', label: 'Aliases', href: '/aliases', Icon: IconAt },
   { id: 'r-stale', kind: 'route', label: 'Stale', href: '/stale', Icon: IconClockCountdown },
   { id: 'r-doctor', kind: 'route', label: 'Doctor', href: '/doctor', Icon: IconStethoscope, hint: 'Index health' },
   { id: 'r-digests', kind: 'route', label: 'Digests', href: '/digests', Icon: IconRefresh },
   { id: 'r-ingest', kind: 'route', label: 'Ingest', href: '/ingest', Icon: IconDatabase },
-  { id: 'r-saved', kind: 'route', label: 'Saved searches', href: '/saved', Icon: IconBook },
   { id: 'r-keys', kind: 'route', label: 'API keys', href: '/keys', Icon: IconKey },
+  { id: 'r-webhooks', kind: 'route', label: 'Webhooks', href: '/webhooks', Icon: IconWebhook },
+  { id: 'r-shares', kind: 'route', label: 'Shares', href: '/shares', Icon: IconLink, hint: 'Public answer links' },
+  { id: 'r-inbox', kind: 'route', label: 'Inbox', href: '/notifications', Icon: IconBell, hint: 'Notifications' },
+  { id: 'r-batch', kind: 'route', label: 'Batch', href: '/batch', Icon: IconArchive, hint: 'Bulk ask' },
   { id: 'r-stats', kind: 'route', label: 'Stats', href: '/stats', Icon: IconChartBar },
-  { id: 'r-settings', kind: 'route', label: 'Settings', href: '/settings', Icon: IconChartBar },
+  { id: 'r-usage', kind: 'route', label: 'Usage', href: '/usage', Icon: IconChartBar, hint: 'Request quota' },
   { id: 'r-audit', kind: 'route', label: 'Audit log', href: '/audit', Icon: IconWarning, hint: 'Compliance review' },
+  { id: 'r-admin', kind: 'route', label: 'Admin', href: '/admin', Icon: IconShield },
+  { id: 'r-welcome', kind: 'route', label: 'Welcome', href: '/welcome', Icon: IconSpark, hint: 'First-run guide' },
+  { id: 'r-settings', kind: 'route', label: 'Settings', href: '/settings', Icon: IconSettings },
 ];
 
 const ACTIONS: ActionItem[] = [
@@ -175,7 +195,10 @@ export function CommandPalette() {
       .filter((r) => (q ? r.s > 0 : true))
       .sort((a, b) => b.s - a.s)
       .map((r) => r.it);
-    return ranked.slice(0, 24);
+    // Cap the visible list. High enough that an empty query (everything
+    // scores equally) still reveals every route plus recent history, not just
+    // the first screenful — type-to-filter narrows it the moment you start.
+    return ranked.slice(0, 40);
   }, [q, history]);
 
   useEffect(() => {
