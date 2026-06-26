@@ -6,6 +6,7 @@ import { api, type EncryptionStatus, ApiError } from '@/lib/api';
 import {
   ErrorState,
   Spinner,
+  SettingsCardSkeleton,
   IconArrowRight,
   IconCheck,
   IconKey,
@@ -151,9 +152,7 @@ export default function EncryptionPage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--muted-fg)]">
-            <Spinner /> Loading encryption status...
-          </div>
+          <SettingsCardSkeleton rows={3} />
         ) : error ? (
           <ErrorState message={error} onRetry={() => void load()} />
         ) : !status ? (

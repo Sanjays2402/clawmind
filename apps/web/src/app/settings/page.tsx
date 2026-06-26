@@ -8,6 +8,7 @@ import {
   EmptyState,
   ErrorState,
   Spinner,
+  SettingsCardSkeleton,
   IconSettings,
   IconChartBar,
   IconKey,
@@ -91,8 +92,9 @@ export default function SettingsPage() {
         </div>
 
         {loading && !usage ? (
-          <div className="flex items-center gap-2 text-sm text-cm-muted">
-            <Spinner /> Loading account
+          <div className="grid gap-6">
+            <SettingsCardSkeleton rows={4} />
+            <SettingsCardSkeleton rows={2} />
           </div>
         ) : error ? (
           <ErrorState title="Could not load settings" message={error} onRetry={load} />

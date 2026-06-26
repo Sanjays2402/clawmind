@@ -129,6 +129,49 @@ export function SourcesRailSkeleton() {
   );
 }
 
+/**
+ * A settings-card skeleton for the data-heavy settings sub-pages (retention,
+ * encryption, security, ...) whose loading state used to be a bare inline
+ * Spinner that abruptly swapped for a full bordered card. This renders the
+ * silhouette of that card — a header line + sub-label, then a stack of
+ * label/control rows inside a paper panel — so the layout doesn't jump when
+ * the real form streams in. `rows` controls how many control rows to draw.
+ */
+export function SettingsCardSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div aria-busy="true" aria-label="Loading settings" role="status">
+      <style>{ANIM_KEYFRAMES}</style>
+      <div
+        style={{
+          border: '1px solid var(--cm-border)',
+          borderRadius: 12,
+          background: 'var(--cm-paper)',
+          padding: 20,
+        }}
+      >
+        <div style={{ display: 'grid', gap: 8 }}>
+          <SkeletonBar width={140} height={13} delayMs={0} />
+          <SkeletonBar width={220} height={11} delayMs={90} />
+        </div>
+        <div style={{ height: 18 }} />
+        <div style={{ display: 'grid', gap: 16 }}>
+          {Array.from({ length: Math.max(1, rows) }).map((_, i) => (
+            <div key={i} style={{ display: 'grid', gap: 7 }}>
+              <SkeletonBar width={`${30 + ((i * 7) % 18)}%`} height={11} delayMs={i * 110} />
+              <SkeletonBar width="100%" height={34} radius={8} delayMs={i * 110 + 70} />
+            </div>
+          ))}
+        </div>
+        <div style={{ height: 18 }} />
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <SkeletonBar width={120} height={32} radius={8} delayMs={rows * 110} />
+        </div>
+      </div>
+      <span style={visuallyHidden}>Loading…</span>
+    </div>
+  );
+}
+
 const visuallyHidden: React.CSSProperties = {
   position: 'absolute',
   width: 1,

@@ -12,6 +12,7 @@ import {
 import {
   ErrorState,
   Spinner,
+  SettingsCardSkeleton,
   IconArrowRight,
   IconCheck,
   IconClockCountdown,
@@ -216,9 +217,7 @@ export default function RetentionPage() {
         </div>
 
         {loading && !policy ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
-            <Spinner /> Loading policy
-          </div>
+          <SettingsCardSkeleton rows={4} />
         ) : error ? (
           <ErrorState title="Could not load retention policy" message={error} onRetry={load} />
         ) : policy && limits ? (
