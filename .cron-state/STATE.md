@@ -37,7 +37,15 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
-### Tick 2026-06-25 16:19 PDT (current) - source-viewer reading surface + nav/notify polish
+### Tick 2026-06-25 21:11 PDT (current) - source-viewer reading surface finished
+
+- [x] feat(web/sources/view): language pill in the viewer header (61ed4f9)
+- [x] feat(web/sources/view): soft-wrap toggle for long lines (1be8052)
+- [x] feat(web/sources/view): copy the cited lines from the band header (31340c7)
+- [x] feat(web/sources/view): expand/collapse context around the cited band (57a2be4)
+- [x] feat(web/sources/view): floating "back to cited lines" when band scrolls off (21a07dc)
+
+### Tick 2026-06-25 16:19 PDT - source-viewer reading surface + nav/notify polish
 
 - [x] feat(web/sources/view): cited lines shown with surrounding context + gold highlight band + auto-scroll (0ed063c)
 - [x] feat(web/sources/view): dependency-free syntax highlighting (623a1bb)
@@ -336,10 +344,11 @@ Fresh batch so future ticks never run dry. Order is rough priority; group
 by what makes a clean batch theme.
 
 SOURCE VIEWER + READING (the surface this tick just deepened):
-- [ ] feat(web/sources/view): "copy lines" affordance on the cited band — a small button on the cited-band header that copies the exact cited line text (not the whole file) to the clipboard with a toast confirm. The band is already identified (.cm-cited-line / id=cm-cited); collect those lines and useToast.
-- [ ] feat(web/sources/view): "expand context" control — the viewer now shows CONTEXT_PAD (12) lines around the cited band; add a +/- pad stepper (or "show more above/below") that re-fetches a wider window without leaving the page. Pairs with the existing contextWindow() helper (lift pad into a query param the client can bump).
-- [ ] feat(web/sources/view): wrap-vs-scroll toggle for long lines — today the code <pre> scrolls horizontally; a soft-wrap toggle (persisted in localStorage) helps prose/markdown sources. Respect the existing mono styling.
-- [ ] feat(web/sources/view): language pill in the viewer header showing the detected grammar (from lib/highlight langForPath) — "TypeScript" / "Python" / "Plain text" — so the reader knows whether highlighting is active. Tiny, reuses the new highlighter's resolution.
+- [x] feat(web/sources/view): "copy lines" affordance on the cited band. SHIPPED 31340c7 as a Copy button beside the "cited N-M" pill: new citedText(content, startLine, win) pure helper maps the band's absolute lines onto the fetched window body and returns just those rows (no trailing newline), or null when there's no band / it's outside the window; CopyCitedLines client component does the clipboard write + success/error toast (useToast), IconCopy->IconCheck bounce, gold cite-pill styling. Verified citedText with a 15-case node harness.
+- [x] feat(web/sources/view): "expand context" control. SHIPPED 57a2be4: the viewer's pad is now driven by a clamped (0..200) `pad` query param falling back to CONTEXT_PAD; ContextStepper client component (-/+ by 25, disabled at bounds, +/-N readout, Reset) does a soft router.push(scroll:false) wrapped in useTransition so the group dims while the wider window streams. scrollKey deliberately excludes pad so expanding never yanks the viewport. Header cluster flex-wraps for the richer row.
+- [x] feat(web/sources/view): wrap-vs-scroll toggle for long lines. SHIPPED 1be8052 as a role=switch Scroll/Wrap pill in a control strip atop CodeView; wrap flips pre overflowX->visible + each line span to pre-wrap/overflow-wrap:anywhere (minWidth:0) with flex-start row align so the gutter stays top-aligned across wrapped rows; persisted in localStorage (cm-code-wrap) read in a mount effect (no hydration mismatch), private-mode failures swallowed. Cited wash + anchor + highlighter unchanged.
+- [x] feat(web/sources/view): language pill in the viewer header. SHIPPED 61ed4f9: new langLabelForPath(path) in lib/highlight (human label by ext, map WIDER than the tokenizer so md/html/toml are named honestly), pill beside the "Lines X-Y" cluster with an accent/faint status dot indicating whether highlighting is actually active (langForPath !== null); unknown/no-ext -> "Plain text". Verified with an 18-case node harness.
+- [x] feat(web/sources/view): floating "back to cited lines" when the band scrolls off (NEW this tick, completes the reading surface — the expand-context control made it possible for the band to leave the viewport). SHIPPED 21a07dc: BackToCited watches id=cm-cited with an IntersectionObserver; when the band is off screen a bottom-centre cite-gold pill appears with a direction arrow (up/down by boundingClientRect.top sign) and scrolls it back to centre (smooth, reduced-motion aware); re-arms on scrollKey; rise-in keyframe disabled under reduced motion; rendered only when a cited band exists.
 
 CHAT SURFACE (hottest area, used every session):
 - [ ] feat(web/chat): per-message conversation history within a thread — ChatShell loses the prior Q/A when a new question is asked. Vertical stack of Q/A pairs (newest at bottom), each with its own copy/share + a per-message collapsible citation rail. (Carried from earlier queue; still the single biggest chat gap.)
@@ -361,6 +370,38 @@ GLOBAL UX / POLISH:
 - [ ] feat(web/nav): recent-pages section in the command palette (last 5 routes visited, stored in localStorage) above the static route list, so frequent jumps are one keystroke closer.
 - [ ] feat(web/a11y): roving-tabindex on the TopNav primary nav so arrow keys move between nav links (ARIA menubar pattern) for keyboard users.
 - [ ] feat(web/loading): consistent skeletons on the data-heavy settings sub-pages (security, retention, encryption) that currently show a bare Spinner — match the ChatAnswerSkeleton calm.
+
+### Queued frontend (refilled 2026-06-25 21:11 PDT)
+
+The SOURCE VIEWER + READING group is now fully shipped (5 items this tick
++ the 16:19 batch). Fresh frontend slices so future ticks never run dry.
+Order is rough priority; group by what makes a clean batch theme.
+
+SOURCE VIEWER + READING (follow-ups now the core reading surface is done):
+- [ ] feat(web/sources/view): line-number anchor + copy-permalink — clicking a gutter line number selects that line and updates the URL (?start=&end=) so a reader can deep-link to any line, not just the cited band. Pairs with the existing start/end query contract.
+- [ ] feat(web/sources/view): "jump to next/prev cited line" when the band spans more rows than fit on screen — small up/down stepper in the band header that scrolls between the first and last cited rows. Only meaningful when cited end-start exceeds a viewport; reuses the id=cm-cited anchor pattern (add per-row ids).
+- [ ] feat(web/sources/view): in-file find (cmd+F-style overlay scoped to the viewer) that highlights matches in the rendered code without leaving the page — the browser's native find doesn't see virtualized rows well and can't respect the token spans. Keep it dependency-free, reuse the highlight token walk.
+- [ ] feat(web/sources/view): remember the soft-wrap preference per-language (a .md file usually wants wrap, a .ts file usually wants scroll) — extend the cm-code-wrap localStorage key to a small per-extension map. Tiny follow-up to the wrap toggle shipped this tick.
+- [ ] feat(web/sources): the /sources list rows should deep-link into the viewer on click (today they may only show metadata) — wire each row to /sources/view?path= so the list and the viewer connect. Audit the current /sources page first.
+
+CHAT SURFACE (hottest area, used every session — still the biggest gaps):
+- [ ] feat(web/chat): per-message conversation history within a thread — ChatShell loses the prior Q/A when a new question is asked. Vertical stack of Q/A pairs (newest at bottom), each with its own copy/share + a per-message collapsible citation rail. (Carried; still the single biggest chat gap.)
+- [ ] feat(web/chat): "scroll to bottom" floating button during a long streaming answer when the user has scrolled up — hidden when already at the live token edge. (Mirrors the BackToCited IntersectionObserver pattern shipped this tick — could share a primitive.)
+- [ ] feat(web/chat): "/" focuses the composer from anywhere on the chat page (mirroring the rail's j/k); register in ShortcutHelp.
+- [ ] feat(web/chat): empty-state starter prompts become clickable — the EmptyReading "a few things to try" items render as plain text today; make each a button that drops the prompt into the composer and focuses it.
+
+DASHBOARD + DATA-VIZ:
+- [ ] feat(web/dashboard): inline sparkline next to each StatCard — a small SVG line of "documents indexed over the last 14 days" turning the snapshot into a story. Backend can compute from ingestStatus/ingestHistory.
+- [ ] feat(web/dashboard): "what changed today" panel — diff yesterday vs today's index (added docs, removed sources, new namespaces).
+- [ ] feat(web/stats): donut/proportion chart of namespace share of total chunks alongside the existing bars.
+- [ ] feat(web/usage): per-day bar of ask/search request counts over the current period.
+
+GLOBAL UX / POLISH:
+- [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette, ShareAnswerButton, ShortcutHelp) on a single <Dialog> primitive in @clawmind/ui (focus trap, Esc, backdrop, scroll-lock).
+- [ ] feat(web/welcome): finish the welcome guide visually — a 3-card tour (chat + dashboard + sources).
+- [ ] feat(web/nav): recent-pages section in the command palette (last 5 routes, localStorage) above the static route list.
+- [ ] feat(web/a11y): roving-tabindex on the TopNav primary nav (ARIA menubar pattern) for keyboard arrow-key movement.
+- [ ] feat(web/loading): consistent skeletons on the data-heavy settings sub-pages (security, retention, encryption) — match the ChatAnswerSkeleton calm.
 
 ### Queued for later ticks
 - [ ] fix(telemetry): bump @opentelemetry/resources to ^2.0.0 + adapt tracing.ts to the new resourceFromAttributes API (the exporter and auto-instrumentations also need version bumps to clear all peer warnings — pre-existing typecheck red, NOT caused by any cron feature; ci:verify cannot pass until this is resolved). NOTE for FRONTEND ticks: this is the lone red that fails `pnpm run ci:verify`; it lives entirely in packages/telemetry, untouched by any web slice. The web batch is gated independently via web typecheck + web build (both must be green before push).
@@ -421,6 +462,41 @@ GLOBAL UX / POLISH:
 ## Tick log
 
 (updated by each tick at the bottom)
+
+- 2026-06-25 21:11 PDT (Cake/cron) - 5 FRONTEND features shipped directly on
+  main, all in apps/web/. Theme: FINISH the source-viewer reading surface (the
+  16:19 tick deepened it; this tick completes it). SHAs 61ed4f9, 1be8052,
+  31340c7, 57a2be4, 21a07dc.
+    1. language pill (61ed4f9): langLabelForPath() names the file's language by
+       ext (TypeScript/Python/Markdown/TOML/...) in a header pill with a status
+       dot - accent when highlighting is active (langForPath !== null), faint
+       for plain text. Label map deliberately wider than the tokenizer so
+       md/html name honestly. 18-case node harness.
+    2. soft-wrap toggle (1be8052): role=switch Scroll/Wrap pill atop CodeView;
+       wrap flips pre->visible + line spans to pre-wrap/anywhere with flex-start
+       gutter align; persisted in localStorage (cm-code-wrap) via a mount effect
+       (no hydration mismatch). Cited wash + anchor + highlighter unchanged.
+    3. copy cited lines (31340c7): new citedText() pure helper extracts JUST the
+       cited band from the fetched window; CopyCitedLines does clipboard +
+       toast, IconCopy->IconCheck, gold pill flush with "cited N-M". 15-case
+       node harness on citedText.
+    4. expand/collapse context (57a2be4): viewer pad now a clamped (0..200)
+       `pad` query param (default CONTEXT_PAD); ContextStepper does -/+ by 25 +
+       Reset via soft router.push(scroll:false) in a useTransition. scrollKey
+       excludes pad so widening never yanks the viewport.
+    5. back-to-cited (21a07dc): the NEW scenario created by #4 - expand context
+       and the band can leave the viewport. BackToCited watches id=cm-cited with
+       an IntersectionObserver; a bottom-centre cite-gold pill with a direction
+       arrow appears when off screen and scrolls the band back to centre
+       (reduced-motion aware). Completes the surface.
+  Gate: web typecheck CLEAN; web build "Compiled successfully" exit 0, all ~95
+  routes incl. the modified /sources/view (5.95 kB). The lone build lint WARNING
+  (line 552, a pre-existing `sources` useMemo dep) is untouched by this batch and
+  is a warning, not an error. `pnpm run ci:verify` still red ONLY on the
+  pre-existing @clawmind/telemetry OTel 1.x/2.x peer mismatch + rag/hybrid test
+  (both in STATE roadmap, zero files in this batch; all 8 changed files under
+  apps/web/). Pushed fe5dbe0..21a07dc. Refilled the frontend roadmap with 18
+  fresh items (source-viewer follow-ups, chat, dashboard, global polish).
 
 - 2026-06-25 16:19 PDT (Cake/cron) — 5 FRONTEND features shipped directly on
   main. Features: 0ed063c, 623a1bb, 7c5ee2b, 0cfb745, 73b62ca. Theme: deepen
