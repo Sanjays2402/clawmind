@@ -3,6 +3,7 @@ import { Fraunces, Inter, JetBrains_Mono } from 'next/font/google';
 import '../styles/globals.css';
 import { CommandPalette } from '@/components/CommandPalette';
 import { DocumentTitle } from '@/components/DocumentTitle';
+import { RecentPagesRecorder } from '@/components/RecentPagesRecorder';
 import { PwaInstall } from '@/components/PwaInstall';
 import { ShortcutHelp } from '@/components/ShortcutHelp';
 import { ToastProvider } from '@clawmind/ui';
@@ -63,6 +64,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <ToastProvider>
           <DocumentTitle />
+          <RecentPagesRecorder />
           {children}
           <CommandPalette />
           <ShortcutHelp />

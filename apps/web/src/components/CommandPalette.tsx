@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import type { Route } from 'next';
 import {
   useHotkey,
@@ -32,6 +32,7 @@ import {
   Kbd,
 } from '@clawmind/ui';
 import { api } from '@/lib/api';
+import { readRecent, bestRouteHref } from '@/lib/recentPages';
 
 type RouteItem = {
   id: string;
@@ -60,7 +61,19 @@ type HistoryItem = {
   href: Route;
 };
 
-type Item = RouteItem | ActionItem | HistoryItem;
+// A recently-visited route, surfaced at the top of the empty-query palette so
+// the user's frequent jumps are one keystroke closer. Built at open time from
+// the recent-pages store, mapped onto a known ROUTE.
+type RecentItem = {
+  id: string;
+  kind: 'recent';
+  label: string;
+  hint?: string;
+  Icon: typeof IconSpark;
+  href: Route;
+};
+
+type Item = RouteItem | ActionItem | HistoryItem | RecentItem;
 
 const ROUTES: RouteItem[] = [
   // Primary surfaces (mirror the TopNav primary nav).
@@ -143,10 +156,12 @@ function score(label: string, q: string): number {
 
 export function CommandPalette() {
   const router = useRouter();
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [recent, setRecent] = useState<RecentItem[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useHotkey('mod+k', (e) => {
@@ -161,6 +176,36 @@ export function CommandPalette() {
     const t = setTimeout(() => inputRef.current?.focus(), 0);
     return () => clearTimeout(t);
   }, [open]);
+
+  // Build the "Recent" section when the palette opens: read the stored visited
+  // paths, collapse each onto its owning ROUTE (so /settings/security surfaces
+  // as "Settings"), drop the page we're currently on, de-dupe, and keep the
+  // first few. Reuses each route's own icon + label so the rows are instantly
+  // recognizable. Recomputed on open and whenever the route changes.
+  useEffect(() => {
+    if (!open) return;
+    const hrefs = ROUTES.map((r) => r.href as string);
+    const here = bestRouteHref(pathname ?? '', hrefs);
+    const seen = new Set<string>();
+    const built: RecentItem[] = [];
+    for (const raw of readRecent()) {
+      const href = bestRouteHref(raw, hrefs);
+      if (!href || href === here || seen.has(href)) continue;
+      const route = ROUTES.find((r) => r.href === href);
+      if (!route) continue;
+      seen.add(href);
+      built.push({
+        id: `recent-${href}`,
+        kind: 'recent',
+        label: route.label,
+        hint: 'Recent',
+        Icon: route.Icon,
+        href: route.href,
+      });
+      if (built.length >= 5) break;
+    }
+    setRecent(built);
+  }, [open, pathname]);
 
   useEffect(() => {
     if (!open) return;
@@ -189,17 +234,29 @@ export function CommandPalette() {
   }, [open]);
 
   const items: Item[] = useMemo(() => {
+    // Empty query: lead with the "Recent" section, then the full list (routes
+    // already shown as recent are dropped from the main list so nothing reads
+    // twice on one screen). Recent rows are omitted once the user types — they
+    // would just duplicate the routes they point at, which score normally.
+    if (!q) {
+      const recentHrefs = new Set(recent.map((r) => r.href));
+      const rest: Item[] = [
+        ...ACTIONS,
+        ...ROUTES.filter((r) => !recentHrefs.has(r.href)),
+        ...history,
+      ];
+      return [...recent, ...rest].slice(0, 40);
+    }
     const pool: Item[] = [...ACTIONS, ...ROUTES, ...history];
     const ranked = pool
-      .map((it) => ({ it, s: score(it.label, q) + (it.kind === 'action' && q ? 25 : 0) }))
-      .filter((r) => (q ? r.s > 0 : true))
+      .map((it) => ({ it, s: score(it.label, q) + (it.kind === 'action' ? 25 : 0) }))
+      .filter((r) => r.s > 0)
       .sort((a, b) => b.s - a.s)
       .map((r) => r.it);
-    // Cap the visible list. High enough that an empty query (everything
-    // scores equally) still reveals every route plus recent history, not just
-    // the first screenful — type-to-filter narrows it the moment you start.
+    // Cap the visible list. High enough that the whole route list plus recent
+    // history fits, not just the first screenful — typing narrows it instantly.
     return ranked.slice(0, 40);
-  }, [q, history]);
+  }, [q, history, recent]);
 
   useEffect(() => {
     setActive(0);
@@ -297,8 +354,17 @@ export function CommandPalette() {
             items.map((it, i) => {
               const Icon = it.Icon;
               const isActive = i === active;
+              // Section label above the first "Recent" row (empty-query view).
+              const showRecentHeader = it.kind === 'recent' && i === 0;
+              // Section label above the first non-recent row that follows the
+              // recent block, so the two groups read as distinct.
+              const prev = items[i - 1];
+              const showJumpHeader =
+                it.kind !== 'recent' && prev?.kind === 'recent';
               return (
                 <li key={it.id}>
+                  {showRecentHeader && <SectionLabel>Recent</SectionLabel>}
+                  {showJumpHeader && <SectionLabel>Jump to</SectionLabel>}
                   <button
                     onMouseEnter={() => setActive(i)}
                     onClick={() => run(it)}
@@ -322,7 +388,7 @@ export function CommandPalette() {
                       {it.label}
                     </span>
                     {it.hint && (
-                      <span style={{ fontSize: 12, color: 'var(--cm-muted)' }}>{it.hint}</span>
+                      <span style={{ fontSize: 12, color: it.kind === 'recent' ? 'var(--cm-faint)' : 'var(--cm-muted)' }}>{it.hint}</span>
                     )}
                     {isActive && <IconArrowRight size={14} />}
                   </button>
@@ -339,6 +405,29 @@ export function CommandPalette() {
           <span><Kbd size="sm">⌘</Kbd> <Kbd size="sm">K</Kbd> toggle</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Small uppercase section heading inside the palette result list (e.g.
+ * "Recent" / "Jump to"). Non-interactive; sits between result rows to group
+ * them. aria-hidden because the rows it labels are already self-describing.
+ */
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      aria-hidden="true"
+      className="cm-mono"
+      style={{
+        padding: '8px 10px 4px',
+        fontSize: 10.5,
+        textTransform: 'uppercase',
+        letterSpacing: '0.08em',
+        color: 'var(--cm-faint)',
+      }}
+    >
+      {children}
     </div>
   );
 }
