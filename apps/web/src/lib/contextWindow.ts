@@ -53,3 +53,27 @@ export function isCitedLine(win: ContextWindow, lineNo: number): boolean {
   if (!win.cited) return false;
   return lineNo >= win.cited.start && lineNo <= win.cited.end;
 }
+
+/**
+ * Extract the exact cited line text from a fetched window. `content` is the
+ * window body (a slice of the file), `startLine` is the absolute 1-based line
+ * number of the window's first row (i.e. `fileRes.start`). Returns the joined
+ * text of just the cited band — NOT the surrounding context — or null when
+ * there's no cited band or it falls entirely outside the fetched window.
+ *
+ * The returned text intentionally omits a trailing newline so it pastes as a
+ * clean block; callers that want one can append it.
+ */
+export function citedText(
+  content: string,
+  startLine: number,
+  win: ContextWindow,
+): string | null {
+  if (!win.cited) return null;
+  const lines = content.split('\n');
+  // Map absolute cited lines onto 0-based indices within the window body.
+  const from = Math.max(0, win.cited.start - startLine);
+  const to = Math.min(lines.length, win.cited.end - startLine + 1);
+  if (to <= from) return null;
+  return lines.slice(from, to).join('\n');
+}

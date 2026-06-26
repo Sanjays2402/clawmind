@@ -4,8 +4,9 @@ import { FeedbackForm } from '@/components/FeedbackForm';
 import { TagEditor } from '@/components/TagEditor';
 import { ScrollToCited } from '@/components/ScrollToCited';
 import { CodeView } from '@/components/CodeView';
+import { CopyCitedLines } from '@/components/CopyCitedLines';
 import { api, fmtBytes, fmtRelative } from '@/lib/api';
-import { contextWindow } from '@/lib/contextWindow';
+import { contextWindow, citedText } from '@/lib/contextWindow';
 import { langForPath, langLabelForPath } from '@/lib/highlight';
 import { IconFolder, IconArrowRight, IconWarning } from '@clawmind/ui';
 
@@ -68,6 +69,10 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
   const langLabel = langLabelForPath(path);
   const highlighted = langForPath(path) !== null;
 
+  // Exact cited line text (the band only, not the surrounding context) for
+  // the "copy cited lines" affordance. Null when there's no cited band.
+  const citedBody = citedText(content, startLine, win);
+
   return (
     <Shell>
       <Header path={path} meta={meta} />
@@ -98,6 +103,13 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
                   cited {win.cited.start}
                   {win.cited.end !== win.cited.start ? `-${win.cited.end}` : ''}
                 </span>
+              )}
+              {win.cited && citedBody && (
+                <CopyCitedLines
+                  text={citedBody}
+                  start={win.cited.start}
+                  end={win.cited.end}
+                />
               )}
             </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
