@@ -29,6 +29,7 @@ const GROUPS: ShortcutGroup[] = [
     title: 'Chat',
     items: [
       { keys: ['⌘', 'Enter'], label: 'Send the current question' },
+      { keys: ['/'], label: 'Focus the composer', hint: 'From anywhere on the chat page, like the rail j/k' },
       { keys: ['⌘', '/'], label: 'Browse saved prompts', hint: 'Type-to-filter picker anchored to the composer' },
       { keys: ['Tab'], label: 'Cycle through saved starter prompts' },
       { keys: ['Shift', 'Tab'], label: 'Cycle back through saved starters' },

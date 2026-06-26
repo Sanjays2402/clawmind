@@ -91,6 +91,27 @@ export function ChatShell({
     return () => window.removeEventListener('keydown', onKey);
   }, [answer, sources, activeSource]);
 
+  // `/` focuses the composer from anywhere on the chat page, mirroring the
+  // rail's j/k muscle memory. Suppressed while typing in any input/textarea
+  // (so a literal slash in the composer or a filter is never stolen) and when
+  // a modifier is held (cmd+/ is the saved-prompt picker). preventDefault
+  // stops the slash from also landing as the first character once focused.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== '/') return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      e.preventDefault();
+      setComposerFocus((n) => n + 1);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   async function submit(q: string = question) {
     if (!q.trim() || loading) return;
     setLoading(true);
@@ -148,7 +169,7 @@ export function ChatShell({
         <div className="mx-auto flex w-full max-w-[1180px] items-center justify-between gap-4 px-6 py-3 sm:px-10">
           <NamespacePicker value={namespaces} onChange={setNamespaces} variant="breadcrumb" />
           <span className="cm-mono text-[11px] text-cm-faint">
-            cmd + enter to ask &middot; cmd + / for saved prompts &middot; [ ] cited &middot; j k rail
+            cmd + enter to ask &middot; / to focus &middot; cmd + / saved &middot; [ ] cited &middot; j k rail
           </span>
         </div>
       </div>
