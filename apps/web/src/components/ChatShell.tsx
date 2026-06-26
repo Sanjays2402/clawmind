@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { TopNav } from '@/components/TopNav';
 import { NamespacePicker, type Ns, ChatAnswerSkeleton, SourcesRailSkeleton, IconArrowRight } from '@clawmind/ui';
@@ -14,6 +14,7 @@ import { JumpToLatest } from './JumpToLatest';
 import { api } from '@/lib/api';
 import { revealSourceCard } from '@/lib/sourceNav';
 import { citedOrder, citePillId } from '@/lib/citations';
+import { readNsPref, writeNsPref } from '@/lib/nsPref';
 
 interface Source {
   id: string;
@@ -54,6 +55,23 @@ export function ChatShell({
     prefillRef.current = initial;
     setQuestion(initial);
   }, [searchParams]);
+
+  // Restore the reader's last namespace selection on mount. Done in an effect
+  // (not the useState initialiser) so the server-rendered default and the
+  // first client render agree — no hydration mismatch — then the saved subset
+  // is applied. A null result (no saved pref) leaves the default in place.
+  useEffect(() => {
+    const saved = readNsPref();
+    if (saved) setNamespaces(saved);
+  }, []);
+
+  // Wrap setNamespaces so every toggle in the breadcrumb picker persists the
+  // new selection. Kept out of the picker's render path so the component stays
+  // a pure controlled input.
+  const onNamespacesChange = useCallback((next: Ns[]) => {
+    setNamespaces(next);
+    writeNsPref(next);
+  }, []);
 
   // `[` / `]` cycle through the citations in the answer body, in the order
   // they first appear. Each step focuses the matching pill, marks its
@@ -168,7 +186,7 @@ export function ChatShell({
       {/* Breadcrumb namespace header */}
       <div className="border-b border-cm-border">
         <div className="mx-auto flex w-full max-w-[1180px] items-center justify-between gap-4 px-6 py-3 sm:px-10">
-          <NamespacePicker value={namespaces} onChange={setNamespaces} variant="breadcrumb" />
+          <NamespacePicker value={namespaces} onChange={onNamespacesChange} variant="breadcrumb" />
           <span className="cm-mono text-[11px] text-cm-faint">
             cmd + enter to ask &middot; / to focus &middot; cmd + / saved &middot; [ ] cited &middot; j k rail
           </span>
