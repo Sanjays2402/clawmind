@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TopNav } from '@/components/TopNav';
 import { api, type UsageSummary } from '@/lib/api';
 import {
@@ -54,14 +54,26 @@ export default function UsagePage() {
   const pct = data ? Math.min(100, (data.used / Math.max(1, data.limit)) * 100) : 0;
   const nearLimit = data ? data.used / Math.max(1, data.limit) >= 0.8 : false;
   const overLimit = data ? data.used >= data.limit : false;
+  // Quota bar tints stay inside the warm palette: accent at rest, citation
+  // gold as the "getting close" caution, danger red once the cap is hit.
   const barColor = overLimit
-    ? 'bg-red-500'
+    ? 'var(--cm-danger)'
     : nearLimit
-      ? 'bg-amber-500'
-      : 'bg-violet-500';
+      ? 'var(--cm-cite)'
+      : 'var(--cm-accent)';
+
+  // Ask-vs-search split for the request-mix bar. The page previously showed
+  // the two counts as bare numbers; the proportion turns them into a shape.
+  const mix = useMemo(() => {
+    if (!data) return null;
+    const ask = Math.max(0, data.byKind.ask);
+    const search = Math.max(0, data.byKind.search);
+    const total = ask + search;
+    return { ask, search, total };
+  }, [data]);
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen">
       <TopNav />
       <main className="mx-auto max-w-4xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-6 flex items-center justify-between gap-3">
@@ -73,7 +85,7 @@ export default function UsagePage() {
             type="button"
             onClick={load}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg-muted)] hover:bg-[var(--bg-elev)] disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg disabled:opacity-50"
             aria-label="Refresh usage"
           >
             <IconRefresh size={14} />
@@ -82,12 +94,12 @@ export default function UsagePage() {
         </div>
 
         {loading && !data ? (
-          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-6">
-            <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
+          <div className="cm-card p-6">
+            <div className="flex items-center gap-2 text-sm text-cm-muted">
               <Spinner /> Loading usage
             </div>
-            <div className="mt-4 h-3 w-full animate-pulse rounded-full bg-[var(--border)]" />
-            <div className="mt-3 h-4 w-32 animate-pulse rounded bg-[var(--border)]" />
+            <div className="mt-4 h-3 w-full animate-pulse rounded-full bg-cm-subtle" />
+            <div className="mt-3 h-4 w-32 animate-pulse rounded bg-cm-subtle" />
           </div>
         ) : error ? (
           <ErrorState title="Could not load usage" message={error} onRetry={load} />
@@ -98,27 +110,27 @@ export default function UsagePage() {
           />
         ) : (
           <>
-            <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-6">
+            <section className="cm-card p-6">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <div>
-                  <div className="text-sm text-[var(--fg-muted)]">
+                  <div className="text-sm text-cm-muted">
                     {data.plan === 'free' ? 'Free plan' : data.plan} · {data.period}
                   </div>
                   <div className="mt-1 text-3xl font-semibold tabular-nums">
                     {data.used.toLocaleString()}{' '}
-                    <span className="text-base font-normal text-[var(--fg-muted)]">
+                    <span className="text-base font-normal text-cm-muted">
                       / {data.limit.toLocaleString()} requests
                     </span>
                   </div>
                 </div>
-                <div className="text-right text-sm text-[var(--fg-muted)]">
+                <div className="text-right text-sm text-cm-muted">
                   <div>Resets in {fmtResetIn(data.resetsAt)}</div>
                   <div className="text-xs">{fmtResetDate(data.resetsAt)}</div>
                 </div>
               </div>
 
               <div
-                className="mt-5 h-3 w-full overflow-hidden rounded-full bg-[var(--border)]"
+                className="mt-5 h-3 w-full overflow-hidden rounded-full bg-cm-subtle"
                 role="progressbar"
                 aria-valuemin={0}
                 aria-valuemax={data.limit}
@@ -126,18 +138,26 @@ export default function UsagePage() {
                 aria-label={`Used ${data.used} of ${data.limit} requests`}
               >
                 <div
-                  className={`h-full rounded-full transition-all duration-300 ${barColor}`}
-                  style={{ width: `${pct}%` }}
+                  className="h-full rounded-full transition-all duration-300"
+                  style={{ width: `${pct}%`, background: barColor }}
                 />
               </div>
-              <div className="mt-2 flex items-center justify-between text-xs text-[var(--fg-muted)]">
+              <div className="mt-2 flex items-center justify-between text-xs text-cm-muted">
                 <span>{fmtPct(data.used, data.limit)} used</span>
                 <span>{data.remaining.toLocaleString()} left</span>
               </div>
 
               {nearLimit ? (
-                <div className="mt-4 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-                  <IconWarning size={16} />
+                <div
+                  className="mt-4 flex items-start gap-2 rounded-lg border p-3 text-sm"
+                  style={{
+                    borderColor: overLimit ? 'var(--cm-danger)' : 'var(--cm-cite-line)',
+                    background: overLimit ? 'rgba(180, 66, 60, 0.08)' : 'var(--cm-cite-bg)',
+                  }}
+                >
+                  <span style={{ color: overLimit ? 'var(--cm-danger)' : 'var(--cm-cite)' }}>
+                    <IconWarning size={16} />
+                  </span>
                   <div>
                     {overLimit
                       ? 'You have hit the free tier limit. New ask and search requests will return 429 until the quota resets.'
@@ -147,38 +167,60 @@ export default function UsagePage() {
               ) : null}
             </section>
 
-            <section className="mt-6 grid gap-4 sm:grid-cols-2">
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-5">
-                <div className="text-xs uppercase tracking-wide text-[var(--fg-muted)]">
-                  Ask
-                </div>
-                <div className="mt-1 text-2xl font-semibold tabular-nums">
-                  {data.byKind.ask.toLocaleString()}
-                </div>
-                <div className="mt-1 text-xs text-[var(--fg-muted)]">
-                  Answered questions this period
-                </div>
+            <section className="mt-6 cm-card p-6">
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="text-sm font-medium">Request mix</h2>
+                <span className="text-xs text-cm-muted tabular-nums">
+                  {mix && mix.total > 0 ? `${mix.total.toLocaleString()} this period` : 'nothing yet'}
+                </span>
               </div>
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-5">
-                <div className="text-xs uppercase tracking-wide text-[var(--fg-muted)]">
-                  Search
-                </div>
-                <div className="mt-1 text-2xl font-semibold tabular-nums">
-                  {data.byKind.search.toLocaleString()}
-                </div>
-                <div className="mt-1 text-xs text-[var(--fg-muted)]">
-                  Retrieval queries this period
-                </div>
-              </div>
+              {mix && mix.total > 0 ? (
+                <>
+                  <div
+                    className="mt-4 flex h-3 w-full overflow-hidden rounded-full bg-cm-subtle"
+                    role="img"
+                    aria-label={`${mix.ask} ask and ${mix.search} search requests`}
+                  >
+                    <div
+                      className="h-full transition-all duration-300"
+                      style={{ width: `${(mix.ask / mix.total) * 100}%`, background: 'var(--cm-accent)' }}
+                    />
+                    <div
+                      className="h-full transition-all duration-300"
+                      style={{ width: `${(mix.search / mix.total) * 100}%`, background: 'var(--cm-cite)' }}
+                    />
+                  </div>
+                  <div className="mt-3 grid grid-cols-2 gap-4">
+                    <MixLegend
+                      swatch="var(--cm-accent)"
+                      label="Ask"
+                      value={mix.ask}
+                      total={mix.total}
+                      sub="Answered questions"
+                    />
+                    <MixLegend
+                      swatch="var(--cm-cite)"
+                      label="Search"
+                      value={mix.search}
+                      total={mix.total}
+                      sub="Retrieval queries"
+                    />
+                  </div>
+                </>
+              ) : (
+                <p className="mt-3 text-sm text-cm-muted">
+                  Ask a question or run a search and the split shows up here.
+                </p>
+              )}
             </section>
 
-            <section className="mt-6 rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-6">
+            <section className="mt-6 cm-card p-6">
               <h2 className="text-base font-semibold">Need more headroom?</h2>
-              <p className="mt-1 text-sm text-[var(--fg-muted)]">
+              <p className="mt-1 text-sm text-cm-muted">
                 ClawMind runs locally and the free tier covers most personal
                 workloads. If you bump into the limit, set
                 {' '}
-                <code className="rounded bg-[var(--border)] px-1 py-0.5 text-xs">
+                <code className="rounded bg-cm-subtle px-1 py-0.5 text-xs">
                   CLAWMIND_FREE_LIMIT
                 </code>
                 {' '}
@@ -186,7 +228,8 @@ export default function UsagePage() {
               </p>
               <a
                 href="mailto:hello@clawmind.dev?subject=Upgrade%20interest"
-                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-violet-600 px-3.5 py-2 text-sm font-medium text-white hover:bg-violet-700"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-sm font-medium text-white hover:opacity-90"
+                style={{ background: 'var(--cm-accent)' }}
               >
                 Talk to us about upgrading
                 <IconArrowRight size={14} />
@@ -195,6 +238,44 @@ export default function UsagePage() {
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+/**
+ * One side of the request-mix legend: a colour swatch matching its bar
+ * segment, the count, its share of the total, and a one-line descriptor.
+ */
+function MixLegend({
+  swatch,
+  label,
+  value,
+  total,
+  sub,
+}: {
+  swatch: string;
+  label: string;
+  value: number;
+  total: number;
+  sub: string;
+}) {
+  const share = total > 0 ? Math.round((value / total) * 100) : 0;
+  return (
+    <div className="flex items-start gap-2.5">
+      <span
+        aria-hidden="true"
+        className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+        style={{ background: swatch }}
+      />
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2">
+          <span className="text-lg font-semibold tabular-nums">{value.toLocaleString()}</span>
+          <span className="text-xs text-cm-muted tabular-nums">{share}%</span>
+        </div>
+        <div className="text-xs text-cm-muted">
+          {label} · {sub}
+        </div>
+      </div>
     </div>
   );
 }
