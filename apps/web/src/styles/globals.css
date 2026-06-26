@@ -90,6 +90,34 @@ a { color: inherit; text-decoration: none; }
   font-variation-settings: 'opsz' 18, 'SOFT' 100;
 }
 
+/* Chat empty-state starter prompts. Each "thing to try" is an actionable
+   button that seeds the composer. At rest it reads like the old static list
+   (transparent, soft ink); on hover/focus the row warms with the accent wash
+   and the lead arrow slides in a touch, signalling it's tappable. */
+.cm-starter-prompt {
+  background: transparent;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.cm-starter-prompt:hover,
+.cm-starter-prompt:focus-visible {
+  background: var(--cm-accent-soft);
+  color: var(--cm-fg);
+}
+.cm-starter-arrow {
+  transition: transform 140ms ease, color 120ms ease;
+}
+.cm-starter-prompt:hover .cm-starter-arrow,
+.cm-starter-prompt:focus-visible .cm-starter-arrow {
+  transform: translateX(2px);
+  color: var(--cm-accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-starter-arrow { transition: color 120ms ease; }
+  .cm-starter-prompt:hover .cm-starter-arrow,
+  .cm-starter-prompt:focus-visible .cm-starter-arrow { transform: none; }
+}
+
 /* Source paths and inline file references look like ink-on-paper monotype. */
 .cm-path {
   font-family: var(--cm-font-mono);

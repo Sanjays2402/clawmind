@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { TopNav } from '@/components/TopNav';
-import { NamespacePicker, type Ns, ChatAnswerSkeleton, SourcesRailSkeleton } from '@clawmind/ui';
+import { NamespacePicker, type Ns, ChatAnswerSkeleton, SourcesRailSkeleton, IconArrowRight } from '@clawmind/ui';
 import { ChatStream } from './ChatStream';
 import { SourcesPane } from './SourcesPane';
 import { Composer } from './Composer';
@@ -130,6 +130,15 @@ export function ChatShell({
     setComposerFocus((n) => n + 1);
   }
 
+  // Clicking a starter prompt in the empty state drops it into the composer
+  // and returns focus there (caret at end via focusSignal) so the reader can
+  // tweak or submit immediately. The list was plain text before; making each
+  // one actionable turns the empty state into a one-tap on-ramp.
+  function pickStarter(prompt: string) {
+    setQuestion(prompt);
+    setComposerFocus((n) => n + 1);
+  }
+
   return (
     <main className="min-h-screen flex flex-col bg-cm-bg">
       <TopNav />
@@ -159,7 +168,7 @@ export function ChatShell({
 
           <div className="mt-8">
             {!answer && !loading && !error && (
-              <EmptyReading />
+              <EmptyReading onPick={pickStarter} />
             )}
             {loading && answer === '' && !error && (
               <ChatAnswerSkeleton />
@@ -213,7 +222,15 @@ export function ChatShell({
   );
 }
 
-function EmptyReading() {
+// Starter prompts shown in the empty reading state. Hoisted so each one can
+// be rendered as an actionable button that seeds the composer.
+const STARTER_PROMPTS = [
+  'what did I commit last Tuesday on snip',
+  'summarise the design notes I left in memory this week',
+  'where did I first sketch the citation rail idea',
+];
+
+function EmptyReading({ onPick }: { onPick: (prompt: string) => void }) {
   return (
     <div className="max-w-[640px]">
       <h1 className="cm-display text-[44px] text-cm-fg" style={{ fontWeight: 500 }}>
@@ -229,10 +246,21 @@ function EmptyReading() {
         <div className="cm-mono text-[11px] uppercase tracking-wider text-cm-faint">
           A few things to try
         </div>
-        <ul className="mt-3 space-y-2 text-[14px] text-cm-fg-soft">
-          <li>what did I commit last Tuesday on snip</li>
-          <li>summarise the design notes I left in memory this week</li>
-          <li>where did I first sketch the citation rail idea</li>
+        <ul className="mt-3 space-y-1.5">
+          {STARTER_PROMPTS.map((p) => (
+            <li key={p}>
+              <button
+                type="button"
+                onClick={() => onPick(p)}
+                className="cm-starter-prompt group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[14px] text-cm-fg-soft"
+              >
+                <span className="cm-starter-arrow shrink-0 text-cm-faint" aria-hidden="true">
+                  <IconArrowRight size={13} />
+                </span>
+                <span className="min-w-0">{p}</span>
+              </button>
+            </li>
+          ))}
         </ul>
       </div>
     </div>
