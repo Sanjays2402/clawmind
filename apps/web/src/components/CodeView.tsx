@@ -1,8 +1,11 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useToast } from '@clawmind/ui';
 import { highlight, langForPath, type Token, type TokenType } from '@/lib/highlight';
 import { isCitedLine, type ContextWindow } from '@/lib/contextWindow';
 import { readWrapPref, writeWrapPref, defaultWrapForExt, extOf } from '@/lib/wrapPref';
+import { lineSelection, lineLinkHref, linePermalink, lineRangeLabel } from '@/lib/lineLink';
 
 const TOKEN_COLOR: Record<TokenType, string> = {
   kw: 'var(--cm-accent-ink)',
@@ -25,6 +28,11 @@ const TOKEN_COLOR: Record<TokenType, string> = {
  * wrapped long lines (default for prose). The choice is remembered PER FILE
  * TYPE (lib/wrapPref) so flipping a .md file to wrap doesn't also wrap every
  * .ts file. The default before any choice is prose-vs-code by extension.
+ *
+ * Every gutter line number is a button: clicking it selects that line and
+ * copies a shareable permalink (?start=&end=) so a reader can deep-link to
+ * ANY line, not just the cited band the viewer opened on. Shift-click extends
+ * the current band into a range (lib/lineLink).
  */
 export function CodeView({
   content,
@@ -43,6 +51,8 @@ export function CodeView({
     () => (spec ? highlight(content, spec) : null),
     [content, spec],
   );
+  const router = useRouter();
+  const { toast } = useToast();
 
   // Render the per-extension default on both server and first client render so
   // the markup agrees, then apply the persisted per-ext choice after mount (no
@@ -59,6 +69,33 @@ export function CodeView({
       writeWrapPref(path, next);
       return next;
     });
+  }
+
+  // Clicking a gutter line number selects that line and copies a shareable
+  // permalink, so a reader can deep-link to ANY line, not just the cited band
+  // the viewer happened to open on. A shift-click extends the current cited
+  // band into a range. The selection round-trips through the same ?start=&end=
+  // query the citation deep-link uses, so the viewer re-renders with the new
+  // band highlighted + auto-scrolled. The clipboard write is best-effort:
+  // navigation happens regardless, and a blocked clipboard just skips the copy
+  // toast (the URL bar still reflects the selection).
+  function selectLine(lineNo: number, shift: boolean) {
+    const sel = lineSelection(lineNo, win.cited, shift);
+    router.push(lineLinkHref(path, sel), { scroll: false });
+    if (typeof navigator !== 'undefined' && navigator.clipboard && typeof window !== 'undefined') {
+      const url = linePermalink(window.location.origin, path, sel);
+      navigator.clipboard.writeText(url).then(
+        () =>
+          toast({
+            tone: 'success',
+            title: `Link to ${lineRangeLabel(sel)} copied`,
+            description: 'Paste anywhere to point a reader at exactly these lines.',
+          }),
+        () => {
+          /* clipboard blocked (non-secure context): selection still applied */
+        },
+      );
+    }
   }
 
   if (lines.length === 0) {
@@ -144,17 +181,26 @@ export function CodeView({
               className={cited ? 'cm-cited-line' : undefined}
               style={{ display: 'flex', alignItems: 'flex-start' }}
             >
-              <span
+              <button
+                type="button"
+                onClick={(e) => selectLine(lineNo, e.shiftKey)}
+                title={`Copy a link to line ${lineNo} (shift-click to extend the range)`}
+                aria-label={`Copy a permalink to line ${lineNo}`}
+                className="cm-line-no"
                 style={{
                   flex: '0 0 56px',
                   textAlign: 'right',
                   paddingRight: 12,
+                  border: 'none',
+                  background: 'transparent',
+                  font: 'inherit',
+                  cursor: 'pointer',
                   color: cited ? 'var(--cm-cite)' : 'var(--cm-muted)',
                   userSelect: 'none',
                 }}
               >
                 {lineNo}
-              </span>
+              </button>
               <span
                 style={{
                   whiteSpace: wrap ? 'pre-wrap' : 'pre',

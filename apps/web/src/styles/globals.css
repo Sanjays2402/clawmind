@@ -143,6 +143,23 @@ mark.cm-hi {
   box-shadow: inset 3px 0 0 var(--cm-cite-line);
 }
 
+/* Source viewer: each gutter line number is a button that copies a permalink
+   to that line (shift-click extends a range). At rest it reads like a plain
+   gutter number; on hover/focus it warms to the accent so the reader learns
+   the whole gutter is clickable, without ever distracting from the code. */
+.cm-line-no {
+  border-radius: 4px;
+  transition: color 100ms ease, background-color 100ms ease;
+}
+.cm-line-no:hover {
+  color: var(--cm-accent) !important;
+  background: var(--cm-accent-soft) !important;
+}
+.cm-line-no:focus-visible {
+  outline: 2px solid var(--cm-accent-line);
+  outline-offset: -2px;
+}
+
 /* Source viewer: floating "back to cited lines" pill. Appears at the bottom
    centre of the viewport when the cited band has scrolled off screen (e.g.
    after expanding the context window). Rises in gently; the rise is dropped
