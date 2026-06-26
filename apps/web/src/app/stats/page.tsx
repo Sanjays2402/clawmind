@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { TopNav } from '@/components/TopNav';
 import { api, fmtBytes, fmtRelative, type StatsReport, type NamespaceStats } from '@/lib/api';
 import { EmptyState, ErrorState, Spinner, IconRefresh, IconDatabase } from '@clawmind/ui';
+import { NamespaceDonut } from '@/components/NamespaceDonut';
 
 type Metric = 'files' | 'chunks' | 'bytes';
 
@@ -52,6 +53,8 @@ export default function StatsPage() {
     () => Math.max(1, ...ranked.map((n) => metricValue(n, metric))),
     [ranked, metric],
   );
+  // Human label for the active metric, shared by the donut card header + aria.
+  const metricLabel = METRICS.find((m) => m.id === metric)?.label ?? 'Chunks';
 
   return (
     <main className="min-h-screen">
@@ -91,6 +94,25 @@ export default function StatsPage() {
               <Stat label="Indexed bytes" value={fmtBytes(stats.totals.bytes)} active={metric === 'bytes'} onClick={() => setMetric('bytes')} />
               <Stat label="Namespaces" value={String(stats.totals.namespaces)} />
             </div>
+
+            {ranked.length > 1 && (
+              <div className="mt-6 cm-card">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cm-border px-4 py-3">
+                  <div className="flex items-center gap-2 text-sm font-medium">
+                    <IconDatabase size={16} />
+                    Share of {metricLabel.toLowerCase()}
+                  </div>
+                  <div className="text-xs text-cm-muted">
+                    Each namespace as a slice of the whole index
+                  </div>
+                </div>
+                <NamespaceDonut
+                  data={ranked.map((ns) => ({ key: ns.namespace, value: metricValue(ns, metric) }))}
+                  metricLabel={metricLabel}
+                  formatValue={(v) => fmtMetric(v, metric)}
+                />
+              </div>
+            )}
 
             <div className="mt-6 cm-card">
               <div className="flex flex-wrap items-center justify-between gap-3 border-b border-cm-border px-4 py-3">
