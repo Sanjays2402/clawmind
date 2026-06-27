@@ -37,6 +37,46 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-26 22:27 PDT - cm-* utility-layer FIX + access/identity re-theme (5 slices)
+
+CRITICAL FINDING this tick (verified against the compiled CSS across all
+chunks, not guessed): the re-theme work has been leaning on cm-* utility
+classes that DID NOT COMPILE. globals.css only ever hand-rolled a small subset
+of base, variant-less helpers (.bg-cm-paper / .text-cm-muted / ...). Tailwind
+v4 SILENTLY DROPS any utility it has not been taught about, so every other
+cm-* class rendered as a no-op while the build stayed green:
+  - bg-cm-fg (16x) + text-cm-bg (15x): the primary "ink" action buttons on
+    EVERY shipped re-theme (invitations, policies, security, members, ...) had
+    NO FILL.
+  - hover:text-cm-fg (108x), divide-cm-border (30x), focus:ring-cm-accent
+    (35x), hover:bg-cm-subtle (27x), placeholder:text-cm-muted, bg-cm-danger,
+    bg-cm-bg-soft/panel/elev, ... all dead.
+Slice 1 fixes the ROOT CAUSE for the whole app; slices 2-5 then re-theme batch
+A onto utilities that now actually render. Gated: web typecheck + web build +
+ui build + api typecheck all GREEN; ci:verify's only red is the pre-existing,
+unrelated @clawmind/telemetry OTel SDK version-skew (identical on pre-tick
+6483cc4, never touched this tick). Pushed 6483cc4..ae5b3dd:
+- 920bf7b fix(web/theme): register the cm-* palette as Tailwind @theme colors
+  (--color-cm-*) pointing at the --cm-* vars -> full utility matrix + every
+  variant, theme-aware (vars flip in dark). One change repairs the ink buttons
+  + hover/focus/divide states on every already-shipped re-theme page.
+- 93b25e6 feat(web/settings/members): re-theme RBAC admin; role badges as a
+  privilege gradient through cm inks (owner=accent, admin=cite gold,
+  member/viewer=neutral/muted); ink buttons now real; banners -> success/danger.
+- 4fd8d2b feat(web/settings/sessions): re-theme; current session gets a
+  bg-cm-accent-soft wash + accent "This browser" chip; revoke + bulk revoke
+  through --cm-danger.
+- 2b92191 feat(web/settings/sign-in-log): re-theme; OutcomeBadge through brand
+  inks (success=green, failure=cite-gold caution, logout=neutral); failure
+  reason + admin-block notice -> cite caution.
+- ae5b3dd feat(web/settings/sign-in-anomalies): re-theme; StatusBadge Open ->
+  cite-gold caution, Acknowledged -> --cm-success.
+
+IMPORTANT for future ticks: cm-* utilities (incl. all variants) NOW COMPILE, so
+new re-themes can use bg-cm-fg/text-cm-bg ink buttons, hover:/focus:/divide-
+variants freely - they will render. The hand-rolled helper block in globals.css
+(lines ~297-315) is now redundant but left in place (identical values).
+
 ### TICK LOG 2026-06-26 18:01 PDT - design-language re-theme batch (5 slices)
 
 Shipped 5 full re-themes off the foreign/shadcn palettes onto cm-*, gated
@@ -72,16 +112,29 @@ shared SettingsCardSkeleton into any bare-Spinner loading state while you're in
 a page.
 
 RE-THEME BATCH A - access/identity settings (shadcn palette, cohere as a group):
-- [ ] feat(web/settings/members): re-theme the members + RBAC admin page off the
-  shadcn palette onto cm-*; role badges through cm inks. High-traffic admin page.
-- [ ] feat(web/settings/sessions): re-theme the active-sessions page; the
+- [x] feat(web/settings/members): re-theme the members + RBAC admin page off the
+  shadcn palette onto cm-*; role badges through cm inks. SHIPPED 93b25e6 (this
+  tick): full re-theme; ROLE_TONE privilege gradient (owner=accent, admin=cite
+  gold, member/viewer=neutral/muted); ink buttons now compile; banners ->
+  success/danger inks.
+- [x] feat(web/settings/sessions): re-theme the active-sessions page; the
   current-session highlight + revoke action through cm accent / --cm-danger.
-- [ ] feat(web/settings/sign-in-log): re-theme; success/failure rows through
-  --cm-success / --cm-danger inks instead of raw emerald/rose.
-- [ ] feat(web/settings/sign-in-anomalies): re-theme the impossible-travel page;
-  the anomaly flags through the cite-gold caution ink.
+  SHIPPED 4fd8d2b (this tick): current row bg-cm-accent-soft wash + accent "This
+  browser" chip; per-session + bulk revoke through --cm-danger.
+- [x] feat(web/settings/sign-in-log): re-theme; success/failure rows through
+  --cm-success / --cm-danger inks instead of raw emerald/rose. SHIPPED 2b92191
+  (this tick): OutcomeBadge success=green, failure=cite-gold caution,
+  logout=neutral; failure reason + admin-block notice -> cite caution.
+- [x] feat(web/settings/sign-in-anomalies): re-theme the impossible-travel page;
+  the anomaly flags through the cite-gold caution ink. SHIPPED ae5b3dd (this
+  tick): StatusBadge Open -> cite-gold caution, Acknowledged -> --cm-success.
 - [ ] feat(web/settings/access-reviews): re-theme the recertification page;
-  pending/approved states through cm feedback inks.
+  pending/approved states through cm feedback inks. CARRIED: this tick traded
+  its slot for the systemic cm-* utility fix (920bf7b). Note this page has the
+  richest feedback surface in batch A (keep/downgrade/revoke decision badges,
+  open/closed campaign chips, the per-row ActionButton tone matrix) - map keep
+  -> --cm-success, downgrade -> cite-gold caution, revoke -> --cm-danger,
+  pending -> neutral muted; campaign open -> cite caution, closed -> success.
 
 RE-THEME BATCH B - foreign --var settings (mechanical map, cohere as a group):
 - [ ] feat(web/settings/encryption): re-theme off --card/--muted-fg/--bg-elev/
