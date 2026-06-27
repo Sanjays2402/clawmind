@@ -10,6 +10,7 @@ import {
 import {
   ErrorState,
   Spinner,
+  SettingsCardSkeleton,
   IconBell,
   IconCheck,
   IconLink,
@@ -103,36 +104,36 @@ export default function NotificationPreferencesPage() {
     : 0;
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10">
         <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
-            <span className="rounded-md border bg-muted/30 p-2 text-primary">
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-accent">
               <IconBell size={22} />
             </span>
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">
                 Notification preferences
               </h1>
-              <p className="mt-1 text-sm text-muted-foreground">
+              <p className="mt-1 text-sm text-cm-muted">
                 Choose which kinds of notifications land in your inbox. Switching one
                 off stops new ones the moment you save. Past notifications are not
                 deleted.
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-cm-muted">
             <Link
               href="/notifications"
-              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 hover:bg-muted/50"
+              className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1.5 hover:bg-cm-subtle"
             >
               Open inbox
               <IconArrowRight size={14} />
             </Link>
             <Link
               href="/settings"
-              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 hover:bg-muted/50"
+              className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1.5 hover:bg-cm-subtle"
             >
               <IconSettings size={14} />
               Settings
@@ -140,24 +141,7 @@ export default function NotificationPreferencesPage() {
           </div>
         </header>
 
-        {loading && (
-          <div className="rounded-lg border bg-card p-4">
-            <ul className="divide-y">
-              {KINDS.map((k) => (
-                <li key={k.kind} className="flex items-center justify-between py-4">
-                  <div className="flex items-center gap-3">
-                    <span className="size-8 animate-pulse rounded-md bg-muted" />
-                    <div className="space-y-2">
-                      <span className="block h-3 w-32 animate-pulse rounded bg-muted" />
-                      <span className="block h-3 w-56 animate-pulse rounded bg-muted/70" />
-                    </div>
-                  </div>
-                  <span className="h-6 w-11 animate-pulse rounded-full bg-muted" />
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+        {loading && <SettingsCardSkeleton rows={4} />}
 
         {!loading && error && (
           <ErrorState
@@ -169,26 +153,26 @@ export default function NotificationPreferencesPage() {
 
         {!loading && !error && prefs && (
           <>
-            <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+            <div className="mb-3 flex items-center justify-between text-xs text-cm-muted">
               <span>
                 {enabledCount} of {KINDS.length} enabled
               </span>
               {savedAt !== null && (
-                <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                <span className="inline-flex items-center gap-1 text-[var(--cm-success)]">
                   <IconCheck size={14} />
                   Saved
                 </span>
               )}
             </div>
-            <div className="rounded-lg border bg-card">
-              <ul className="divide-y">
+            <div className="rounded-lg border border-cm-border bg-cm-paper">
+              <ul className="divide-y divide-cm-border">
                 {KINDS.map((k) => {
                   const enabled = prefs.prefs[k.kind] !== false;
                   const saving = savingKind === k.kind;
                   const id = `pref-${k.kind}`;
                   return (
                     <li key={k.kind} className="flex items-start gap-3 p-4 sm:items-center">
-                      <span className="mt-0.5 shrink-0 rounded-md border bg-muted/30 p-2 text-muted-foreground sm:mt-0">
+                      <span className="mt-0.5 shrink-0 rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-muted sm:mt-0">
                         <k.Icon size={18} />
                       </span>
                       <div className="min-w-0 flex-1">
@@ -198,7 +182,7 @@ export default function NotificationPreferencesPage() {
                         >
                           {k.label}
                         </label>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
+                        <p className="mt-0.5 text-xs text-cm-muted">
                           {k.description}
                         </p>
                       </div>
@@ -212,18 +196,20 @@ export default function NotificationPreferencesPage() {
                           aria-label={`${enabled ? 'Disable' : 'Enable'} ${k.label.toLowerCase()}`}
                           disabled={saving}
                           onClick={() => toggle(k.kind, !enabled)}
+                          style={
+                            enabled
+                              ? { background: 'var(--cm-accent)', borderColor: 'var(--cm-accent)' }
+                              : undefined
+                          }
                           className={[
                             'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors',
-                            'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                             'disabled:cursor-not-allowed disabled:opacity-60',
-                            enabled
-                              ? 'bg-primary border-primary'
-                              : 'bg-muted border-border',
+                            enabled ? '' : 'bg-cm-subtle border-cm-border',
                           ].join(' ')}
                         >
                           <span
                             className={[
-                              'inline-block size-5 transform rounded-full bg-background shadow transition-transform',
+                              'inline-block size-5 transform rounded-full bg-cm-paper shadow transition-transform',
                               enabled ? 'translate-x-5' : 'translate-x-0.5',
                             ].join(' ')}
                           />
@@ -235,13 +221,13 @@ export default function NotificationPreferencesPage() {
               </ul>
             </div>
 
-            <p className="mt-4 text-xs text-muted-foreground">
+            <p className="mt-4 text-xs text-cm-muted">
               These preferences only affect new notifications. Open the{' '}
-              <Link href="/notifications" className="underline hover:text-foreground">
+              <Link href="/notifications" className="underline hover:text-cm-fg">
                 inbox
               </Link>{' '}
               to manage existing ones, or revisit this page anytime from{' '}
-              <Link href="/settings" className="underline hover:text-foreground">
+              <Link href="/settings" className="underline hover:text-cm-fg">
                 Settings
               </Link>
               .
