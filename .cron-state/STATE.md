@@ -37,6 +37,44 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-27 04:13 PDT - RE-THEME BATCH C: compliance/legal settings (5 slices)
+
+Finished BATCH C - the five compliance/legal settings pages. Confirmed the drift
+is REAL not cosmetic (same finding as every prior re-theme tick): --bg / --surface
+/ --surface-2 / --card / --border / --muted / --fg / --accent AND the shadcn
+bg-card / text-muted-foreground / bg-primary / bg-background / border-border /
+bg-muted family are DEFINED NOWHERE in the app (only --cm-* ships in tokens.css),
+so all five rendered on broken fallbacks - cards with no surface fill, invisible
+accent icon tiles, muted copy at full ink, white-on-accent CTAs clashing with the
+paper theme, and status chips on raw emerald/amber/rose that ignore the brand.
+DPA was the lone page in the foreign shadcn language; the other four were on the
+--var palette. Gated ONCE for the batch: web typecheck GREEN, web build GREEN (all
+routes compiled, incl. the 5 - /settings/dpa, /erasure-certificates, /legal-hold,
+/ropa, /sub-processors), @clawmind/ui build GREEN. Batch diff is exactly 5 files,
+all under apps/web/src/app/settings/, 0 telemetry (ci:verify's only red remains
+the pre-existing, unrelated @clawmind/telemetry OTel SDK version-skew, never
+touched this tick). Pushed 18973ea..135bcf0:
+- 06c896e feat(web/settings/legal-hold): off --var; ACTIVE-hold banner -> cite-gold
+  caution (intentional pause), no-hold -> --cm-success; Impose -> bg-cm-fg ink;
+  SettingsCardSkeleton replaces the bare Spinner.
+- 7b9adbb feat(web/settings/sub-processors): off --var; active chip + Saved ->
+  --cm-success, actionError -> cite caution, Retire -> --cm-danger; Save/Disclose
+  -> bg-cm-fg ink (were bg-[accent] text-white); shared INPUT_CLS on all fields.
+- 15c5924 feat(web/settings/ropa): Article 30 register off --var; legal-basis
+  select + every input on INPUT_CLS; active chip + Saved -> --cm-success, error ->
+  cite caution, Retire -> --cm-danger; dl keys text-cm-fg over text-cm-muted.
+- 23df922 feat(web/settings/dpa): the one shadcn page; status banner state-driven
+  (accepted+current -> --cm-success, stale/none -> cite caution); Record acceptance
+  -> bg-cm-fg ink; per-row Verify -> --cm-success ok / --cm-danger mismatch.
+- 135bcf0 feat(web/settings/erasure-certificates): off --var; sig-ok pill ->
+  --cm-success, mismatch/revoked + row error -> --cm-danger; cm-paper rows.
+
+NEXT TICK: BATCH D - workspace/account --var settings (whoami, retention,
+warrant-canary, workspace-deletion, scim) cohere as a group. After D, the CHAT
+SURFACE per-message history item is still the biggest remaining product gap -
+pull it in if a re-theme batch doesn't cohere. ~36 settings pages still drift
+(11 on --var, 25 on shadcn) - see the refilled queue below.
+
 ### TICK LOG 2026-06-27 00:36 PDT - RE-THEME BATCH B: foreign --var settings (5 slices)
 
 Finished BATCH B - the five settings pages still built on the foreign --var
@@ -193,14 +231,70 @@ RE-THEME BATCH B - foreign --var settings (mechanical map, cohere as a group):
   hard fail); live state tints success; Freeze/Update -> bg-cm-fg ink button,
   Release -> neutral cm-border; error -> --cm-danger, saved -> --cm-success.
 
-RE-THEME BATCH C - compliance/legal settings (mixed palette, cohere by section):
-- [ ] feat(web/settings/legal-hold): re-theme; active-hold banner -> cite caution.
-- [ ] feat(web/settings/sub-processors): re-theme the GDPR registry off --var.
-- [ ] feat(web/settings/ropa): re-theme the Article 30 register off --var.
-- [ ] feat(web/settings/dpa): re-theme off the shadcn palette; accepted receipt
-  state through --cm-success.
-- [ ] feat(web/settings/erasure-certificates): re-theme off --var; verified
-  certificate state through --cm-success.
+RE-THEME BATCH C - compliance/legal settings (mixed palette) - DONE 2026-06-27 04:13:
+- [x] feat(web/settings/legal-hold): SHIPPED 06c896e - off --var; ACTIVE-hold
+  banner -> cite-gold caution, no-hold -> --cm-success; ink Impose button;
+  SettingsCardSkeleton wired.
+- [x] feat(web/settings/sub-processors): SHIPPED 7b9adbb - off --var; active chip +
+  Saved -> --cm-success, actionError -> cite caution, Retire -> --cm-danger; shared
+  INPUT_CLS; Save/Disclose are bg-cm-fg ink buttons (were bg-[accent] text-white).
+- [x] feat(web/settings/ropa): SHIPPED 15c5924 - Article 30 register off --var;
+  legal-basis select + every field on INPUT_CLS; active chip + Saved -> --cm-success,
+  actionError -> cite caution, Retire -> --cm-danger.
+- [x] feat(web/settings/dpa): SHIPPED 23df922 - the lone shadcn-palette page;
+  status banner state-driven (accepted+current -> --cm-success, stale/none -> cite
+  caution); Record acceptance -> bg-cm-fg ink; Verify result -> success/danger.
+- [x] feat(web/settings/erasure-certificates): SHIPPED 135bcf0 - off --var; sig-ok
+  pill -> --cm-success, mismatch/revoked -> --cm-danger; cm-paper rows.
+
+### Queued frontend re-theme (refilled 2026-06-27 04:13 PDT)
+
+~36 settings pages still drift off the brand. Two clusters, same mechanical maps
+as prior batches: (a) foreign --var palette (--bg->cm-bg, --surface/--surface-2/
+--card->cm-paper or cm-subtle for inset rows, --border->cm-border, --muted/
+--muted-fg->cm-muted, --fg->cm-fg, --accent->cm-accent); (b) shadcn palette
+(bg-background->cm-bg, bg-card->cm-paper, text-muted-foreground->cm-muted,
+border-border->cm-border, bg-muted->cm-subtle, bg-primary text-primary-foreground
+-> bg-cm-fg text-cm-bg ink button). Status/feedback ALWAYS routes through the brand
+inks: --cm-success (green, 10%% rgba(47,122,85,0.10) tint), --cm-cite gold caution
+(bg-cm-cite-bg/border-cm-cite-line/text-cm-cite), --cm-danger (red, 10%%
+rgba(180,66,60,0.10) tint). Hoist repeated input classes to a const INPUT_CLS on
+bg-cm-bg + placeholder:text-cm-faint + focus:ring-cm-accent. Wire SettingsCardSkeleton
+into any bare-Spinner loading state while you're in the page. Group each tick by
+visual coherence.
+
+RE-THEME BATCH D - workspace/account --var settings (foreign --var, cohere as a group):
+- [ ] feat(web/settings/whoami): re-theme off --var (also has stray shadcn tokens);
+  the identity/claims card surfaces onto cm-paper.
+- [ ] feat(web/settings/retention): re-theme; the retention-window form + any
+  destructive purge action -> --cm-danger, saved -> --cm-success.
+- [ ] feat(web/settings/warrant-canary): re-theme; a healthy/current canary -> 
+  --cm-success, an overdue/expired statement -> cite-gold caution.
+- [ ] feat(web/settings/workspace-deletion): re-theme; this is a pure destructive
+  page - the delete-workspace confirm flow should read entirely through --cm-danger.
+- [ ] feat(web/settings/scim): re-theme the SCIM provisioning page; enabled state
+  -> accent/--cm-success, the bearer-token reveal panel -> cite-gold caution surface.
+
+RE-THEME BATCH E - access-policy --var settings (foreign --var, cohere as a group):
+- [ ] feat(web/settings/session-policy): re-theme; active policy -> --cm-success.
+- [ ] feat(web/settings/mfa-policy): re-theme; enforced -> --cm-success, optional ->
+  cite caution, the require-MFA toggle "on" -> accent.
+- [ ] feat(web/settings/offboarding): re-theme the deprovisioning flow off --var.
+- [ ] feat(web/settings/domains): re-theme; verified domain -> --cm-success, pending
+  -> cite caution, the verification TXT-record block -> bg-cm-subtle.
+- [ ] feat(web/settings/api-key-bruteforce): re-theme the lockout-threshold page;
+  the tripped/locked state -> --cm-danger, armed -> --cm-success.
+
+RE-THEME BATCH F - API-key policy settings (shadcn palette, cohere as a group):
+- [ ] feat(web/settings/api-key-policy): re-theme off bg-card/text-muted-foreground/
+  bg-primary; the save CTA -> bg-cm-fg ink button.
+- [ ] feat(web/settings/api-key-expiry): re-theme; expiry-enforced -> --cm-success.
+- [ ] feat(web/settings/api-key-inactivity): re-theme; the auto-revoke window form.
+- [ ] feat(web/settings/quota): re-theme the usage-quota page; over-quota -> 
+  --cm-danger, near-limit -> cite caution, healthy -> --cm-success.
+- [ ] feat(web/settings/model-allowlist): re-theme; allowed model chips through cm
+  inks, the add/remove buttons -> ink + --cm-danger.
+
 
 CHAT SURFACE (still the biggest product gap; pull one in if a re-theme batch
 doesn't cohere):
