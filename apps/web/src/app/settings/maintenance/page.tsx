@@ -48,17 +48,17 @@ const CONFIRM_PHRASE = 'FORGET';
 
 export default function MaintenancePage() {
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-4xl px-4 py-8">
         <header className="mb-6">
-          <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
-            <Link href="/settings" className="hover:text-[var(--fg)]">Settings</Link>
+          <div className="flex items-center gap-2 text-sm text-cm-muted">
+            <Link href="/settings" className="hover:text-cm-fg">Settings</Link>
             <IconArrowRight size={12} />
             <span>Maintenance</span>
           </div>
           <h1 className="mt-1 text-2xl font-medium tracking-tight">Storage maintenance</h1>
-          <p className="mt-1 max-w-2xl text-sm text-[var(--fg-muted)]">
+          <p className="mt-1 max-w-2xl text-sm text-cm-muted">
             Reclaim space from sources that have been removed from disk, and bulk forget any indexed file that
             matches a glob. Owner only. Every non-preview run requires a fresh MFA step-up and is written to the
             tamper-evident audit log.
@@ -68,8 +68,8 @@ export default function MaintenancePage() {
         <CompactCard />
         <ForgetCard />
 
-        <div className="mt-8 text-xs text-[var(--fg-muted)]">
-          <Link href="/settings" className="inline-flex items-center gap-1 hover:text-[var(--fg)]">
+        <div className="mt-8 text-xs text-cm-muted">
+          <Link href="/settings" className="inline-flex items-center gap-1 hover:text-cm-fg">
             <IconSettings size={12} /> Back to settings
           </Link>
         </div>
@@ -121,15 +121,15 @@ function CompactCard() {
   const canApply = preview !== null && preview.removed > 0 && !applyBusy;
 
   return (
-    <section className="rounded-lg border border-[var(--border)] bg-[var(--card)]">
-      <header className="flex items-start justify-between gap-3 border-b border-[var(--border)] px-4 py-3">
+    <section className="rounded-lg border border-cm-border bg-cm-paper">
+      <header className="flex items-start justify-between gap-3 border-b border-cm-border px-4 py-3">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] text-[var(--fg-muted)]">
+          <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-md border border-cm-border bg-cm-subtle text-cm-accent">
             <IconDatabase size={14} />
           </span>
           <div>
             <h2 className="text-sm font-medium">Compact dangling rows</h2>
-            <p className="text-xs text-[var(--fg-muted)]">
+            <p className="text-xs text-cm-muted">
               Drop manifest, BM25, and vector entries for source files that no longer exist on disk.
               Always previews first.
             </p>
@@ -139,7 +139,7 @@ function CompactCard() {
           type="button"
           onClick={() => void runPreview()}
           disabled={previewLoading || applyBusy}
-          className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs hover:bg-[var(--bg)] disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-md border border-cm-border px-2.5 py-1.5 text-xs hover:bg-cm-subtle disabled:opacity-60"
         >
           {previewLoading ? <Spinner size={12} /> : <IconRefresh size={12} />} Re-scan
         </button>
@@ -163,22 +163,22 @@ function CompactCard() {
             </dl>
             {preview.removedPaths && preview.removedPaths.length > 0 ? (
               <div className="mt-3">
-                <div className="mb-1 text-xs text-[var(--fg-muted)]">
+                <div className="mb-1 text-xs text-cm-muted">
                   {preview.removed > preview.removedPaths.length
                     ? `First ${preview.removedPaths.length} of ${preview.removed} paths`
                     : 'Paths'}
                 </div>
-                <ul className="max-h-48 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--bg)] p-2 text-xs">
+                <ul className="max-h-48 overflow-y-auto rounded-md border border-cm-border bg-cm-bg p-2 text-xs">
                   {preview.removedPaths.map((p) => (
                     <li key={p} className="truncate font-mono" title={p}>{p}</li>
                   ))}
                 </ul>
               </div>
             ) : preview.removed === 0 ? (
-              <p className="mt-3 text-xs text-[var(--fg-muted)]">Nothing to compact. Every indexed source is still on disk.</p>
+              <p className="mt-3 text-xs text-cm-muted">Nothing to compact. Every indexed source is still on disk.</p>
             ) : null}
             {applied ? (
-              <p className="mt-3 inline-flex items-center gap-2 text-xs text-[var(--fg)]">
+              <p className="mt-3 inline-flex items-center gap-2 text-xs text-[var(--cm-success)]">
                 <IconCheck size={12} /> Removed {applied.removed} entries. The cache has been cleared.
               </p>
             ) : null}
@@ -189,12 +189,12 @@ function CompactCard() {
         ) : null}
       </div>
 
-      <footer className="flex items-center justify-end gap-2 border-t border-[var(--border)] px-4 py-3">
+      <footer className="flex items-center justify-end gap-2 border-t border-cm-border px-4 py-3">
         <button
           type="button"
           onClick={runApply}
           disabled={!canApply}
-          className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--fg)] px-3 py-1.5 text-sm text-[var(--bg)] hover:opacity-90 disabled:opacity-50"
+          className="inline-flex items-center gap-2 rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-3 py-1.5 text-sm font-medium text-[var(--cm-danger)] transition hover:bg-[rgba(180,66,60,0.18)] disabled:opacity-50"
         >
           {applyBusy ? <Spinner size={12} /> : <IconTrash size={12} />}
           Compact {preview && preview.removed > 0 ? `(${preview.removed})` : ''}
@@ -265,15 +265,15 @@ function ForgetCard() {
   };
 
   return (
-    <section className="mt-6 rounded-lg border border-[var(--border)] bg-[var(--card)]">
-      <header className="border-b border-[var(--border)] px-4 py-3">
+    <section className="mt-6 rounded-lg border border-cm-border bg-cm-paper">
+      <header className="border-b border-cm-border px-4 py-3">
         <div className="flex items-start gap-3">
-          <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-md border border-[var(--border)] text-[var(--fg-muted)]">
+          <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-md border border-cm-border bg-cm-subtle text-cm-accent">
             <IconShield size={14} />
           </span>
           <div>
             <h2 className="text-sm font-medium">Bulk forget by pattern</h2>
-            <p className="text-xs text-[var(--fg-muted)]">
+            <p className="text-xs text-cm-muted">
               Remove every indexed source whose absolute path matches one of the globs. Used for GDPR
               right-to-be-forgotten requests when the underlying files are already gone.
             </p>
@@ -283,16 +283,16 @@ function ForgetCard() {
 
       <div className="grid gap-4 px-4 py-4 text-sm">
         <label className="grid gap-1">
-          <span className="text-xs text-[var(--fg-muted)]">Glob patterns (one per line, up to 50)</span>
+          <span className="text-xs text-cm-muted">Glob patterns (one per line, up to 50)</span>
           <textarea
             value={patternsText}
             onChange={(e) => { setPatternsText(e.target.value); reset(); }}
             rows={4}
             spellCheck={false}
             placeholder={'/data/customers/acme/**\n/data/imports/*.pdf'}
-            className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 font-mono text-xs outline-none focus:border-[var(--fg-muted)]"
+            className="rounded-md border border-cm-border bg-cm-bg px-2.5 py-1.5 font-mono text-xs outline-none focus:border-cm-accent focus:ring-2 focus:ring-cm-accent"
           />
-          <span className="text-[11px] text-[var(--fg-muted)]">
+          <span className="text-[11px] text-cm-muted">
             picomatch syntax. {patterns.length} pattern{patterns.length === 1 ? '' : 's'} ready.
           </span>
         </label>
@@ -302,7 +302,7 @@ function ForgetCard() {
             type="button"
             onClick={() => void runPreview()}
             disabled={previewBusy || patterns.length === 0}
-            className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-[var(--bg)] disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-md border border-cm-border px-3 py-1.5 text-sm hover:bg-cm-subtle disabled:opacity-50"
           >
             {previewBusy ? <Spinner size={12} /> : <IconRefresh size={12} />} Preview matches
           </button>
@@ -313,31 +313,31 @@ function ForgetCard() {
         ) : null}
 
         {preview ? (
-          <div className="rounded-md border border-[var(--border)] bg-[var(--bg)] p-3">
+          <div className="rounded-md border border-cm-border bg-cm-bg p-3">
             <dl className="grid grid-cols-2 gap-3 text-sm">
               <Stat label="Sources matched" value={preview.matched} tone={preview.matched > 0 ? 'warn' : 'ok'} />
               <Stat label="Chunks to remove" value={preview.removedChunks} tone={preview.removedChunks > 0 ? 'warn' : 'ok'} />
             </dl>
             {preview.removedPaths.length > 0 ? (
-              <ul className="mt-3 max-h-48 overflow-y-auto rounded border border-[var(--border)] bg-[var(--card)] p-2 text-xs">
+              <ul className="mt-3 max-h-48 overflow-y-auto rounded border border-cm-border bg-cm-paper p-2 text-xs">
                 {preview.removedPaths.map((p) => (
                   <li key={p} className="truncate font-mono" title={p}>{p}</li>
                 ))}
               </ul>
             ) : (
-              <p className="mt-3 text-xs text-[var(--fg-muted)]">No indexed paths match these globs.</p>
+              <p className="mt-3 text-xs text-cm-muted">No indexed paths match these globs.</p>
             )}
 
             {preview.matched > 0 ? (
-              <div className="mt-4 rounded-md border border-[var(--border)] bg-[var(--card)] p-3">
+              <div className="mt-4 rounded-md border border-cm-border bg-cm-paper p-3">
                 <label className="grid gap-1">
-                  <span className="text-xs text-[var(--fg-muted)]">
+                  <span className="text-xs text-cm-muted">
                     Type <code className="font-mono">{CONFIRM_PHRASE}</code> to confirm. This call requires an active MFA step-up.
                   </span>
                   <input
                     value={confirm}
                     onChange={(e) => setConfirm(e.target.value)}
-                    className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5 text-sm outline-none focus:border-[var(--fg-muted)]"
+                    className="rounded-md border border-cm-border bg-cm-bg px-2.5 py-1.5 text-sm outline-none focus:border-cm-accent focus:ring-2 focus:ring-cm-accent"
                     spellCheck={false}
                     autoComplete="off"
                   />
@@ -347,7 +347,7 @@ function ForgetCard() {
                     type="button"
                     onClick={runApply}
                     disabled={applyBusy || confirm !== CONFIRM_PHRASE}
-                    className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--fg)] px-3 py-1.5 text-sm text-[var(--bg)] hover:opacity-90 disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-3 py-1.5 text-sm font-medium text-[var(--cm-danger)] transition hover:bg-[rgba(180,66,60,0.18)] disabled:opacity-50"
                   >
                     {applyBusy ? <Spinner size={12} /> : <IconTrash size={12} />}
                     Forget {preview.matched} source{preview.matched === 1 ? '' : 's'}
@@ -372,10 +372,10 @@ function ForgetCard() {
 }
 
 function Stat({ label, value, tone = 'default' }: { label: string; value: number; tone?: 'default' | 'ok' | 'warn' }) {
-  const color = tone === 'warn' ? 'text-[var(--fg)]' : tone === 'ok' ? 'text-[var(--fg-muted)]' : 'text-[var(--fg)]';
+  const color = tone === 'warn' ? 'text-cm-cite' : tone === 'ok' ? 'text-cm-muted' : 'text-cm-fg';
   return (
     <div>
-      <div className="text-xs text-[var(--fg-muted)]">{label}</div>
+      <div className="text-xs text-cm-muted">{label}</div>
       <div className={`mt-0.5 text-lg font-medium tabular-nums ${color}`}>{value.toLocaleString()}</div>
     </div>
   );
@@ -386,8 +386,8 @@ function CompactSkeleton() {
     <div className="grid grid-cols-3 gap-3">
       {Array.from({ length: 3 }).map((_, i) => (
         <div key={i}>
-          <div className="h-3 w-16 animate-pulse rounded bg-[var(--border)]" />
-          <div className="mt-2 h-5 w-12 animate-pulse rounded bg-[var(--border)]" />
+          <div className="h-3 w-16 animate-pulse rounded bg-cm-subtle" />
+          <div className="mt-2 h-5 w-12 animate-pulse rounded bg-cm-subtle" />
         </div>
       ))}
     </div>
