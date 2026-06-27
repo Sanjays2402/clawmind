@@ -127,17 +127,19 @@ export default function EncryptionPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <IconKey size={22} />
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-accent">
+              <IconKey size={22} />
+            </span>
             <div>
               <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
                 Encryption keys
               </h1>
-              <p className="text-sm text-[var(--muted-fg)]">
+              <p className="text-sm text-cm-muted">
                 Manage the workspace key encryption key (KEK) and rotate the
                 data encryption key (DEK). Owner-only, MFA required.
               </p>
@@ -145,7 +147,7 @@ export default function EncryptionPage() {
           </div>
           <Link
             href="/settings"
-            className="inline-flex items-center gap-1 text-sm text-[var(--muted-fg)] hover:text-[var(--fg)]"
+            className="inline-flex items-center gap-1 text-sm text-cm-muted hover:text-cm-fg"
           >
             Back to settings <IconArrowRight size={14} />
           </Link>
@@ -162,42 +164,44 @@ export default function EncryptionPage() {
             <section
               className={`rounded-lg border p-5 ${
                 status.kekKind === 'customer'
-                  ? 'border-emerald-500/50 bg-emerald-500/10'
-                  : 'border-[var(--border)] bg-[var(--card)]'
+                  ? 'border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)]'
+                  : 'border-cm-border bg-cm-paper'
               }`}
             >
               <div className="flex items-start gap-3">
-                {status.kekKind === 'customer' ? (
-                  <IconShield size={22} />
-                ) : (
-                  <IconCheck size={22} />
-                )}
+                <span className={status.kekKind === 'customer' ? 'text-[var(--cm-success)]' : 'text-cm-accent'}>
+                  {status.kekKind === 'customer' ? (
+                    <IconShield size={22} />
+                  ) : (
+                    <IconCheck size={22} />
+                  )}
+                </span>
                 <div className="flex-1 text-sm">
                   <div className="font-medium">
                     {status.kekKind === 'customer'
                       ? 'Customer-managed KEK is active'
                       : 'Internal KEK in force'}
                   </div>
-                  <div className="mt-1 text-[var(--muted-fg)]">
+                  <div className="mt-1 text-cm-muted">
                     {status.kekKind === 'customer'
                       ? 'Your supplied 32-byte key wraps the workspace DEK. The plaintext KEK is held only in memory at upload time and never persisted.'
                       : 'Data is encrypted with a workspace-local DEK wrapped by the server master key. Upload a customer KEK below to take control.'}
                   </div>
                   <dl className="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-xs sm:grid-cols-2">
                     <div>
-                      <dt className="text-[var(--muted-fg)]">KEK fingerprint</dt>
+                      <dt className="text-cm-muted">KEK fingerprint</dt>
                       <dd className="font-mono">{status.kekFingerprintShort}...</dd>
                     </div>
                     <div>
-                      <dt className="text-[var(--muted-fg)]">Active key id</dt>
+                      <dt className="text-cm-muted">Active key id</dt>
                       <dd className="font-mono">{status.activeKeyId}</dd>
                     </div>
                     <div>
-                      <dt className="text-[var(--muted-fg)]">Active since</dt>
+                      <dt className="text-cm-muted">Active since</dt>
                       <dd>{fmtDate(status.activeKeyCreatedAt)}</dd>
                     </div>
                     <div>
-                      <dt className="text-[var(--muted-fg)]">Archived keys</dt>
+                      <dt className="text-cm-muted">Archived keys</dt>
                       <dd>{status.archivedKeyCount}</dd>
                     </div>
                   </dl>
@@ -206,13 +210,13 @@ export default function EncryptionPage() {
             </section>
 
             {notice ? (
-              <div className="flex items-start gap-2 rounded-lg border border-emerald-500/50 bg-emerald-500/10 p-3 text-sm">
+              <div className="flex items-start gap-2 rounded-lg border border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] p-3 text-sm text-[var(--cm-success)]">
                 <IconCheck size={16} />
                 <span>{notice}</span>
               </div>
             ) : null}
             {actionError ? (
-              <div className="flex items-start gap-2 rounded-lg border border-red-500/60 bg-red-500/10 p-3 text-sm">
+              <div className="flex items-start gap-2 rounded-lg border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] p-3 text-sm text-[var(--cm-danger)]">
                 <IconWarning size={16} />
                 <span>{actionError}</span>
               </div>
@@ -221,11 +225,11 @@ export default function EncryptionPage() {
             {status.kekKind === 'internal' ? (
               <form
                 onSubmit={upload}
-                className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-5"
+                className="space-y-4 rounded-lg border border-cm-border bg-cm-paper p-5"
               >
                 <div>
                   <h2 className="text-base font-semibold">Upload a customer KEK</h2>
-                  <p className="mt-1 text-sm text-[var(--muted-fg)]">
+                  <p className="mt-1 text-sm text-cm-muted">
                     Provide a 32-byte AES-256 key as base64. The active DEK is
                     rewrapped under your key; we never write the plaintext KEK
                     to disk. Audit logged.
@@ -242,10 +246,10 @@ export default function EncryptionPage() {
                     value={kek}
                     onChange={(e) => setKek(e.target.value)}
                     placeholder="base64 of 32 random bytes"
-                    className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                    className="w-full rounded-md border border-cm-border bg-cm-bg px-3 py-2 font-mono text-sm placeholder:text-cm-faint focus:outline-none focus:ring-2 focus:ring-cm-accent"
                     required
                   />
-                  <p className="text-xs text-[var(--muted-fg)]">
+                  <p className="text-xs text-cm-muted">
                     Generate locally, for example:{' '}
                     <code className="font-mono">openssl rand -base64 32</code>
                   </p>
@@ -253,17 +257,17 @@ export default function EncryptionPage() {
                 <button
                   type="submit"
                   disabled={busy === 'upload' || kek.trim().length === 0}
-                  className="inline-flex items-center gap-1.5 rounded-md bg-[var(--accent)] px-3 py-1.5 text-sm font-medium text-[var(--accent-fg)] hover:opacity-90 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-cm-fg px-3 py-1.5 text-sm font-medium text-cm-bg transition hover:opacity-90 disabled:opacity-50"
                 >
                   {busy === 'upload' ? <Spinner /> : <IconShield size={14} />}
                   Upload customer KEK
                 </button>
               </form>
             ) : (
-              <section className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-5">
+              <section className="space-y-4 rounded-lg border border-cm-border bg-cm-paper p-5">
                 <div>
                   <h2 className="text-base font-semibold">Active customer KEK</h2>
-                  <p className="mt-1 text-sm text-[var(--muted-fg)]">
+                  <p className="mt-1 text-sm text-cm-muted">
                     Supply the current KEK to authorise destructive actions
                     (rotation, removal). Each action is audit logged.
                   </p>
@@ -279,14 +283,14 @@ export default function EncryptionPage() {
                     value={confirmKek}
                     onChange={(e) => setConfirmKek(e.target.value)}
                     placeholder="base64 of the active customer KEK"
-                    className="w-full rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+                    className="w-full rounded-md border border-cm-border bg-cm-bg px-3 py-2 font-mono text-sm placeholder:text-cm-faint focus:outline-none focus:ring-2 focus:ring-cm-accent"
                   />
                 </div>
                 <button
                   type="button"
                   onClick={remove}
                   disabled={busy !== null}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-red-500/60 bg-red-500/10 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-500/20 disabled:opacity-50 dark:text-red-300"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-3 py-1.5 text-sm font-medium text-[var(--cm-danger)] transition hover:bg-[rgba(180,66,60,0.18)] disabled:opacity-50"
                 >
                   {busy === 'remove' ? <Spinner /> : <IconWarning size={14} />}
                   Remove customer KEK
@@ -294,10 +298,10 @@ export default function EncryptionPage() {
               </section>
             )}
 
-            <section className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--card)] p-5">
+            <section className="space-y-3 rounded-lg border border-cm-border bg-cm-paper p-5">
               <div>
                 <h2 className="text-base font-semibold">Rotate data encryption key</h2>
-                <p className="mt-1 text-sm text-[var(--muted-fg)]">
+                <p className="mt-1 text-sm text-cm-muted">
                   Mints a fresh DEK wrapped under the active KEK. Up to{' '}
                   {16} prior DEKs are retained so existing ciphertext keeps
                   decrypting.
@@ -307,7 +311,7 @@ export default function EncryptionPage() {
                 type="button"
                 onClick={rotate}
                 disabled={busy !== null}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-1.5 text-sm font-medium hover:bg-[var(--bg-elev)] disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm font-medium transition hover:bg-cm-subtle disabled:opacity-50"
               >
                 {busy === 'rotate' ? <Spinner /> : <IconRefresh size={14} />}
                 Rotate DEK now
@@ -315,17 +319,17 @@ export default function EncryptionPage() {
             </section>
 
             {status.archivedKeys.length > 0 ? (
-              <section className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-5">
+              <section className="rounded-lg border border-cm-border bg-cm-paper p-5">
                 <h2 className="text-base font-semibold">Archived keys</h2>
-                <p className="mt-1 text-sm text-[var(--muted-fg)]">
+                <p className="mt-1 text-sm text-cm-muted">
                   Previously active DEKs. Kept so older encrypted artifacts
                   remain readable. Bounded to the most recent {16}.
                 </p>
-                <ul className="mt-3 divide-y divide-[var(--border)] text-sm">
+                <ul className="mt-3 divide-y divide-cm-border text-sm">
                   {status.archivedKeys.map((a) => (
                     <li key={a.keyId} className="flex items-center justify-between gap-3 py-2">
                       <span className="truncate font-mono text-xs">{a.keyId}</span>
-                      <span className="shrink-0 text-xs text-[var(--muted-fg)]">
+                      <span className="shrink-0 text-xs text-cm-muted">
                         {a.wrappedByKekKind} kek {a.wrappedByKekFingerprintShort}... ·{' '}
                         {fmtDate(a.createdAt)}
                       </span>
