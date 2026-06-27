@@ -37,6 +37,54 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-27 13:08 PDT - RE-THEME BATCH E: access-policy settings (5 slices)
+
+Finished BATCH E - the five access-policy pages still on the foreign --var palette.
+Confirmed the drift is REAL not cosmetic (same finding as every prior re-theme
+tick): --bg / --surface / --surface-1 / --surface-2 / --surface-hover / --card /
+--border / --muted / --muted-fg / --fg-muted / --fg / --accent / --text-muted are
+DEFINED NOWHERE in the app (only --cm-* ships in tokens.css), so all five rendered
+on broken fallbacks - cards with no surface fill, "accent" buttons with no brand
+color, muted copy at full ink - PLUS heavy raw emerald/amber/red status surfaces
+(mfa-policy + api-key-bruteforce each carried hand-rolled light+dark amber/emerald
+variants) that ignore the brand. Each slice got a genuine UX upgrade on top of the
+mechanical map: session-policy a NEW state-driven live banner (any cap active ->
+success wash / no cap -> cite caution so an unbounded policy reads as the posture
+gap it is); mfa-policy's enforced/off banner through success/cite + all danger
+paths to --cm-danger; offboarding's section count chip state-driven (0 orphans ->
+success, any -> cite) + Revoke to legible --cm-danger; domains' FIELD_CLS hoist +
+ink Save + danger save-error + brand-accent checkboxes; api-key-bruteforce a NEW
+at-a-glance posture chip (locked now -> danger "Lockout active" / else success
+"Armed and clear") + an eventChipClass routing throttle-log events through state
+(lock=danger incident, unlock=success recovery, fail=neutral). Four pages traded a
+bare inline Spinner for the shared SettingsCardSkeleton; three hoisted a shared
+INPUT_CLS/FIELD_CLS.
+
+Gated ONCE for the batch: web typecheck GREEN, web build GREEN (all routes
+compiled, incl. the 5 - /settings/session-policy, /mfa-policy, /offboarding,
+/domains, /api-key-bruteforce), @clawmind/ui build GREEN. Batch diff is exactly 5
+files, all under apps/web/src/app/settings/, 0 telemetry (ci:verify's only red
+remains the pre-existing, unrelated @clawmind/telemetry OTel SDK version-skew, never
+touched this tick). Pushed fe51b45..dd20e56:
+- 2620186 feat(web/settings/session-policy): off --surface-1/2/--accent/--text-muted;
+  NEW state-driven cap banner (success/cite); INPUT_CLS; ink Save; SettingsCardSkeleton.
+- 7e142a8 feat(web/settings/mfa-policy): off --var + raw emerald/amber; enforced ->
+  --cm-success, off -> cite caution; danger Disable + error; INPUT_CLS; skeleton.
+- 286290f feat(web/settings/offboarding): off --var; count chip state-driven (0 ->
+  success / any -> cite); Revoke -> --cm-danger; success/danger banners; skeleton.
+- 8eb228c feat(web/settings/domains): off --var + raw amber; FIELD_CLS; ink Save;
+  --cm-danger save-error; brand-accent checkboxes; danger remove-hover; skeleton.
+- dd20e56 feat(web/settings/api-key-bruteforce): off --var + raw amber/emerald; NEW
+  posture chip (locked=danger / armed=success); eventChipClass; danger locked rows.
+
+NEXT TICK: the --var cluster is now essentially EXHAUSTED - only /settings/dsr still
+carries stray --var tokens (mostly shadcn). The remaining drift is the SHADCN
+palette (~25 pages: bg-card / text-muted-foreground / bg-primary / bg-background /
+border-border / bg-muted). BATCH F (API-key policy: api-key-policy, api-key-expiry,
+api-key-inactivity, quota, model-allowlist) is queued below and coheres as a group.
+After F, the CHAT SURFACE per-message history item is still the biggest remaining
+product gap - pull it in if a re-theme batch doesn't cohere.
+
 ### TICK LOG 2026-06-27 08:27 PDT - RE-THEME BATCH D: workspace/account settings (5 slices)
 
 Finished BATCH D - the five workspace/account settings pages still on the foreign
@@ -329,15 +377,23 @@ RE-THEME BATCH D - workspace/account --var settings - DONE 2026-06-27 08:27:
   Active chip -> --cm-success, error pill -> --cm-danger; Mint/Rotate -> ink, Revoke
   -> --cm-danger; bare Spinner -> SettingsCardSkeleton.
 
-RE-THEME BATCH E - access-policy --var settings (foreign --var, cohere as a group):
-- [ ] feat(web/settings/session-policy): re-theme; active policy -> --cm-success.
-- [ ] feat(web/settings/mfa-policy): re-theme; enforced -> --cm-success, optional ->
-  cite caution, the require-MFA toggle "on" -> accent.
-- [ ] feat(web/settings/offboarding): re-theme the deprovisioning flow off --var.
-- [ ] feat(web/settings/domains): re-theme; verified domain -> --cm-success, pending
-  -> cite caution, the verification TXT-record block -> bg-cm-subtle.
-- [ ] feat(web/settings/api-key-bruteforce): re-theme the lockout-threshold page;
-  the tripped/locked state -> --cm-danger, armed -> --cm-success.
+RE-THEME BATCH E - access-policy --var settings - DONE 2026-06-27 13:08:
+- [x] feat(web/settings/session-policy): SHIPPED 2620186 - off --surface-1/2/--accent/
+  --text-muted; NEW state-driven live banner (any cap active -> --cm-success wash, no
+  cap -> --cm-cite caution); INPUT_CLS hoist; ink Save; bare Spinner -> SettingsCardSkeleton.
+- [x] feat(web/settings/mfa-policy): SHIPPED 7e142a8 - off --var + raw emerald/amber;
+  enforced banner -> --cm-success, off -> --cm-cite caution; grace INPUT_CLS; Enable ->
+  ink, Disable + error -> --cm-danger; Saved -> --cm-success; skeleton.
+- [x] feat(web/settings/offboarding): SHIPPED 286290f - off --var; section count chip
+  state-driven (0 orphans -> --cm-success, any -> --cm-cite caution); per-orphan Revoke
+  -> --cm-danger; action-error danger / revoked success banners; brand icon tile; skeleton.
+- [x] feat(web/settings/domains): SHIPPED 8eb228c - off --var + raw amber-600; FIELD_CLS
+  hoist (domain input + role select); ink Save; --cm-danger save-error surface; Saved ->
+  --cm-success; brand-accent checkboxes; remove-button danger hover; skeleton.
+- [x] feat(web/settings/api-key-bruteforce): SHIPPED dd20e56 - off --var + raw amber/
+  emerald light+dark; NEW posture chip (locked now -> --cm-danger "Lockout active", else
+  --cm-success "Armed and clear"); eventChipClass routes log events (lock=danger, unlock=
+  success, fail=neutral); locked rows + summary -> --cm-danger, tracking -> --cm-cite; skeleton.
 
 RE-THEME BATCH F - API-key policy settings (shadcn palette, cohere as a group):
 - [ ] feat(web/settings/api-key-policy): re-theme off bg-card/text-muted-foreground/
