@@ -37,6 +37,36 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-27 00:36 PDT - RE-THEME BATCH B: foreign --var settings (5 slices)
+
+Finished BATCH B - the five settings pages still built on the foreign --var
+palette. Verified the drift is REAL not cosmetic (same finding as the 18:01 +
+22:27 ticks): --bg / --card / --border / --muted-fg / --fg-muted / --bg-elev /
+--bg-hover / --accent / --accent-fg are DEFINED NOWHERE in the app (only --cm-*
+ships in tokens.css), so every one of these pages rendered on broken fallbacks -
+muted copy inherited full --cm-fg, cards had no surface fill, "accent" buttons
+had no brand color, and danger/destructive actions rendered on raw
+emerald/amber/red that ignore the brand. Gated: web typecheck GREEN, web build
+GREEN (all routes compiled, incl. the 5 re-themed), @clawmind/ui build GREEN.
+ci:verify's only red remains the pre-existing, unrelated @clawmind/telemetry
+OTel SDK version-skew in packages/telemetry/src/tracing.ts - NEVER touched this
+tick (batch diff is 5 files, all under apps/web/src/app/settings/, 0 telemetry).
+Pushed 58c7c88..b66f94f:
+- 2c23dd8 feat(web/settings/encryption): KEK-active -> --cm-success; upload =
+  bg-cm-fg ink button, remove -> --cm-danger, rotate -> neutral cm-border.
+- b9117ec feat(web/settings/workspace-freeze): FROZEN banner -> cite-gold caution
+  surface (intentional pause, not a hard fail); Freeze/Update ink button.
+- 882bdef feat(web/settings/sso): status chip through brand inks (enforced=success,
+  available=accent, not-configured=cite caution); Continue-with-SSO ink button.
+- dc00d85 feat(web/settings/mfa): enabled=success / not-enabled=cite; all three
+  danger paths -> --cm-danger; current-browser badge reuses the sessions accent chip.
+- b66f94f feat(web/settings/maintenance): both destructive apply buttons (Compact,
+  Forget) -> --cm-danger so the delete reads as dangerous; Stat warn = cite caution.
+
+NEXT TICK: BATCH C - compliance/legal settings (legal-hold, sub-processors, ropa,
+dpa, erasure-certificates). After C, the CHAT SURFACE per-message history item is
+the biggest remaining product gap - pull it in if a re-theme batch doesn't cohere.
+
 ### TICK LOG 2026-06-26 22:27 PDT - cm-* utility-layer FIX + access/identity re-theme (5 slices)
 
 CRITICAL FINDING this tick (verified against the compiled CSS across all
@@ -137,15 +167,31 @@ RE-THEME BATCH A - access/identity settings (shadcn palette, cohere as a group):
   pending -> neutral muted; campaign open -> cite caution, closed -> success.
 
 RE-THEME BATCH B - foreign --var settings (mechanical map, cohere as a group):
-- [ ] feat(web/settings/encryption): re-theme off --card/--muted-fg/--bg-elev/
+- [x] feat(web/settings/encryption): re-theme off --card/--muted-fg/--bg-elev/
   --accent onto cm-*; KEK-active panel through --cm-success; SettingsCardSkeleton
-  already wired, keep it. (Reference page used in this tick's study.)
-- [ ] feat(web/settings/sso): re-theme off the foreign --var palette onto cm-*.
-- [ ] feat(web/settings/mfa): re-theme; enrolled/unenrolled states through cm inks.
-- [ ] feat(web/settings/maintenance): re-theme the storage-maintenance page;
-  compact/forget destructive actions through --cm-danger.
-- [ ] feat(web/settings/workspace-freeze): re-theme; the frozen-state banner
-  through the cite-gold caution surface.
+  already wired, keep it. (Reference page used in this tick's study.) SHIPPED
+  2c23dd8 (this tick): KEK-active banner -> --cm-success 10%% tint, internal-KEK
+  check tints accent; upload is a real bg-cm-fg ink button, remove -> --cm-danger,
+  rotate -> neutral cm-border; inputs bg-cm-bg focus:ring-cm-accent; skeleton kept.
+- [x] feat(web/settings/sso): re-theme off the foreign --var palette onto cm-*.
+  SHIPPED 882bdef (this tick): status chip routes through brand inks (enforced ->
+  --cm-success, available -> cm accent, not-configured -> cite-gold caution);
+  Continue-with-SSO -> bg-cm-fg ink button; allowed-domain checks tint success;
+  env block + inline code on bg-cm-subtle.
+- [x] feat(web/settings/mfa): re-theme; enrolled/unenrolled states through cm inks.
+  SHIPPED dc00d85 (this tick): enabled -> --cm-success, not-enabled -> cite caution;
+  Disable/Revoke-all/revoke-device + error -> --cm-danger; current-browser badge
+  reuses the sessions accent chip; Start/Confirm/Verify now real ink buttons.
+- [x] feat(web/settings/maintenance): re-theme the storage-maintenance page;
+  compact/forget destructive actions through --cm-danger. SHIPPED b66f94f (this
+  tick): both apply buttons (Compact, Forget) -> --cm-danger so the delete is
+  legible; Stat warn tone -> cite-gold caution, success line -> --cm-success;
+  section icon tiles tint accent; skeleton shimmer + inputs on cm surfaces.
+- [x] feat(web/settings/workspace-freeze): re-theme; the frozen-state banner
+  through the cite-gold caution surface. SHIPPED b9117ec (this tick): FROZEN banner
+  -> border-cm-cite-line/bg-cm-cite-bg/text-cm-cite (intentional caution, not a
+  hard fail); live state tints success; Freeze/Update -> bg-cm-fg ink button,
+  Release -> neutral cm-border; error -> --cm-danger, saved -> --cm-success.
 
 RE-THEME BATCH C - compliance/legal settings (mixed palette, cohere by section):
 - [ ] feat(web/settings/legal-hold): re-theme; active-hold banner -> cite caution.
