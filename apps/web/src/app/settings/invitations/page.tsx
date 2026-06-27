@@ -51,16 +51,20 @@ function roleLabel(r: MemberRole): string {
   return ROLE_OPTIONS.find((o) => o.value === r)?.label ?? r;
 }
 
+// Status chips route through the brand feedback inks so include/exclude-style
+// state reads at a glance on the warm paper-cream surface: pending uses the
+// citation gold (the app's caution ink), accepted uses --cm-success, revoked
+// uses --cm-danger, each with a 10% tint fill; expired is a calm neutral.
 function statusTone(status: InvitationRecord['status']): string {
   switch (status) {
     case 'pending':
-      return 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30';
+      return 'border-[var(--cm-cite-line)] bg-[var(--cm-cite-bg)] text-[var(--cm-cite)]';
     case 'accepted':
-      return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30';
+      return 'border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] text-[var(--cm-success)]';
     case 'revoked':
-      return 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/30';
+      return 'border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] text-[var(--cm-danger)]';
     case 'expired':
-      return 'bg-[var(--surface-muted)] text-[var(--muted)] border-[var(--border)]';
+      return 'border-[var(--cm-border)] bg-[var(--cm-subtle)] text-[var(--cm-muted)]';
   }
 }
 
@@ -176,7 +180,7 @@ export default function InvitationsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)]">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-8">
         <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -184,21 +188,21 @@ export default function InvitationsPage() {
             <h1 className="flex items-center gap-2 text-xl font-semibold sm:text-2xl">
               <IconAt size={22} /> Invitations
             </h1>
-            <p className="mt-1 text-sm text-[var(--muted)]">
+            <p className="mt-1 text-sm text-cm-muted">
               Email-bound, single-use links that grant a chosen role on first login.
             </p>
           </div>
           <div className="flex items-center gap-2">
             <Link
               href="/settings/members"
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-[var(--surface)]"
+              className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm hover:bg-cm-subtle"
             >
               <IconUsers size={16} /> Members
             </Link>
             <button
               type="button"
               onClick={() => setOpen((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-[var(--fg)] px-3 py-1.5 text-sm font-medium text-[var(--bg)] hover:opacity-90"
+              className="inline-flex items-center gap-1.5 rounded-md bg-cm-fg px-3 py-1.5 text-sm font-medium text-cm-bg hover:opacity-90"
             >
               <IconPlus size={16} /> New invite
             </button>
@@ -207,8 +211,8 @@ export default function InvitationsPage() {
 
         <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-4">
           {(['pending', 'accepted', 'revoked', 'expired'] as const).map((s) => (
-            <div key={s} className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5">
-              <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">{s}</div>
+            <div key={s} className="rounded-md border border-cm-border bg-cm-paper px-3 py-2.5">
+              <div className="text-[11px] uppercase tracking-wide text-cm-muted">{s}</div>
               <div className="mt-1 text-xl font-semibold tabular-nums">{counts[s]}</div>
             </div>
           ))}
@@ -217,11 +221,11 @@ export default function InvitationsPage() {
         {open && (
           <form
             onSubmit={submit}
-            className="mb-6 rounded-md border border-[var(--border)] bg-[var(--surface)] p-4"
+            className="mb-6 rounded-md border border-cm-border bg-cm-paper p-4"
           >
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-[var(--muted)]">Email</span>
+                <span className="text-cm-muted">Email</span>
                 <input
                   type="email"
                   required
@@ -229,41 +233,41 @@ export default function InvitationsPage() {
                   value={form.email}
                   onChange={(e) => setForm({ ...form, email: e.target.value })}
                   placeholder="alice@example.com"
-                  className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5"
+                  className="rounded-md border border-cm-border bg-cm-bg px-2.5 py-1.5 outline-none focus:border-cm-border-strong"
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-[var(--muted)]">Label (optional)</span>
+                <span className="text-cm-muted">Label (optional)</span>
                 <input
                   type="text"
                   maxLength={200}
                   value={form.label}
                   onChange={(e) => setForm({ ...form, label: e.target.value })}
                   placeholder="Engineering, finance, etc."
-                  className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5"
+                  className="rounded-md border border-cm-border bg-cm-bg px-2.5 py-1.5 outline-none focus:border-cm-border-strong"
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-[var(--muted)]">Role</span>
+                <span className="text-cm-muted">Role</span>
                 <select
                   value={form.role}
                   onChange={(e) => setForm({ ...form, role: e.target.value as MemberRole })}
-                  className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5"
+                  className="rounded-md border border-cm-border bg-cm-bg px-2.5 py-1.5 outline-none focus:border-cm-border-strong"
                 >
                   {ROLE_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
-                <span className="text-xs text-[var(--muted)]">
+                <span className="text-xs text-cm-muted">
                   {ROLE_OPTIONS.find((o) => o.value === form.role)?.help}
                 </span>
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <span className="text-[var(--muted)]">Expires after</span>
+                <span className="text-cm-muted">Expires after</span>
                 <select
                   value={form.ttlMs}
                   onChange={(e) => setForm({ ...form, ttlMs: Number(e.target.value) })}
-                  className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2.5 py-1.5"
+                  className="rounded-md border border-cm-border bg-cm-bg px-2.5 py-1.5 outline-none focus:border-cm-border-strong"
                 >
                   {TTL_PRESETS.map((p) => (
                     <option key={p.ms} value={p.ms}>{p.label}</option>
@@ -275,14 +279,14 @@ export default function InvitationsPage() {
               <button
                 type="submit"
                 disabled={submitting || !form.email.trim()}
-                className="inline-flex items-center gap-1.5 rounded-md bg-[var(--fg)] px-3 py-1.5 text-sm font-medium text-[var(--bg)] disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-md bg-cm-fg px-3 py-1.5 text-sm font-medium text-cm-bg hover:opacity-90 disabled:opacity-50"
               >
                 {submitting ? <Spinner size={14} /> : <IconCheck size={14} />} Send invite
               </button>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-[var(--surface)]"
+                className="rounded-md border border-cm-border px-3 py-1.5 text-sm hover:bg-cm-subtle"
               >
                 Cancel
               </button>
@@ -291,22 +295,22 @@ export default function InvitationsPage() {
         )}
 
         {reveal && (
-          <div className="mb-6 rounded-md border border-amber-500/40 bg-amber-500/5 p-4">
+          <div className="mb-6 rounded-md border border-[var(--cm-cite-line)] bg-[var(--cm-cite-bg)] p-4">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="flex items-center gap-1.5 text-sm font-medium">
+                <h2 className="flex items-center gap-1.5 text-sm font-medium text-[var(--cm-cite)]">
                   <IconWarning size={16} /> Copy this link now
                 </h2>
-                <p className="mt-1 text-xs text-[var(--muted)]">
+                <p className="mt-1 text-xs text-cm-muted">
                   The token is shown exactly once. After you dismiss this panel only the recipient
                   can use it, by clicking the link from their inbox.
                 </p>
-                <code className="mt-2 block overflow-x-auto rounded border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-xs">
+                <code className="cm-mono mt-2 block overflow-x-auto rounded border border-cm-border bg-cm-bg px-2 py-1.5 text-xs">
                   {(typeof window !== 'undefined' ? window.location.origin : '') + reveal.acceptUrl}
                 </code>
-                <p className="mt-2 text-xs text-[var(--muted)]">
-                  Bound to <span className="font-medium text-[var(--fg)]">{reveal.invitation.email}</span>{' '}
-                  as <span className="font-medium text-[var(--fg)]">{roleLabel(reveal.invitation.role)}</span>.
+                <p className="mt-2 text-xs text-cm-muted">
+                  Bound to <span className="font-medium text-cm-fg">{reveal.invitation.email}</span>{' '}
+                  as <span className="font-medium text-cm-fg">{roleLabel(reveal.invitation.role)}</span>.
                   Expires {fmtRelative(reveal.invitation.expiresAt)}.
                 </p>
               </div>
@@ -314,14 +318,14 @@ export default function InvitationsPage() {
                 <button
                   type="button"
                   onClick={copyToken}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-1.5 text-sm hover:bg-[var(--surface)]"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-bg px-3 py-1.5 text-sm hover:bg-cm-subtle"
                 >
                   <IconCopy size={14} /> {copied ? 'Copied' : 'Copy link'}
                 </button>
                 <button
                   type="button"
                   onClick={() => setReveal(null)}
-                  className="rounded-md border border-[var(--border)] px-3 py-1.5 text-sm hover:bg-[var(--surface)]"
+                  className="rounded-md border border-cm-border px-3 py-1.5 text-sm hover:bg-cm-subtle"
                 >
                   Dismiss
                 </button>
@@ -331,24 +335,24 @@ export default function InvitationsPage() {
         )}
 
         {actionMessage && (
-          <div className="mb-4 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-400">
+          <div className="mb-4 rounded-md border border-[var(--cm-success)] bg-[rgba(47,122,85,0.08)] px-3 py-2 text-sm text-[var(--cm-success)]">
             {actionMessage}
           </div>
         )}
         {actionError && (
-          <div className="mb-4 rounded-md border border-rose-500/30 bg-rose-500/5 px-3 py-2 text-sm text-rose-700 dark:text-rose-400">
+          <div className="mb-4 rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.08)] px-3 py-2 text-sm text-[var(--cm-danger)]">
             {actionError}
           </div>
         )}
 
-        <section aria-busy={loading} className="rounded-md border border-[var(--border)] bg-[var(--surface)]">
+        <section aria-busy={loading} className="rounded-md border border-cm-border bg-cm-paper">
           {loading && (
-            <div className="divide-y divide-[var(--border)]">
+            <div className="divide-y divide-cm-border">
               {[0, 1, 2].map((i) => (
                 <div key={i} className="flex items-center gap-3 px-4 py-3">
-                  <div className="h-4 w-40 animate-pulse rounded bg-[var(--border)]" />
-                  <div className="h-4 w-16 animate-pulse rounded bg-[var(--border)]" />
-                  <div className="ml-auto h-4 w-24 animate-pulse rounded bg-[var(--border)]" />
+                  <div className="h-4 w-40 animate-pulse rounded bg-cm-subtle" />
+                  <div className="h-4 w-16 animate-pulse rounded bg-cm-subtle" />
+                  <div className="ml-auto h-4 w-24 animate-pulse rounded bg-cm-subtle" />
                 </div>
               ))}
             </div>
@@ -364,7 +368,7 @@ export default function InvitationsPage() {
             />
           )}
           {!loading && !error && (list?.length ?? 0) > 0 && (
-            <ul className="divide-y divide-[var(--border)]">
+            <ul className="divide-y divide-cm-border">
               {list!.map((inv) => (
                 <li key={inv.id} className="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
                   <div className="min-w-0 flex-1">
@@ -373,16 +377,16 @@ export default function InvitationsPage() {
                       <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] uppercase tracking-wide ${statusTone(inv.status)}`}>
                         {inv.status}
                       </span>
-                      <span className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-[var(--muted)]">
+                      <span className="inline-flex items-center gap-1 rounded border border-cm-border px-1.5 py-0.5 text-[11px] uppercase tracking-wide text-cm-muted">
                         <IconShield size={11} /> {roleLabel(inv.role)}
                       </span>
                       {inv.label && (
-                        <span className="rounded border border-[var(--border)] px-1.5 py-0.5 text-[11px] text-[var(--muted)]">
+                        <span className="rounded border border-cm-border px-1.5 py-0.5 text-[11px] text-cm-muted">
                           {inv.label}
                         </span>
                       )}
                     </div>
-                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-[var(--muted)]">
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-cm-muted">
                       <span>Invited {fmtRelative(inv.createdAt)} by {inv.invitedBy}</span>
                       <span className="inline-flex items-center gap-1">
                         <IconClockCountdown size={12} />
@@ -401,7 +405,7 @@ export default function InvitationsPage() {
                       type="button"
                       onClick={() => revoke(inv)}
                       disabled={busyId === inv.id}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 py-1 text-sm text-rose-700 hover:bg-rose-500/5 disabled:opacity-50 dark:text-rose-400"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1 text-sm text-[var(--cm-danger)] hover:bg-[rgba(180,66,60,0.08)] disabled:opacity-50"
                     >
                       {busyId === inv.id ? <Spinner size={14} /> : <IconTrash size={14} />} Revoke
                     </button>
@@ -412,7 +416,7 @@ export default function InvitationsPage() {
           )}
         </section>
 
-        <p className="mt-4 text-xs text-[var(--muted)]">
+        <p className="mt-4 text-xs text-cm-muted">
           Every invite, revocation, and acceptance is recorded in the audit log with a before and after
           diff. Tokens are stored as sha256 digests, never raw. View activity in the{' '}
           <Link href="/audit" className="underline">
