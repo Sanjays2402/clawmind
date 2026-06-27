@@ -96,41 +96,41 @@ export default function SessionsPage() {
   const otherCount = active.filter((s) => !s.current).length;
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10">
         <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
-            <span className="rounded-md border bg-muted/30 p-2 text-primary">
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-accent">
               <IconKey size={22} />
             </span>
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">Active sessions</h1>
-              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+              <p className="mt-1 max-w-xl text-sm text-cm-muted">
                 Every browser currently signed in to your account. Revoke any
                 one of them, or sign out everywhere else if you think a device
                 was lost.
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-cm-muted">
             <Link
               href="/settings"
-              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 hover:bg-muted/50"
+              className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1.5 hover:bg-cm-subtle"
             >
               <IconSettings size={14} />
               Settings
             </Link>
             <Link
               href="/settings/security"
-              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 hover:bg-muted/50"
+              className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1.5 hover:bg-cm-subtle"
             >
               <IconShield size={14} />
               IP allowlist
             </Link>
             <Link
               href="/audit"
-              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 hover:bg-muted/50"
+              className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1.5 hover:bg-cm-subtle"
             >
               Audit log
               <IconArrowRight size={14} />
@@ -139,8 +139,8 @@ export default function SessionsPage() {
         </header>
 
         {loading && (
-          <div className="rounded-lg border bg-card p-6">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-cm-border bg-cm-paper p-6">
+            <div className="flex items-center gap-2 text-sm text-cm-muted">
               <Spinner size={14} />
               Loading sessions
             </div>
@@ -156,7 +156,7 @@ export default function SessionsPage() {
             {actionMessage && (
               <div
                 role="status"
-                className="flex items-start gap-2 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-100"
+                className="flex items-start gap-2 rounded-md border border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] p-3 text-sm text-[var(--cm-success)]"
               >
                 <IconCheck size={16} />
                 <span>{actionMessage}</span>
@@ -165,20 +165,20 @@ export default function SessionsPage() {
             {actionError && (
               <div
                 role="alert"
-                className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100"
+                className="flex items-start gap-2 rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] p-3 text-sm text-[var(--cm-danger)]"
               >
                 <IconWarning size={16} />
                 <span>{actionError}</span>
               </div>
             )}
 
-            <section className="rounded-lg border bg-card">
-              <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+            <section className="rounded-lg border border-cm-border bg-cm-paper">
+              <div className="flex flex-col gap-3 border-b border-cm-border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
                 <div>
                   <h2 className="text-sm font-medium">
                     {active.length} active {active.length === 1 ? 'session' : 'sessions'}
                   </h2>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
+                  <p className="mt-0.5 text-xs text-cm-muted">
                     Includes this browser. Revoking takes effect on the next request.
                   </p>
                 </div>
@@ -186,7 +186,7 @@ export default function SessionsPage() {
                   type="button"
                   onClick={revokeAll}
                   disabled={revokingAll || otherCount === 0}
-                  className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-destructive/40 px-3 text-sm font-medium text-destructive hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[var(--cm-danger)] px-3 text-sm font-medium text-[var(--cm-danger)] hover:bg-[rgba(180,66,60,0.10)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {revokingAll ? <Spinner size={14} /> : <IconTrash size={14} />}
                   Sign out everywhere else
@@ -201,26 +201,29 @@ export default function SessionsPage() {
                   />
                 </div>
               ) : (
-                <ul className="divide-y">
+                <ul className="divide-y divide-cm-border">
                   {active.map((s) => (
-                    <li key={s.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                    <li
+                      key={s.id}
+                      className={`flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5 ${s.current ? 'bg-cm-accent-soft' : ''}`}
+                    >
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="truncate text-sm font-medium">{shortAgent(s.userAgent)}</span>
                           {s.current && (
-                            <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
+                            <span className="inline-flex items-center gap-1 rounded-full border border-cm-accent-line bg-cm-accent-soft px-2 py-0.5 text-[11px] font-medium text-cm-accent">
                               <IconCheck size={11} />
                               This browser
                             </span>
                           )}
                         </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-cm-muted">
                           <span>IP {s.ip}</span>
                           <span>Last seen {fmtRelative(s.lastSeenAt)}</span>
                           <span title={fmtAbsolute(s.createdAt)}>
                             Signed in {fmtRelative(s.createdAt)}
                           </span>
-                          <span className="font-mono text-[11px] opacity-70">id {s.id}</span>
+                          <span className="cm-mono text-[11px] opacity-70">id {s.id}</span>
                         </div>
                       </div>
                       <button
@@ -228,7 +231,7 @@ export default function SessionsPage() {
                         onClick={() => revokeOne(s)}
                         disabled={s.current || busyId === s.id}
                         title={s.current ? 'Use the sign-out button in the nav to end this session.' : 'Revoke this session'}
-                        className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border px-3 text-sm hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-cm-border px-3 text-sm hover:bg-cm-subtle disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {busyId === s.id ? <Spinner size={14} /> : <IconTrash size={14} />}
                         Revoke
@@ -240,23 +243,23 @@ export default function SessionsPage() {
             </section>
 
             {recentlyRevoked.length > 0 && (
-              <section className="rounded-lg border bg-card">
-                <div className="border-b p-4 sm:p-5">
+              <section className="rounded-lg border border-cm-border bg-cm-paper">
+                <div className="border-b border-cm-border p-4 sm:p-5">
                   <h2 className="text-sm font-medium">Recently revoked</h2>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
+                  <p className="mt-0.5 text-xs text-cm-muted">
                     Kept for 24 hours so you can confirm the action took effect.
                   </p>
                 </div>
-                <ul className="divide-y">
+                <ul className="divide-y divide-cm-border">
                   {recentlyRevoked.map((s) => (
                     <li key={s.id} className="p-4 sm:p-5">
-                      <div className="text-sm font-medium text-muted-foreground line-through">
+                      <div className="text-sm font-medium text-cm-muted line-through">
                         {shortAgent(s.userAgent)}
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-cm-muted">
                         <span>IP {s.ip}</span>
                         <span>Revoked {fmtRelative(s.revokedAt!)}</span>
-                        <span className="font-mono text-[11px] opacity-70">id {s.id}</span>
+                        <span className="cm-mono text-[11px] opacity-70">id {s.id}</span>
                       </div>
                     </li>
                   ))}
