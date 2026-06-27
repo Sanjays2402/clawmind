@@ -18,6 +18,7 @@ import {
 import {
   EmptyState,
   ErrorState,
+  SettingsCardSkeleton,
   Spinner,
   IconAt,
   IconPlus,
@@ -29,6 +30,11 @@ import {
 } from '@clawmind/ui';
 
 type Draft = { domain: string; role: AutoJoinRole; enabled: boolean; requireSso: boolean };
+
+// Shared field chrome so the domain input and role select read as one
+// control family on the paper surface.
+const FIELD_CLS =
+  'rounded-md border border-cm-border bg-cm-bg px-2.5 py-1.5 text-sm text-cm-fg outline-none placeholder:text-cm-faint focus:ring-2 focus:ring-cm-accent';
 
 const ROLE_HELP: Record<AutoJoinRole, string> = {
   member: 'Read and write the product. Cannot manage other members.',
@@ -173,19 +179,19 @@ export default function DomainPoliciesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)] text-[var(--fg)]">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
         <header className="mb-5">
-          <nav className="mb-2 text-xs text-[var(--muted)]">
-            <Link href="/settings" className="hover:underline">Settings</Link>
+          <nav className="mb-2 text-xs text-cm-muted">
+            <Link href="/settings" className="hover:text-cm-fg hover:underline">Settings</Link>
             <span aria-hidden> / </span>
             <span>Domain auto-join</span>
           </nav>
           <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight sm:text-2xl">
-            <IconAt aria-hidden /> Domain auto-join
+            <IconAt aria-hidden className="text-cm-accent" /> Domain auto-join
           </h1>
-          <p className="mt-1 text-sm text-[var(--muted)]">
+          <p className="mt-1 text-sm text-cm-muted">
             Anyone who signs in with an email matching an enabled domain joins the
             workspace as the policy role. Existing accounts are never silently
             promoted or demoted.
@@ -193,17 +199,15 @@ export default function DomainPoliciesPage() {
         </header>
 
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--muted)]" role="status" aria-live="polite">
-            <Spinner /> Loading policies
-          </div>
+          <SettingsCardSkeleton rows={4} />
         ) : error ? (
           <ErrorState title="Could not load policies" message={error} onRetry={load} />
         ) : !rows ? null : (
           <>
-            <section className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4 sm:p-5">
+            <section className="rounded-xl border border-cm-border bg-cm-paper p-4 sm:p-5">
               <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold tracking-tight sm:text-base">Policies</h2>
-                <span className="text-xs text-[var(--muted)] tabular-nums">
+                <h2 className="text-sm font-semibold tracking-tight text-cm-fg sm:text-base">Policies</h2>
+                <span className="text-xs text-cm-muted tabular-nums">
                   {rows.length} of {maxPolicies}
                 </span>
               </header>
@@ -215,7 +219,7 @@ export default function DomainPoliciesPage() {
                   body="Add a domain to auto-enrol new sign-ins from your company or partners."
                 />
               ) : (
-                <ul className="divide-y divide-[var(--border)]">
+                <ul className="divide-y divide-cm-border">
                   {rows.map((row, idx) => (
                     <li key={idx} className="py-3 first:pt-0 last:pb-0">
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_auto_auto] sm:items-center">
@@ -229,14 +233,14 @@ export default function DomainPoliciesPage() {
                           placeholder="acme.com"
                           value={row.domain}
                           onChange={(e) => updateRow(idx, { domain: e.target.value })}
-                          className="w-full rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-mono tracking-tight outline-none focus:border-[var(--accent)]"
+                          className={`w-full font-mono tracking-tight ${FIELD_CLS}`}
                         />
                         <label className="sr-only" htmlFor={`role-${idx}`}>Role</label>
                         <select
                           id={`role-${idx}`}
                           value={row.role}
                           onChange={(e) => updateRow(idx, { role: e.target.value as AutoJoinRole })}
-                          className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm outline-none focus:border-[var(--accent)]"
+                          className={FIELD_CLS}
                         >
                           {assignable.map((r) => (
                             <option key={r} value={r}>
@@ -244,12 +248,12 @@ export default function DomainPoliciesPage() {
                             </option>
                           ))}
                         </select>
-                        <label className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
+                        <label className="flex items-center gap-1.5 text-xs text-cm-muted">
                           <input
                             type="checkbox"
                             checked={row.enabled}
                             onChange={(e) => updateRow(idx, { enabled: e.target.checked })}
-                            className="h-3.5 w-3.5"
+                            className="h-3.5 w-3.5 accent-[var(--cm-accent)]"
                           />
                           Enabled
                         </label>
@@ -257,22 +261,22 @@ export default function DomainPoliciesPage() {
                           type="button"
                           onClick={() => removeRow(idx)}
                           aria-label={`Remove ${row.domain || 'row'}`}
-                          className="inline-flex items-center justify-center rounded-md border border-[var(--border)] bg-[var(--surface)] p-1.5 text-[var(--muted)] hover:text-[var(--fg)]"
+                          className="inline-flex items-center justify-center rounded-md border border-cm-border bg-cm-bg p-1.5 text-cm-muted hover:bg-cm-subtle hover:text-cm-danger"
                         >
                           <IconTrash aria-hidden />
                         </button>
                       </div>
-                      <p className="mt-1 text-xs text-[var(--muted)]">{ROLE_HELP[row.role]}</p>
-                      <label className="mt-2 flex items-start gap-2 rounded-md border border-[var(--border)] bg-[var(--surface)]/40 px-2.5 py-1.5 text-xs text-[var(--muted)]">
+                      <p className="mt-1 text-xs text-cm-muted">{ROLE_HELP[row.role]}</p>
+                      <label className="mt-2 flex items-start gap-2 rounded-md border border-cm-border bg-cm-subtle px-2.5 py-1.5 text-xs text-cm-muted">
                         <input
                           type="checkbox"
                           checked={row.requireSso}
                           onChange={(e) => updateRow(idx, { requireSso: e.target.checked })}
-                          className="mt-0.5 h-3.5 w-3.5"
+                          className="mt-0.5 h-3.5 w-3.5 accent-[var(--cm-accent)]"
                           aria-describedby={`require-sso-help-${idx}`}
                         />
                         <span>
-                          <span className="font-medium text-[var(--fg)]">Require SSO for this domain</span>
+                          <span className="font-medium text-cm-fg">Require SSO for this domain</span>
                           <span id={`require-sso-help-${idx}`} className="mt-0.5 block">
                             Sessions established via password or GitHub OAuth will be
                             rejected on the next request. Users must sign in through
@@ -290,7 +294,7 @@ export default function DomainPoliciesPage() {
                   type="button"
                   onClick={addRow}
                   disabled={rows.length >= maxPolicies}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm hover:bg-[var(--surface-hover)] disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-bg px-2.5 py-1.5 text-sm text-cm-fg hover:bg-cm-subtle disabled:opacity-50"
                 >
                   <IconPlus aria-hidden /> Add domain
                 </button>
@@ -300,7 +304,7 @@ export default function DomainPoliciesPage() {
                     type="button"
                     onClick={reset}
                     disabled={saving}
-                    className="rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm hover:bg-[var(--surface-hover)] disabled:opacity-50"
+                    className="rounded-md border border-cm-border bg-cm-bg px-2.5 py-1.5 text-sm text-cm-fg hover:bg-cm-subtle disabled:opacity-50"
                   >
                     Reset
                   </button>
@@ -309,7 +313,7 @@ export default function DomainPoliciesPage() {
                   type="button"
                   onClick={save}
                   disabled={!dirty || saving}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-transparent bg-[var(--fg)] px-3 py-1.5 text-sm font-medium text-[var(--bg)] hover:opacity-90 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md bg-cm-fg px-3 py-1.5 text-sm font-medium text-cm-bg transition hover:opacity-90 disabled:opacity-50"
                 >
                   {saving ? <Spinner /> : <IconCheck aria-hidden />}
                   Save policies
@@ -317,38 +321,38 @@ export default function DomainPoliciesPage() {
               </div>
 
               {saveError ? (
-                <p role="alert" className="mt-3 flex items-start gap-1.5 text-sm text-amber-600 dark:text-amber-400">
-                  <IconWarning aria-hidden /> <span>{saveError}</span>
+                <p role="alert" className="mt-3 flex items-start gap-1.5 rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-3 py-2 text-sm text-cm-danger">
+                  <IconWarning aria-hidden className="mt-0.5 shrink-0" /> <span>{saveError}</span>
                 </p>
               ) : null}
               {!saveError && savedAt && !dirty ? (
-                <p className="mt-3 flex items-center gap-1.5 text-xs text-[var(--muted)]">
+                <p className="mt-3 flex items-center gap-1.5 text-xs text-cm-success">
                   <IconCheck aria-hidden /> Saved {fmtRelative(savedAt)}
                 </p>
               ) : null}
             </section>
 
-            <section className="mt-5 rounded-lg border border-[var(--border)] bg-[var(--card)] p-4 sm:p-5">
+            <section className="mt-5 rounded-xl border border-cm-border bg-cm-paper p-4 sm:p-5">
               <header className="mb-2 flex items-center gap-2">
-                <IconShield aria-hidden />
-                <h2 className="text-sm font-semibold tracking-tight sm:text-base">How matching works</h2>
+                <IconShield aria-hidden className="text-cm-accent" />
+                <h2 className="text-sm font-semibold tracking-tight text-cm-fg sm:text-base">How matching works</h2>
               </header>
-              <ul className="space-y-1.5 text-sm text-[var(--muted)]">
+              <ul className="space-y-1.5 text-sm text-cm-muted">
                 <li>Matches the part after the last @ in the email, case-insensitive.</li>
                 <li>Only assigns member or viewer. Admin and owner still require an explicit invite.</li>
                 <li>Existing members keep whatever role they already have on next login.</li>
                 <li>Require SSO blocks non-OIDC sessions for matching emails the moment you save.</li>
                 <li>Every change writes a before and after diff to the audit log.</li>
               </ul>
-              <p className="mt-3 text-xs text-[var(--muted)]">
+              <p className="mt-3 text-xs text-cm-muted">
                 Need granular invites instead?{' '}
-                <Link href="/settings/members" className="inline-flex items-center gap-0.5 underline">
+                <Link href="/settings/members" className="inline-flex items-center gap-0.5 underline hover:text-cm-fg">
                   Go to members <IconArrowRight aria-hidden />
                 </Link>
               </p>
 
               {serverPolicies.length > 0 ? (
-                <p className="mt-3 text-xs text-[var(--muted)] tabular-nums">
+                <p className="mt-3 text-xs text-cm-muted tabular-nums">
                   Newest update {fmtRelative(Math.max(...serverPolicies.map((p) => p.updatedAt)))}
                 </p>
               ) : null}
