@@ -61,25 +61,27 @@ export default function MfaSettingsPage() {
   }, [load]);
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <IconShield size={22} />
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-accent">
+              <IconShield size={22} />
+            </span>
             <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Multi-factor auth</h1>
           </div>
           <button
             type="button"
             onClick={load}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--fg-muted)] hover:text-[var(--fg)]"
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1.5 text-xs text-cm-muted hover:text-cm-fg"
           >
             <IconRefresh size={12} />
             Refresh
           </button>
         </div>
 
-        <p className="mb-6 max-w-2xl text-sm text-[var(--fg-muted)]">
+        <p className="mb-6 max-w-2xl text-sm text-cm-muted">
           Time-based one-time passcodes (TOTP, RFC 6238) protect sensitive
           actions like issuing API keys, deleting account data, editing the
           IP allowlist, revoking sessions, and running maintenance. Use any
@@ -88,7 +90,7 @@ export default function MfaSettingsPage() {
         </p>
 
         {loading && (
-          <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
+          <div className="flex items-center gap-2 text-sm text-cm-muted">
             <Spinner /> Loading
           </div>
         )}
@@ -192,11 +194,11 @@ function StatusCard({ status }: { status: Status }) {
     ? { label: 'Not enabled', Icon: IconWarning, tone: 'muted' as const }
     : { label: 'Enabled', Icon: IconCheck, tone: 'positive' as const };
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 sm:p-5">
+    <section className="rounded-xl border border-cm-border bg-cm-paper p-4 sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">Status</h2>
-          <p className="mt-1 text-xs text-[var(--fg-muted)]">
+          <p className="mt-1 text-xs text-cm-muted">
             {status.confirmed
               ? `Step-up window ${Math.round(status.stepUpTtlSec / 60)} min. ${status.recoveryCodesRemaining} recovery codes remaining.`
               : 'Enable MFA to gate sensitive actions on a fresh code.'}
@@ -206,8 +208,8 @@ function StatusCard({ status }: { status: Status }) {
           className={
             'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs ' +
             (state.tone === 'positive'
-              ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-              : 'bg-amber-500/10 text-amber-700 dark:text-amber-400')
+              ? 'border border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] text-[var(--cm-success)]'
+              : 'border border-cm-cite-line bg-cm-cite-bg text-cm-cite')
           }
         >
           <state.Icon size={12} />
@@ -217,13 +219,13 @@ function StatusCard({ status }: { status: Status }) {
       {status.confirmed && (
         <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
           <div>
-            <dt className="text-[var(--fg-muted)]">Confirmed</dt>
+            <dt className="text-cm-muted">Confirmed</dt>
             <dd className="mt-0.5 font-medium">
               {status.confirmedAt ? new Date(status.confirmedAt).toLocaleString() : 'unknown'}
             </dd>
           </div>
           <div>
-            <dt className="text-[var(--fg-muted)]">Last verified</dt>
+            <dt className="text-cm-muted">Last verified</dt>
             <dd className="mt-0.5 font-medium">
               {status.sessionVerifiedAt
                 ? new Date(status.sessionVerifiedAt).toLocaleString()
@@ -238,9 +240,9 @@ function StatusCard({ status }: { status: Status }) {
 
 function EnrollButton({ busy, onStart }: { busy: boolean; onStart: () => void | Promise<void> }) {
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 sm:p-5">
+    <section className="rounded-xl border border-cm-border bg-cm-paper p-4 sm:p-5">
       <h2 className="text-sm font-semibold">Enable MFA</h2>
-      <p className="mt-1 text-xs text-[var(--fg-muted)]">
+      <p className="mt-1 text-xs text-cm-muted">
         We will generate a secret for your authenticator app and ten
         single-use recovery codes. Both are shown once.
       </p>
@@ -248,7 +250,7 @@ function EnrollButton({ busy, onStart }: { busy: boolean; onStart: () => void | 
         type="button"
         disabled={busy}
         onClick={onStart}
-        className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-[var(--fg)] px-3 py-1.5 text-xs font-medium text-[var(--bg)] hover:opacity-90 disabled:opacity-50"
+        className="mt-4 inline-flex items-center gap-1.5 rounded-md bg-cm-fg px-3 py-1.5 text-xs font-medium text-cm-bg hover:opacity-90 disabled:opacity-50"
       >
         <IconKey size={12} />
         {busy ? 'Generating' : 'Start enrollment'}
@@ -271,11 +273,11 @@ function EnrollmentCard({
   const [code, setCode] = useState('');
   const hasSecret = enrollment.secret.length > 0;
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 sm:p-5">
+    <section className="rounded-xl border border-cm-border bg-cm-paper p-4 sm:p-5">
       <h2 className="text-sm font-semibold">
         {hasSecret ? 'Pair your authenticator' : 'New recovery codes'}
       </h2>
-      <p className="mt-1 text-xs text-[var(--fg-muted)]">
+      <p className="mt-1 text-xs text-cm-muted">
         {hasSecret
           ? 'Add this secret to your authenticator app, then enter the 6-digit code it shows.'
           : 'Store these recovery codes somewhere safe. They will not be shown again.'}
@@ -289,12 +291,12 @@ function EnrollmentCard({
       )}
 
       <div className="mt-4">
-        <h3 className="text-xs font-semibold text-[var(--fg-muted)]">Recovery codes</h3>
+        <h3 className="text-xs font-semibold text-cm-muted">Recovery codes</h3>
         <ul className="mt-2 grid grid-cols-2 gap-1.5 sm:grid-cols-2">
           {enrollment.recoveryCodes.map((c) => (
             <li
               key={c}
-              className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 font-mono text-xs tracking-tight"
+              className="rounded-md border border-cm-border bg-cm-bg px-2 py-1.5 font-mono text-xs tracking-tight"
             >
               {c}
             </li>
@@ -303,7 +305,7 @@ function EnrollmentCard({
         <button
           type="button"
           onClick={() => navigator.clipboard?.writeText(enrollment.recoveryCodes.join('\n'))}
-          className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--fg-muted)] hover:text-[var(--fg)]"
+          className="mt-2 inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2 py-1 text-xs text-cm-muted hover:text-cm-fg"
         >
           <IconCopy size={12} />
           Copy all
@@ -326,13 +328,13 @@ function EnrollmentCard({
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
             placeholder="123456"
-            className="w-28 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-center font-mono text-sm tabular-nums"
+            className="w-28 rounded-md border border-cm-border bg-cm-bg px-2 py-1.5 text-center font-mono text-sm tabular-nums"
             aria-label="Six-digit code"
           />
           <button
             type="submit"
             disabled={busy || !/^\d{6}$/.test(code)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-[var(--fg)] px-3 py-1.5 text-xs font-medium text-[var(--bg)] hover:opacity-90 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-md bg-cm-fg px-3 py-1.5 text-xs font-medium text-cm-bg hover:opacity-90 disabled:opacity-50"
           >
             <IconCheck size={12} />
             Confirm
@@ -340,7 +342,7 @@ function EnrollmentCard({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--fg-muted)] hover:text-[var(--fg)]"
+            className="rounded-md border border-cm-border px-2.5 py-1.5 text-xs text-cm-muted hover:text-cm-fg"
           >
             Cancel
           </button>
@@ -351,7 +353,7 @@ function EnrollmentCard({
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--fg-muted)] hover:text-[var(--fg)]"
+            className="rounded-md border border-cm-border px-2.5 py-1.5 text-xs text-cm-muted hover:text-cm-fg"
           >
             Done
           </button>
@@ -378,9 +380,9 @@ function ManageCard({
   const [remember, setRemember] = useState(false);
   const valid = /^\d{6}$/.test(code) || /^[A-Za-z0-9-]{10,12}$/.test(code);
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 sm:p-5">
+    <section className="rounded-xl border border-cm-border bg-cm-paper p-4 sm:p-5">
       <h2 className="text-sm font-semibold">Manage</h2>
-      <p className="mt-1 text-xs text-[var(--fg-muted)]">
+      <p className="mt-1 text-xs text-cm-muted">
         Enter a current code or a recovery code to step up this session,
         regenerate recovery codes, or disable MFA.
       </p>
@@ -392,14 +394,14 @@ function ManageCard({
           value={code}
           onChange={(e) => setCode(e.target.value.trim())}
           placeholder="123456 or recovery"
-          className="w-44 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 font-mono text-sm"
+          className="w-44 rounded-md border border-cm-border bg-cm-bg px-2 py-1.5 font-mono text-sm"
           aria-label="Code"
         />
         <button
           type="button"
           disabled={busy || !valid}
           onClick={() => onVerify(code, remember).then(() => setCode(''))}
-          className="inline-flex items-center gap-1.5 rounded-md bg-[var(--fg)] px-3 py-1.5 text-xs font-medium text-[var(--bg)] hover:opacity-90 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md bg-cm-fg px-3 py-1.5 text-xs font-medium text-cm-bg hover:opacity-90 disabled:opacity-50"
         >
           <IconCheck size={12} />
           Verify
@@ -408,7 +410,7 @@ function ManageCard({
           type="button"
           disabled={busy || !valid}
           onClick={() => onRegenerate(code).then(() => setCode(''))}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--fg-muted)] hover:text-[var(--fg)] disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1.5 text-xs text-cm-muted hover:text-cm-fg disabled:opacity-50"
         >
           <IconRefresh size={12} />
           New recovery codes
@@ -419,22 +421,22 @@ function ManageCard({
           onClick={() => {
             if (confirm('Disable MFA for this account?')) void onDisable(code).then(() => setCode(''));
           }}
-          className="inline-flex items-center gap-1.5 rounded-md border border-red-500/40 px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
+          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--cm-danger)] px-2.5 py-1.5 text-xs text-[var(--cm-danger)] transition hover:bg-[rgba(180,66,60,0.10)] disabled:opacity-50"
         >
           <IconTrash size={12} />
           Disable MFA
         </button>
       </div>
-      <label className="mt-3 flex items-center gap-2 text-xs text-[var(--fg-muted)]">
+      <label className="mt-3 flex items-center gap-2 text-xs text-cm-muted">
         <input
           type="checkbox"
           checked={remember}
           onChange={(e) => setRemember(e.target.checked)}
-          className="h-3.5 w-3.5 rounded border-[var(--border)] accent-[var(--fg)]"
+          className="h-3.5 w-3.5 rounded border-cm-border accent-cm-accent"
         />
         Remember this device for 14 days (skip code on next sensitive action)
       </label>
-      <div className="mt-4 text-xs text-[var(--fg-muted)]">
+      <div className="mt-4 text-xs text-cm-muted">
         Step-up window: {Math.round(status.stepUpTtlSec / 60)} minutes after a successful verify.
         {status.sessionStepUpActive ? ' This session is currently stepped up.' : ' This session is not stepped up.'}
       </div>
@@ -446,11 +448,11 @@ function Field({ label, value, mono = false }: { label: string; value: string; m
   return (
     <div>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-[var(--fg-muted)]">{label}</span>
+        <span className="text-xs font-semibold text-cm-muted">{label}</span>
         <button
           type="button"
           onClick={() => navigator.clipboard?.writeText(value)}
-          className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] px-1.5 py-0.5 text-[10px] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+          className="inline-flex items-center gap-1 rounded-md border border-cm-border px-1.5 py-0.5 text-[10px] text-cm-muted hover:text-cm-fg"
           aria-label={`Copy ${label}`}
         >
           <IconCopy size={10} />
@@ -459,7 +461,7 @@ function Field({ label, value, mono = false }: { label: string; value: string; m
       </div>
       <div
         className={
-          'mt-1 break-all rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-xs ' +
+          'mt-1 break-all rounded-md border border-cm-border bg-cm-bg px-2 py-1.5 text-xs ' +
           (mono ? 'font-mono' : '')
         }
       >
@@ -500,11 +502,11 @@ function TrustedDevicesCard({ reloadKey }: { reloadKey: number }) {
   }, [load, reloadKey]);
 
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 sm:p-5">
+    <section className="rounded-xl border border-cm-border bg-cm-paper p-4 sm:p-5">
       <div className="flex items-center justify-between gap-2">
         <div>
           <h2 className="text-sm font-semibold">Trusted devices</h2>
-          <p className="mt-1 text-xs text-[var(--fg-muted)]">
+          <p className="mt-1 text-xs text-cm-muted">
             Browsers that skip the code prompt for the trust window. Revoking a device immediately requires a fresh code on the next sensitive action.
           </p>
         </div>
@@ -512,7 +514,7 @@ function TrustedDevicesCard({ reloadKey }: { reloadKey: number }) {
           <button
             type="button"
             onClick={load}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--fg-muted)] hover:text-[var(--fg)]"
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2 py-1 text-[11px] text-cm-muted hover:text-cm-fg"
           >
             <IconRefresh size={11} />
             Refresh
@@ -532,7 +534,7 @@ function TrustedDevicesCard({ reloadKey }: { reloadKey: number }) {
                 setBusy(null);
               }
             }}
-            className="inline-flex items-center gap-1.5 rounded-md border border-red-500/40 px-2 py-1 text-[11px] text-red-600 hover:bg-red-500/10 disabled:opacity-50 dark:text-red-400"
+            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--cm-danger)] px-2 py-1 text-[11px] text-[var(--cm-danger)] transition hover:bg-[rgba(180,66,60,0.10)] disabled:opacity-50"
           >
             <IconTrash size={11} />
             Revoke all
@@ -541,18 +543,18 @@ function TrustedDevicesCard({ reloadKey }: { reloadKey: number }) {
       </div>
 
       {loading && (
-        <div className="mt-4 flex items-center gap-2 text-xs text-[var(--fg-muted)]">
+        <div className="mt-4 flex items-center gap-2 text-xs text-cm-muted">
           <Spinner /> Loading
         </div>
       )}
-      {!loading && err && <div className="mt-4 text-xs text-red-600 dark:text-red-400">{err}</div>}
+      {!loading && err && <div className="mt-4 text-xs text-[var(--cm-danger)]">{err}</div>}
       {!loading && !err && devices && devices.length === 0 && (
-        <div className="mt-4 rounded-md border border-dashed border-[var(--border)] p-4 text-center text-xs text-[var(--fg-muted)]">
+        <div className="mt-4 rounded-md border border-dashed border-cm-border p-4 text-center text-xs text-cm-muted">
           No trusted devices yet. Tick &ldquo;Remember this device&rdquo; during a verify to add this browser.
         </div>
       )}
       {!loading && !err && devices && devices.length > 0 && (
-        <ul className="mt-4 divide-y divide-[var(--border)] overflow-hidden rounded-md border border-[var(--border)]">
+        <ul className="mt-4 divide-y divide-cm-border overflow-hidden rounded-md border border-cm-border">
           {devices.map((d) => {
             const isCurrent = d.id === currentId;
             return (
@@ -562,12 +564,12 @@ function TrustedDevicesCard({ reloadKey }: { reloadKey: number }) {
                     <IconShield size={12} />
                     <span className="font-medium">{d.label}</span>
                     {isCurrent && (
-                      <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-cm-accent-line bg-cm-accent-soft px-1.5 py-0.5 text-[10px] font-medium text-cm-accent">
                         This browser
                       </span>
                     )}
                   </div>
-                  <div className="mt-1 truncate text-[11px] text-[var(--fg-muted)]">
+                  <div className="mt-1 truncate text-[11px] text-cm-muted">
                     {d.ip || 'unknown ip'} · last seen {formatRelative(d.lastSeenAt)} · expires {formatRelative(d.expiresAt)}
                   </div>
                 </div>
@@ -587,7 +589,7 @@ function TrustedDevicesCard({ reloadKey }: { reloadKey: number }) {
                         setBusy(null);
                       }
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--fg-muted)] hover:text-[var(--fg)] disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2 py-1 text-[11px] text-cm-muted hover:text-cm-fg disabled:opacity-50"
                   >
                     <IconTrash size={11} />
                     Revoke
@@ -624,7 +626,7 @@ function BackLink() {
   return (
     <Link
       href="/settings"
-      className="inline-flex items-center gap-1.5 text-xs text-[var(--fg-muted)] hover:text-[var(--fg)]"
+      className="inline-flex items-center gap-1.5 text-xs text-cm-muted hover:text-cm-fg"
     >
       <IconArrowRight size={12} className="rotate-180" />
       Back to settings
