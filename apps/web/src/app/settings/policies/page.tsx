@@ -142,7 +142,7 @@ export default function PoliciesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen bg-cm-bg">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-6 flex items-center justify-between gap-3">
@@ -155,20 +155,20 @@ export default function PoliciesPage() {
           <button
             type="button"
             onClick={() => void load()}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm text-[var(--fg)] hover:bg-[var(--surface-hover)]"
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-paper px-2.5 py-1.5 text-sm text-cm-fg hover:bg-cm-subtle"
           >
             <IconRefresh size={14} /> Refresh
           </button>
         </div>
 
-        <p className="mb-6 text-sm text-[var(--muted)]">
+        <p className="mb-6 text-sm text-cm-muted">
           Track and enforce Terms of Service, Data Processing Addendum, and Acceptable
           Use Policy versions. Required policies gate API and UI access until every
           user has accepted the latest version.
         </p>
 
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
+          <div className="flex items-center gap-2 text-sm text-cm-muted">
             <Spinner /> Loading policies
           </div>
         ) : error ? (
@@ -178,31 +178,31 @@ export default function PoliciesPage() {
             {unmet.length > 0 && (
               <section
                 aria-label="Action required"
-                className="rounded-lg border border-[var(--warning-border,var(--border))] bg-[var(--warning-bg,var(--surface))] p-4"
+                className="rounded-lg border border-[var(--cm-cite-line)] bg-[var(--cm-cite-bg)] p-4"
               >
-                <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium text-[var(--cm-cite)]">
                   <IconWarning size={16} /> Action required
                 </div>
-                <p className="mb-4 text-sm text-[var(--muted)]">
+                <p className="mb-4 text-sm text-cm-muted">
                   You have not yet accepted the latest required version of the
                   following policies. New API requests outside the policy and account
                   endpoints will return HTTP 451 until you do.
                 </p>
                 {acceptError && (
-                  <div className="mb-3 text-sm text-red-600">{acceptError}</div>
+                  <div className="mb-3 text-sm text-[var(--cm-danger)]">{acceptError}</div>
                 )}
                 <ul className="space-y-3">
                   {unmet.map((p) => (
                     <li
                       key={p.id}
-                      className="rounded-md border border-[var(--border)] bg-[var(--surface)] p-3"
+                      className="rounded-md border border-cm-border bg-cm-paper p-3"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <div className="text-sm font-medium">
                             {KIND_LABEL[p.kind]}: {p.title}
                           </div>
-                          <div className="text-xs text-[var(--muted)]">
+                          <div className="text-xs text-cm-muted">
                             Version {shortHash(p.bodyHash)} | effective{' '}
                             {fmtDate(p.effectiveAt)}
                           </div>
@@ -211,17 +211,17 @@ export default function PoliciesPage() {
                           type="button"
                           disabled={acceptingId === p.id}
                           onClick={() => void accept(p.id)}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)] disabled:opacity-50"
+                          className="inline-flex items-center gap-1.5 rounded-md bg-cm-fg px-2.5 py-1.5 text-sm font-medium text-cm-bg hover:opacity-90 disabled:opacity-50"
                         >
                           {acceptingId === p.id ? <Spinner /> : <IconCheck size={14} />}
                           Accept
                         </button>
                       </div>
                       <details className="mt-2">
-                        <summary className="cursor-pointer text-xs text-[var(--muted)]">
+                        <summary className="cursor-pointer text-xs text-cm-muted">
                           Read policy text
                         </summary>
-                        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-[var(--border)] bg-[var(--bg)] p-3 text-xs">
+                        <pre className="cm-mono mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded border border-cm-border bg-cm-bg p-3 text-xs">
                           {p.body}
                         </pre>
                       </details>
@@ -232,7 +232,7 @@ export default function PoliciesPage() {
             )}
 
             <section aria-label="Current policies">
-              <h2 className="mb-3 text-sm font-medium text-[var(--fg)]">
+              <h2 className="mb-3 text-sm font-medium text-cm-fg">
                 Currently in force
               </h2>
               {current.length === 0 ? (
@@ -242,7 +242,7 @@ export default function PoliciesPage() {
                   body="An owner has not yet published a TOS, DPA, or AUP. Publish one below to start tracking acceptance."
                 />
               ) : (
-                <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                <ul className="divide-y divide-cm-border rounded-lg border border-cm-border bg-cm-paper">
                   {current.map((p) => {
                     const accepted = acceptedIds.has(p.id);
                     return (
@@ -251,7 +251,7 @@ export default function PoliciesPage() {
                           <div className="text-sm font-medium">
                             {KIND_LABEL[p.kind]}: {p.title}
                           </div>
-                          <div className="text-xs text-[var(--muted)]">
+                          <div className="text-xs text-cm-muted">
                             {p.required ? 'Required' : 'Optional'} | version{' '}
                             {shortHash(p.bodyHash)} | effective {fmtDate(p.effectiveAt)}
                           </div>
@@ -259,8 +259,8 @@ export default function PoliciesPage() {
                         <span
                           className={
                             accepted
-                              ? 'inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-xs text-green-600'
-                              : 'inline-flex items-center gap-1 rounded-full border border-[var(--border)] px-2 py-0.5 text-xs text-[var(--muted)]'
+                              ? 'inline-flex items-center gap-1 rounded-full border border-[var(--cm-success)] px-2 py-0.5 text-xs text-[var(--cm-success)]'
+                              : 'inline-flex items-center gap-1 rounded-full border border-cm-border px-2 py-0.5 text-xs text-cm-muted'
                           }
                         >
                           {accepted ? (
@@ -280,15 +280,15 @@ export default function PoliciesPage() {
 
             {adminView && summary && (
               <section aria-label="Workspace acceptance summary">
-                <h2 className="mb-3 text-sm font-medium text-[var(--fg)]">
+                <h2 className="mb-3 text-sm font-medium text-cm-fg">
                   Workspace acceptance
                 </h2>
                 {summary.length === 0 ? (
-                  <p className="text-sm text-[var(--muted)]">
+                  <p className="text-sm text-cm-muted">
                     Publish a policy below to start tracking acceptance counts.
                   </p>
                 ) : (
-                  <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)] bg-[var(--surface)]">
+                  <ul className="divide-y divide-cm-border rounded-lg border border-cm-border bg-cm-paper">
                     {summary.map((s) => (
                       <li
                         key={s.policy.id}
@@ -298,11 +298,11 @@ export default function PoliciesPage() {
                           <div className="text-sm font-medium">
                             {KIND_LABEL[s.policy.kind]}: {s.policy.title}
                           </div>
-                          <div className="text-xs text-[var(--muted)]">
+                          <div className="text-xs text-cm-muted">
                             Version {shortHash(s.policy.bodyHash)}
                           </div>
                         </div>
-                        <span className="rounded-full border border-[var(--border)] px-2 py-0.5 text-xs">
+                        <span className="rounded-full border border-cm-border px-2 py-0.5 text-xs text-cm-fg">
                           {s.acceptedCount} accepted
                         </span>
                       </li>
@@ -313,24 +313,24 @@ export default function PoliciesPage() {
             )}
 
             <section aria-label="Publish a new version">
-              <h2 className="mb-3 text-sm font-medium text-[var(--fg)]">
+              <h2 className="mb-3 text-sm font-medium text-cm-fg">
                 Publish a new version
               </h2>
-              <p className="mb-3 text-xs text-[var(--muted)]">
+              <p className="mb-3 text-xs text-cm-muted">
                 Owner role with active MFA step-up required. A new required version
                 immediately re-gates every user until they accept it.
               </p>
               <form
                 onSubmit={publish}
-                className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4"
+                className="space-y-3 rounded-lg border border-cm-border bg-cm-paper p-4"
               >
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-xs text-[var(--muted)]">Kind</span>
+                    <span className="text-xs text-cm-muted">Kind</span>
                     <select
                       value={kind}
                       onChange={(e) => setKind(e.target.value as PolicyKind)}
-                      className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-sm"
+                      className="rounded-md border border-cm-border bg-cm-bg px-2 py-1.5 text-sm outline-none focus:border-cm-border-strong"
                     >
                       <option value="tos">Terms of Service</option>
                       <option value="dpa">Data Processing Addendum</option>
@@ -338,25 +338,25 @@ export default function PoliciesPage() {
                     </select>
                   </label>
                   <label className="flex flex-col gap-1 text-sm">
-                    <span className="text-xs text-[var(--muted)]">Title</span>
+                    <span className="text-xs text-cm-muted">Title</span>
                     <input
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       maxLength={200}
                       placeholder="e.g. Acme TOS v3"
-                      className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 text-sm"
+                      className="rounded-md border border-cm-border bg-cm-bg px-2 py-1.5 text-sm outline-none focus:border-cm-border-strong"
                     />
                   </label>
                 </div>
                 <label className="flex flex-col gap-1 text-sm">
-                  <span className="text-xs text-[var(--muted)]">Body (markdown)</span>
+                  <span className="text-xs text-cm-muted">Body (markdown)</span>
                   <textarea
                     value={body}
                     onChange={(e) => setBody(e.target.value)}
                     rows={8}
                     maxLength={200_000}
                     placeholder="Full policy text. Will be hashed for tamper detection."
-                    className="rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1.5 font-mono text-xs"
+                    className="cm-mono rounded-md border border-cm-border bg-cm-bg px-2 py-1.5 text-xs outline-none focus:border-cm-border-strong"
                   />
                 </label>
                 <label className="flex items-center gap-2 text-sm">
@@ -364,14 +364,15 @@ export default function PoliciesPage() {
                     type="checkbox"
                     checked={required}
                     onChange={(e) => setRequired(e.target.checked)}
+                    className="accent-[var(--cm-accent)]"
                   />
                   <span>Required (gate users until accepted)</span>
                 </label>
                 {publishError && (
-                  <div className="text-sm text-red-600">{publishError}</div>
+                  <div className="text-sm text-[var(--cm-danger)]">{publishError}</div>
                 )}
                 {publishedAt && !publishError && (
-                  <div className="text-xs text-green-600">
+                  <div className="text-xs text-[var(--cm-success)]">
                     Published at {fmtDate(publishedAt)}
                   </div>
                 )}
@@ -379,7 +380,7 @@ export default function PoliciesPage() {
                   <button
                     type="submit"
                     disabled={publishing || !title.trim() || !body.trim()}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium hover:bg-[var(--surface-hover)] disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-md bg-cm-fg px-3 py-1.5 text-sm font-medium text-cm-bg hover:opacity-90 disabled:opacity-50"
                   >
                     {publishing ? <Spinner /> : <IconArrowRight size={14} />}
                     Publish
@@ -388,7 +389,7 @@ export default function PoliciesPage() {
               </form>
             </section>
 
-            <div className="text-xs text-[var(--muted)]">
+            <div className="text-xs text-cm-muted">
               <Link href="/settings" className="underline">
                 Back to settings
               </Link>
