@@ -8,6 +8,37 @@
   --font-sans: var(--cm-font);
   --font-mono: var(--cm-font-mono);
   --font-display: var(--cm-font-display);
+
+  /* ClawMind palette registered as first-class Tailwind colors. Without this,
+     Tailwind v4 silently DROPS any cm-* utility it hasn't been taught about —
+     so classes the re-theme work leans on (bg-cm-fg, text-cm-bg,
+     hover:text-cm-fg, divide-cm-border, focus:ring-cm-accent,
+     placeholder:text-cm-muted, ...) compiled to nothing and rendered as
+     no-ops (ink buttons with no fill, dead hovers). Registering them here
+     generates the full utility matrix AND every variant (hover:/focus:/
+     placeholder:/divide-/ring- ...). Values point at the --cm-* CSS variables
+     so utilities stay theme-aware: the vars flip under [data-theme='dark'],
+     so a single bg-cm-paper is correct in both light and dark. The hand-rolled
+     bg-cm and text-cm helpers further down are now superseded by these but
+     left in place (identical values) to avoid churn. */
+  --color-cm-bg: var(--cm-bg);
+  --color-cm-paper: var(--cm-paper);
+  --color-cm-subtle: var(--cm-subtle);
+  --color-cm-border: var(--cm-border);
+  --color-cm-border-strong: var(--cm-border-strong);
+  --color-cm-fg: var(--cm-fg);
+  --color-cm-fg-soft: var(--cm-fg-soft);
+  --color-cm-muted: var(--cm-muted);
+  --color-cm-faint: var(--cm-faint);
+  --color-cm-accent: var(--cm-accent);
+  --color-cm-accent-ink: var(--cm-accent-ink);
+  --color-cm-accent-soft: var(--cm-accent-soft);
+  --color-cm-accent-line: var(--cm-accent-line);
+  --color-cm-cite: var(--cm-cite);
+  --color-cm-cite-bg: var(--cm-cite-bg);
+  --color-cm-cite-line: var(--cm-cite-line);
+  --color-cm-danger: var(--cm-danger);
+  --color-cm-success: var(--cm-success);
 }
 
 /* Display headings use Fraunces with optical sizing and a softer mode. */
