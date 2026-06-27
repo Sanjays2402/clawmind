@@ -57,32 +57,34 @@ export default function SsoSettingsPage() {
   }, [load]);
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <IconShield size={22} />
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-accent">
+              <IconShield size={22} />
+            </span>
             <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Single sign-on</h1>
           </div>
           <button
             type="button"
             onClick={load}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2.5 py-1.5 text-xs text-[var(--fg-muted)] hover:text-[var(--fg)]"
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1.5 text-xs text-cm-muted transition hover:bg-cm-subtle hover:text-cm-fg"
           >
             <IconRefresh size={12} />
             Refresh
           </button>
         </div>
 
-        <p className="mb-6 max-w-2xl text-sm text-[var(--fg-muted)]">
+        <p className="mb-6 max-w-2xl text-sm text-cm-muted">
           ClawMind supports OIDC single sign-on against any spec-compliant provider:
           Google Workspace, Okta, Azure AD or Entra ID, Auth0, Keycloak. Configuration
           lives in server environment variables so credentials never leave the host.
         </p>
 
         {loading && (
-          <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
+          <div className="flex items-center gap-2 text-sm text-cm-muted">
             <Spinner /> Loading SSO status
           </div>
         )}
@@ -113,23 +115,23 @@ function StatusCard({ config }: { config: SsoConfig }) {
       ? { label: 'Enforced for this deployment', tone: 'positive' as const, Icon: IconCheck }
       : { label: 'Available, not enforced', tone: 'neutral' as const, Icon: IconShield };
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 sm:p-5">
+    <section className="rounded-xl border border-cm-border bg-cm-paper p-4 sm:p-5">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-sm font-semibold">Status</h2>
-          <p className="mt-1 text-xs text-[var(--fg-muted)]">
+          <p className="mt-1 text-xs text-cm-muted">
             Auth mode controls which login methods the API accepts. Set
-            <span className="cm-mono mx-1 rounded bg-[var(--bg)] px-1 py-0.5 text-[11px]">CLAWMIND_AUTH_MODE=oidc</span>
+            <span className="cm-mono mx-1 rounded bg-cm-subtle px-1 py-0.5 text-[11px]">CLAWMIND_AUTH_MODE=oidc</span>
             to require SSO for every browser session.
           </p>
         </div>
         <span
           className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-1 text-xs ${
             status.tone === 'positive'
-              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
+              ? 'border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] text-[var(--cm-success)]'
               : status.tone === 'neutral'
-                ? 'border-sky-500/30 bg-sky-500/10 text-sky-600'
-                : 'border-amber-500/30 bg-amber-500/10 text-amber-600'
+                ? 'border-cm-accent-line bg-cm-accent-soft text-cm-accent'
+                : 'border-cm-cite-line bg-cm-cite-bg text-cm-cite'
           }`}
         >
           <status.Icon size={12} />
@@ -150,9 +152,9 @@ function StatusCard({ config }: { config: SsoConfig }) {
 
 function DetailCard({ config }: { config: SsoConfig }) {
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 sm:p-5">
+    <section className="rounded-xl border border-cm-border bg-cm-paper p-4 sm:p-5">
       <h2 className="text-sm font-semibold">Identity provider</h2>
-      <p className="mt-1 text-xs text-[var(--fg-muted)]">
+      <p className="mt-1 text-xs text-cm-muted">
         These values come from the server environment. Share the redirect URI with
         your IdP admin so they can register ClawMind as a client.
       </p>
@@ -176,9 +178,9 @@ function DetailCard({ config }: { config: SsoConfig }) {
 
 function PolicyCard({ config }: { config: SsoConfig }) {
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 sm:p-5">
+    <section className="rounded-xl border border-cm-border bg-cm-paper p-4 sm:p-5">
       <h2 className="text-sm font-semibold">Workspace policy</h2>
-      <p className="mt-1 text-xs text-[var(--fg-muted)]">
+      <p className="mt-1 text-xs text-cm-muted">
         Only verified emails whose domain appears in the allowlist may sign in.
         An empty allowlist accepts any account the IdP returns.
       </p>
@@ -193,9 +195,9 @@ function PolicyCard({ config }: { config: SsoConfig }) {
             {config.allowedDomains.map((d) => (
               <li
                 key={d}
-                className="cm-mono inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-[11px]"
+                className="cm-mono inline-flex items-center gap-1 rounded-md border border-cm-border bg-cm-subtle px-2 py-1 text-[11px]"
               >
-                <IconCheck size={10} />
+                <span className="text-[var(--cm-success)]"><IconCheck size={10} /></span>
                 {d}
               </li>
             ))}
@@ -208,14 +210,14 @@ function PolicyCard({ config }: { config: SsoConfig }) {
 
 function SignInCard() {
   return (
-    <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-4 sm:p-5">
+    <section className="rounded-xl border border-cm-border bg-cm-paper p-4 sm:p-5">
       <h2 className="text-sm font-semibold">Sign in with SSO</h2>
-      <p className="mt-1 text-xs text-[var(--fg-muted)]">
+      <p className="mt-1 text-xs text-cm-muted">
         Use this link to test the full round trip against your IdP.
       </p>
       <a
         href={`${API_BASE}/auth/oidc`}
-        className="mt-3 inline-flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-sm text-[var(--fg)] hover:bg-[var(--bg-hover)]"
+        className="mt-3 inline-flex items-center gap-2 rounded-md bg-cm-fg px-3 py-2 text-sm font-medium text-cm-bg transition hover:opacity-90"
       >
         <IconKey size={14} />
         Continue with SSO
@@ -227,14 +229,14 @@ function SignInCard() {
 
 function NotConfiguredCard() {
   return (
-    <section className="rounded-xl border border-dashed border-[var(--border)] p-4 sm:p-5">
+    <section className="rounded-xl border border-dashed border-cm-border bg-cm-paper p-4 sm:p-5">
       <h2 className="text-sm font-semibold">Configure your IdP</h2>
-      <p className="mt-2 text-xs text-[var(--fg-muted)]">
+      <p className="mt-2 text-xs text-cm-muted">
         Set the following on the API host and restart. The discovery document
         at <Mono>{'{issuer}/.well-known/openid-configuration'}</Mono> is fetched
         on demand.
       </p>
-      <pre className="cm-mono mt-3 overflow-x-auto rounded-md border border-[var(--border)] bg-[var(--bg)] p-3 text-[11px] leading-relaxed text-[var(--fg)]">
+      <pre className="cm-mono mt-3 overflow-x-auto rounded-md border border-cm-border bg-cm-subtle p-3 text-[11px] leading-relaxed text-cm-fg">
 {`CLAWMIND_AUTH_MODE=oidc
 CLAWMIND_OIDC_ISSUER=https://accounts.google.com
 CLAWMIND_OIDC_CLIENT_ID=...apps.googleusercontent.com
@@ -250,7 +252,7 @@ function BackLink() {
   return (
     <Link
       href="/settings"
-      className="inline-flex items-center gap-1.5 text-xs text-[var(--fg-muted)] hover:text-[var(--fg)]"
+      className="inline-flex items-center gap-1.5 text-xs text-cm-muted hover:text-cm-fg"
     >
       <IconArrowRight size={12} className="rotate-180" />
       Back to settings
@@ -260,9 +262,9 @@ function BackLink() {
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 border-b border-[var(--border)] pb-2 last:border-0 last:pb-0">
-      <dt className="text-[var(--fg-muted)]">{label}</dt>
-      <dd className="min-w-0 flex-1 break-all text-right text-[var(--fg)]">{children}</dd>
+    <div className="flex items-baseline justify-between gap-3 border-b border-cm-border pb-2 last:border-0 last:pb-0">
+      <dt className="text-cm-muted">{label}</dt>
+      <dd className="min-w-0 flex-1 break-all text-right text-cm-fg">{children}</dd>
     </div>
   );
 }
