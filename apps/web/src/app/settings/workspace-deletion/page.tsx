@@ -5,6 +5,7 @@ import { TopNav } from '@/components/TopNav';
 import { api, type WorkspaceDeletionEnvelope, ApiError } from '@/lib/api';
 import {
   ErrorState,
+  SettingsCardSkeleton,
   Spinner,
   IconArrowRight,
   IconCheck,
@@ -16,6 +17,11 @@ import {
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+
+// Shared input chrome on the paper surface: cm-bg fill, faint placeholder,
+// accent focus ring, dimmed when disabled (a scheduled deletion freezes the form).
+const INPUT_CLS =
+  'w-full rounded border border-cm-border bg-cm-bg px-3 py-2 text-sm text-cm-fg placeholder:text-cm-faint focus:outline-none focus:ring-2 focus:ring-cm-accent disabled:opacity-60';
 
 function fmtDate(ts: number | null): string {
   if (!ts) return 'never';
@@ -183,33 +189,33 @@ export default function WorkspaceDeletionPage() {
   const completed = d?.state === 'completed';
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <IconTrash size={22} />
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-danger">
+              <IconTrash size={22} />
+            </span>
             <div>
               <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
                 Workspace deletion
               </h1>
-              <p className="text-sm text-[var(--muted-fg)]">
+              <p className="text-sm text-cm-muted">
                 Schedule a tenant-wide wipe with a cancelable grace window. Owner only, MFA required.
               </p>
             </div>
           </div>
           <Link
             href="/settings"
-            className="inline-flex items-center gap-1 text-sm text-[var(--muted-fg)] hover:text-[var(--fg)]"
+            className="inline-flex items-center gap-1 text-sm text-cm-muted hover:text-cm-fg"
           >
             Back to settings <IconArrowRight size={14} />
           </Link>
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--muted-fg)]">
-            <Spinner /> Loading deletion status...
-          </div>
+          <SettingsCardSkeleton rows={3} />
         ) : error ? (
           <ErrorState message={error} onRetry={() => void load()} />
         ) : !env || !d ? (
@@ -219,20 +225,26 @@ export default function WorkspaceDeletionPage() {
             <section
               className={`rounded-lg border p-5 ${
                 pending
-                  ? 'border-red-500/50 bg-red-500/10'
+                  ? 'border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)]'
                   : completed
-                    ? 'border-zinc-500/50 bg-zinc-500/10'
-                    : 'border-[var(--border)] bg-[var(--card)]'
+                    ? 'border-cm-border bg-cm-subtle'
+                    : 'border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)]'
               }`}
             >
               <div className="flex items-start gap-3">
-                {pending ? (
-                  <IconWarning size={22} />
-                ) : completed ? (
-                  <IconTrash size={22} />
-                ) : (
-                  <IconCheck size={22} />
-                )}
+                <span
+                  className={
+                    pending ? 'text-cm-danger' : completed ? 'text-cm-muted' : 'text-cm-success'
+                  }
+                >
+                  {pending ? (
+                    <IconWarning size={22} />
+                  ) : completed ? (
+                    <IconTrash size={22} />
+                  ) : (
+                    <IconCheck size={22} />
+                  )}
+                </span>
                 <div className="flex-1 text-sm">
                   <div className="font-medium">
                     {pending
@@ -241,24 +253,24 @@ export default function WorkspaceDeletionPage() {
                         ? 'Workspace was deleted'
                         : 'No deletion scheduled'}
                   </div>
-                  <div className="mt-1 text-[var(--muted-fg)]">
+                  <div className="mt-1 text-cm-muted">
                     {pending ? (
                       <>
                         Mutating endpoints return HTTP 423. Reads, exports, MFA step-up,
                         and sign-out remain available so you can pull a final bundle
                         before {fmtDate(d.scheduledFor)}. Scheduled by{' '}
-                        <span className="font-mono">{d.scheduledBy ?? 'unknown'}</span>{' '}
+                        <span className="cm-mono">{d.scheduledBy ?? 'unknown'}</span>{' '}
                         at {fmtDate(d.scheduledAt)}.
                       </>
                     ) : completed ? (
                       <>
                         Marked completed at {fmtDate(d.completedAt)} by{' '}
-                        <span className="font-mono">{d.completedBy ?? 'unknown'}</span>.
+                        <span className="cm-mono">{d.completedBy ?? 'unknown'}</span>.
                       </>
                     ) : d.state === 'cancelled' ? (
                       <>
                         Last schedule cancelled at {fmtDate(d.cancelledAt)} by{' '}
-                        <span className="font-mono">{d.cancelledBy ?? 'unknown'}</span>.
+                        <span className="cm-mono">{d.cancelledBy ?? 'unknown'}</span>.
                       </>
                     ) : (
                       <>
@@ -273,13 +285,13 @@ export default function WorkspaceDeletionPage() {
             {!completed ? (
               <form
                 onSubmit={schedule}
-                className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-5"
+                className="space-y-4 rounded-lg border border-cm-border bg-cm-paper p-5"
               >
                 <div>
                   <h2 className="text-base font-semibold">
                     {pending ? 'Pending deletion (cancel below to reschedule)' : 'Schedule deletion'}
                   </h2>
-                  <p className="mt-1 text-sm text-[var(--muted-fg)]">
+                  <p className="mt-1 text-sm text-cm-muted">
                     Audit-logged. Requires owner role and a recent MFA step-up. Grace
                     window must be between {fmtDuration(limits?.minGraceMs ?? null)} and{' '}
                     {fmtDuration(limits?.maxGraceMs ?? null)}.
@@ -299,7 +311,7 @@ export default function WorkspaceDeletionPage() {
                       maxLength={200}
                       disabled={pending}
                       placeholder="e.g. CS-2026-014"
-                      className="w-full rounded border border-[var(--border)] bg-transparent px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none disabled:opacity-60"
+                      className={INPUT_CLS}
                     />
                   </div>
 
@@ -316,9 +328,9 @@ export default function WorkspaceDeletionPage() {
                       value={graceDays}
                       onChange={(e) => setGraceDays(e.target.value)}
                       disabled={pending}
-                      className="w-full rounded border border-[var(--border)] bg-transparent px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none disabled:opacity-60"
+                      className={INPUT_CLS}
                     />
-                    <div className="text-xs text-[var(--muted-fg)]">
+                    <div className="text-xs text-cm-muted">
                       Resolves to {fmtDuration(graceMs)}
                       {graceInvalid ? ' (out of range)' : ''}.
                     </div>
@@ -337,21 +349,21 @@ export default function WorkspaceDeletionPage() {
                     rows={3}
                     disabled={pending}
                     placeholder="Short summary stored on the deletion record."
-                    className="w-full rounded border border-[var(--border)] bg-transparent px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none disabled:opacity-60"
+                    className={INPUT_CLS}
                   />
-                  <div className="text-right text-xs text-[var(--muted-fg)]">
+                  <div className="text-right text-xs text-cm-muted">
                     {reason.length}/500
                   </div>
                 </div>
 
                 {actionError ? (
-                  <div className="rounded border border-red-500/50 bg-red-500/10 p-3 text-sm">
+                  <div className="rounded border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] p-3 text-sm text-cm-danger">
                     {actionError}
                   </div>
                 ) : null}
 
                 {savedAt ? (
-                  <div className="flex items-center gap-2 text-sm text-emerald-500">
+                  <div className="flex items-center gap-2 text-sm text-cm-success">
                     <IconCheck size={16} /> Updated at {new Date(savedAt).toLocaleTimeString()}
                   </div>
                 ) : null}
@@ -361,7 +373,7 @@ export default function WorkspaceDeletionPage() {
                     <button
                       type="submit"
                       disabled={busy !== null || graceInvalid}
-                      className="inline-flex items-center gap-2 rounded bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                      className="inline-flex items-center gap-2 rounded border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-4 py-2 text-sm font-medium text-cm-danger transition hover:bg-[rgba(180,66,60,0.18)] disabled:opacity-50"
                     >
                       {busy === 'schedule' ? <Spinner /> : <IconTrash size={16} />}
                       Schedule deletion
@@ -372,7 +384,7 @@ export default function WorkspaceDeletionPage() {
                         type="button"
                         onClick={() => void cancel()}
                         disabled={busy !== null}
-                        className="inline-flex items-center gap-2 rounded bg-[var(--fg)] px-4 py-2 text-sm font-medium text-[var(--bg)] disabled:opacity-50"
+                        className="inline-flex items-center gap-2 rounded bg-cm-fg px-4 py-2 text-sm font-medium text-cm-bg transition hover:opacity-90 disabled:opacity-50"
                       >
                         {busy === 'cancel' ? <Spinner /> : <IconRefresh size={16} />}
                         Cancel deletion
@@ -382,7 +394,7 @@ export default function WorkspaceDeletionPage() {
                           type="button"
                           onClick={() => void complete()}
                           disabled={busy !== null}
-                          className="inline-flex items-center gap-2 rounded border border-red-500/60 px-4 py-2 text-sm font-medium text-red-500 disabled:opacity-50"
+                          className="inline-flex items-center gap-2 rounded border border-[var(--cm-danger)] px-4 py-2 text-sm font-medium text-cm-danger transition hover:bg-[rgba(180,66,60,0.10)] disabled:opacity-50"
                         >
                           {busy === 'complete' ? <Spinner /> : <IconTrash size={16} />}
                           Mark wipe complete
@@ -394,8 +406,8 @@ export default function WorkspaceDeletionPage() {
               </form>
             ) : null}
 
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-5 text-sm text-[var(--muted-fg)]">
-              <h3 className="text-sm font-semibold text-[var(--fg)]">
+            <div className="rounded-lg border border-cm-border bg-cm-paper p-5 text-sm text-cm-muted">
+              <h3 className="text-sm font-semibold text-cm-fg">
                 What scheduling does
               </h3>
               <ul className="mt-2 list-inside list-disc space-y-1">
@@ -404,7 +416,7 @@ export default function WorkspaceDeletionPage() {
                 <li>Keeps reads, GDPR export, auth, and the deletion endpoint itself open.</li>
                 <li>Writes audit entries on schedule, cancel, and mark-complete.</li>
               </ul>
-              <h3 className="mt-4 text-sm font-semibold text-[var(--fg)]">
+              <h3 className="mt-4 text-sm font-semibold text-cm-fg">
                 What it does not do
               </h3>
               <ul className="mt-2 list-inside list-disc space-y-1">
@@ -412,7 +424,7 @@ export default function WorkspaceDeletionPage() {
                 <li>Bypass legal hold. An active hold still blocks the underlying destructive paths.</li>
               </ul>
               <div className="mt-4">
-                <IconShield size={14} className="mr-1 inline align-text-bottom" />
+                <IconShield size={14} className="mr-1 inline align-text-bottom text-cm-muted" />
                 Pair with /settings/security to confirm MFA enrolment before scheduling.
               </div>
             </div>
