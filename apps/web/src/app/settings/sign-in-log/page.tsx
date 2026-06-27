@@ -31,21 +31,24 @@ function shortAgent(ua: string): string {
   return ua.length > 80 ? `${ua.slice(0, 77)}...` : ua;
 }
 
+// Outcomes route through the brand feedback inks: a clean sign-in reads as
+// --cm-success (green), a failed attempt as the citation gold caution ink
+// (it is a signal to look, not a hard error), and a sign-out as calm neutral.
 function OutcomeBadge({ outcome }: { outcome: SignInRecord['outcome'] }) {
   const map: Record<SignInRecord['outcome'], { label: string; cls: string; icon: React.ReactNode }> = {
     success: {
       label: 'Success',
-      cls: 'border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200',
+      cls: 'border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] text-[var(--cm-success)]',
       icon: <IconCheck size={11} />,
     },
     failure: {
       label: 'Failed',
-      cls: 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100',
+      cls: 'border-[var(--cm-cite-line)] bg-[var(--cm-cite-bg)] text-cm-cite',
       icon: <IconWarning size={11} />,
     },
     logout: {
       label: 'Signed out',
-      cls: 'border-muted-foreground/30 bg-muted/40 text-muted-foreground',
+      cls: 'border-cm-border bg-cm-subtle text-cm-muted',
       icon: <IconArrowRight size={11} />,
     },
   };
@@ -104,33 +107,33 @@ export default function SignInLogPage() {
   }, [data]);
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto w-full max-w-4xl px-4 py-8 sm:py-10">
         <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
-            <span className="rounded-md border bg-muted/30 p-2 text-primary">
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-accent">
               <IconShield size={22} />
             </span>
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">Sign-in activity</h1>
-              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+              <p className="mt-1 max-w-xl text-sm text-cm-muted">
                 Every login attempt against your account, recorded server side. Switch to the
                 workspace view to see failures and probes that did not resolve to a user.
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-cm-muted">
             <Link
               href="/settings/sessions"
-              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 hover:bg-muted/50"
+              className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1.5 hover:bg-cm-subtle"
             >
               <IconSettings size={14} />
               Active sessions
             </Link>
             <Link
               href="/audit"
-              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 hover:bg-muted/50"
+              className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1.5 hover:bg-cm-subtle"
             >
               Audit log
               <IconArrowRight size={14} />
@@ -139,13 +142,13 @@ export default function SignInLogPage() {
         </header>
 
         <div className="mb-4 flex flex-wrap items-center gap-2">
-          <div role="tablist" aria-label="Scope" className="inline-flex rounded-md border bg-card p-0.5 text-xs">
+          <div role="tablist" aria-label="Scope" className="inline-flex rounded-md border border-cm-border bg-cm-paper p-0.5 text-xs">
             <button
               type="button"
               role="tab"
               aria-selected={scope === 'self'}
               onClick={() => setScope('self')}
-              className={`rounded px-2.5 py-1 ${scope === 'self' ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`rounded px-2.5 py-1 ${scope === 'self' ? 'bg-cm-subtle font-medium text-cm-fg' : 'text-cm-muted hover:text-cm-fg'}`}
             >
               My sign-ins
             </button>
@@ -154,18 +157,18 @@ export default function SignInLogPage() {
               role="tab"
               aria-selected={scope === 'all'}
               onClick={() => setScope('all')}
-              className={`rounded px-2.5 py-1 ${scope === 'all' ? 'bg-muted font-medium text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`rounded px-2.5 py-1 ${scope === 'all' ? 'bg-cm-subtle font-medium text-cm-fg' : 'text-cm-muted hover:text-cm-fg'}`}
             >
               Workspace (admin)
             </button>
           </div>
 
-          <label className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+          <label className="inline-flex items-center gap-1 text-xs text-cm-muted">
             Outcome
             <select
               value={outcome}
               onChange={(e) => setOutcome(e.target.value as OutcomeFilter)}
-              className="h-7 rounded-md border bg-card px-2 text-xs text-foreground"
+              className="h-7 rounded-md border border-cm-border bg-cm-paper px-2 text-xs text-cm-fg outline-none focus:border-cm-border-strong"
             >
               <option value="">All</option>
               <option value="success">Success</option>
@@ -177,7 +180,7 @@ export default function SignInLogPage() {
           <button
             type="button"
             onClick={() => load(scope, outcome)}
-            className="ml-auto inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 text-xs hover:bg-muted/50"
+            className="ml-auto inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1.5 text-xs hover:bg-cm-subtle"
           >
             <IconRefresh size={14} />
             Refresh
@@ -185,8 +188,8 @@ export default function SignInLogPage() {
         </div>
 
         {loading && (
-          <div className="rounded-lg border bg-card p-6">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="rounded-lg border border-cm-border bg-cm-paper p-6">
+            <div className="flex items-center gap-2 text-sm text-cm-muted">
               <Spinner size={14} />
               Loading activity
             </div>
@@ -200,7 +203,7 @@ export default function SignInLogPage() {
         {!loading && !error && adminBlocked && (
           <div
             role="alert"
-            className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100"
+            className="flex items-start gap-2 rounded-md border border-[var(--cm-cite-line)] bg-[var(--cm-cite-bg)] p-3 text-sm text-cm-cite"
           >
             <IconWarning size={16} />
             <span>
@@ -211,13 +214,13 @@ export default function SignInLogPage() {
         )}
 
         {!loading && !error && !adminBlocked && data && (
-          <section className="rounded-lg border bg-card">
-            <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+          <section className="rounded-lg border border-cm-border bg-cm-paper">
+            <div className="flex flex-col gap-3 border-b border-cm-border p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
               <div>
                 <h2 className="text-sm font-medium">
                   {data.records.length} record{data.records.length === 1 ? '' : 's'} shown
                 </h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">
+                <p className="mt-0.5 text-xs text-cm-muted">
                   {summary
                     ? `${summary.successes} success, ${summary.failures} failed, total in log ${data.total}`
                     : 'Newest first. Records are capped at 5000 on disk.'}
@@ -233,7 +236,7 @@ export default function SignInLogPage() {
                 />
               </div>
             ) : (
-              <ul className="divide-y">
+              <ul className="divide-y divide-cm-border">
                 {data.records.map((r) => (
                   <li key={r.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
                     <div className="min-w-0">
@@ -241,18 +244,18 @@ export default function SignInLogPage() {
                         <OutcomeBadge outcome={r.outcome} />
                         <span className="truncate text-sm font-medium">{r.method}</span>
                         {scope === 'all' && (
-                          <span className="truncate text-xs text-muted-foreground">{r.actor}</span>
+                          <span className="truncate text-xs text-cm-muted">{r.actor}</span>
                         )}
                       </div>
-                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-cm-muted">
                         <span>IP {r.ip || 'unknown'}</span>
                         <span>{shortAgent(r.userAgent)}</span>
                         {r.reason && (
-                          <span className="text-amber-700 dark:text-amber-300">Reason: {r.reason}</span>
+                          <span className="text-cm-cite">Reason: {r.reason}</span>
                         )}
                       </div>
                     </div>
-                    <div className="text-xs text-muted-foreground sm:text-right" title={fmtAbsolute(r.at)}>
+                    <div className="text-xs text-cm-muted sm:text-right" title={fmtAbsolute(r.at)}>
                       {fmtRelative(r.at)}
                     </div>
                   </li>
