@@ -23,27 +23,41 @@ import {
   IconArrowRight,
 } from '@clawmind/ui';
 
+// Posture statuses route through the brand feedback inks so the scorecard
+// reads on the warm paper-cream surface: pass = --cm-success, warn = the
+// citation gold (the app's caution ink), fail = --cm-danger.
+const STATUS_INK: Record<'pass' | 'warn' | 'fail', string> = {
+  pass: 'var(--cm-success)',
+  warn: 'var(--cm-cite)',
+  fail: 'var(--cm-danger)',
+};
+const STATUS_TINT: Record<'pass' | 'warn' | 'fail', string> = {
+  pass: 'rgba(47, 122, 85, 0.10)',
+  warn: 'var(--cm-cite-bg)',
+  fail: 'rgba(180, 66, 60, 0.10)',
+};
+
 function StatusDot({ status }: { status: 'pass' | 'warn' | 'fail' }) {
-  const cls =
-    status === 'pass'
-      ? 'bg-emerald-500'
-      : status === 'warn'
-        ? 'bg-amber-500'
-        : 'bg-rose-500';
-  return <span aria-hidden className={`inline-block h-2 w-2 rounded-full ${cls}`} />;
+  return (
+    <span
+      aria-hidden
+      className="inline-block h-2 w-2 rounded-full"
+      style={{ background: STATUS_INK[status] }}
+    />
+  );
 }
 
 function StatusBadge({ status }: { status: 'pass' | 'warn' | 'fail' }) {
-  const label = status === 'pass' ? 'pass' : status === 'warn' ? 'warn' : 'fail';
-  const cls =
-    status === 'pass'
-      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30'
-      : status === 'warn'
-        ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30'
-        : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/30';
   return (
-    <span className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${cls}`}>
-      {label}
+    <span
+      className="inline-flex items-center rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+      style={{
+        color: STATUS_INK[status],
+        borderColor: STATUS_INK[status],
+        background: STATUS_TINT[status],
+      }}
+    >
+      {status}
     </span>
   );
 }
@@ -81,17 +95,17 @@ export default function PosturePage() {
     URL.revokeObjectURL(url);
   }
 
-  const scoreTone =
+  const scoreInk =
     data == null
-      ? 'text-[var(--muted)]'
+      ? 'var(--cm-muted)'
       : data.score >= 90
-        ? 'text-emerald-600 dark:text-emerald-400'
+        ? 'var(--cm-success)'
         : data.score >= 70
-          ? 'text-amber-600 dark:text-amber-400'
-          : 'text-rose-600 dark:text-rose-400';
+          ? 'var(--cm-cite)'
+          : 'var(--cm-danger)';
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen bg-cm-bg">
       <TopNav />
       <main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -102,14 +116,14 @@ export default function PosturePage() {
           <div className="flex items-center gap-2">
             <button
               onClick={() => void load()}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium hover:bg-[var(--card)]"
+              className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-paper px-2.5 py-1.5 text-xs font-medium text-cm-fg hover:bg-cm-subtle disabled:opacity-50"
               disabled={loading}
             >
               <IconRefresh size={14} /> Refresh
             </button>
             <button
               onClick={download}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] bg-[var(--surface)] px-2.5 py-1.5 text-xs font-medium hover:bg-[var(--card)] disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-paper px-2.5 py-1.5 text-xs font-medium text-cm-fg hover:bg-cm-subtle disabled:opacity-50"
               disabled={!data}
             >
               <IconDownload size={14} /> Export JSON
@@ -117,7 +131,7 @@ export default function PosturePage() {
           </div>
         </div>
 
-        <p className="mb-5 text-sm text-[var(--muted)]">
+        <p className="mb-5 text-sm text-cm-muted">
           Live, derived security posture across every workspace control. Paste this
           into a vendor security questionnaire or feed the JSON into your risk
           register. Distinct from the admin overview (operator counters) and the
@@ -135,46 +149,46 @@ export default function PosturePage() {
         ) : (
           <>
             <section className="mb-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
-                <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">Score</div>
-                <div className={`mt-1 text-2xl font-semibold tabular-nums ${scoreTone}`}>{data.score}</div>
-                <div className="mt-1 text-xs text-[var(--muted)]">{data.ready ? 'Procurement-ready' : 'Action required'}</div>
+              <div className="rounded-lg border border-cm-border bg-cm-paper p-4">
+                <div className="text-[11px] uppercase tracking-wide text-cm-muted">Score</div>
+                <div className="mt-1 text-2xl font-semibold tabular-nums" style={{ color: scoreInk }}>{data.score}</div>
+                <div className="mt-1 text-xs text-cm-muted">{data.ready ? 'Procurement-ready' : 'Action required'}</div>
               </div>
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
-                <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">Pass</div>
-                <div className="mt-1 text-2xl font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{data.counts.pass}</div>
+              <div className="rounded-lg border border-cm-border bg-cm-paper p-4">
+                <div className="text-[11px] uppercase tracking-wide text-cm-muted">Pass</div>
+                <div className="mt-1 text-2xl font-semibold tabular-nums" style={{ color: 'var(--cm-success)' }}>{data.counts.pass}</div>
               </div>
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
-                <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">Warn</div>
-                <div className="mt-1 text-2xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">{data.counts.warn}</div>
+              <div className="rounded-lg border border-cm-border bg-cm-paper p-4">
+                <div className="text-[11px] uppercase tracking-wide text-cm-muted">Warn</div>
+                <div className="mt-1 text-2xl font-semibold tabular-nums" style={{ color: 'var(--cm-cite)' }}>{data.counts.warn}</div>
               </div>
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-4">
-                <div className="text-[11px] uppercase tracking-wide text-[var(--muted)]">Fail</div>
-                <div className="mt-1 text-2xl font-semibold tabular-nums text-rose-600 dark:text-rose-400">{data.counts.fail}</div>
+              <div className="rounded-lg border border-cm-border bg-cm-paper p-4">
+                <div className="text-[11px] uppercase tracking-wide text-cm-muted">Fail</div>
+                <div className="mt-1 text-2xl font-semibold tabular-nums" style={{ color: 'var(--cm-danger)' }}>{data.counts.fail}</div>
               </div>
             </section>
 
-            <div className="mb-3 text-xs text-[var(--muted)]">
+            <div className="mb-3 text-xs text-cm-muted">
               Generated {fmtRelative(data.generatedAt)}
             </div>
 
-            <ul className="divide-y divide-[var(--border)] overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--card)]">
+            <ul className="divide-y divide-cm-border overflow-hidden rounded-lg border border-cm-border bg-cm-paper">
               {data.controls.map((c) => (
                 <li key={c.id} className="p-4">
                   <div className="flex flex-wrap items-center gap-2">
                     <StatusDot status={c.status} />
                     <span className="text-sm font-semibold">{c.title}</span>
                     <StatusBadge status={c.status} />
-                    <span className="text-[10px] uppercase tracking-wide text-[var(--muted)]">{c.family}</span>
+                    <span className="text-[10px] uppercase tracking-wide text-cm-muted">{c.family}</span>
                   </div>
-                  <div className="mt-1.5 text-sm text-[var(--fg)]">{c.detail}</div>
+                  <div className="mt-1.5 text-sm text-cm-fg">{c.detail}</div>
                   {c.remediation ? (
-                    <div className="mt-1.5 flex items-start gap-1.5 text-xs text-[var(--muted)]">
+                    <div className="mt-1.5 flex items-start gap-1.5 text-xs text-cm-muted">
                       <IconArrowRight size={12} className="mt-0.5 shrink-0" />
                       <span className="break-all">{c.remediation}</span>
                     </div>
                   ) : (
-                    <div className="mt-1.5 flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400">
+                    <div className="mt-1.5 flex items-center gap-1.5 text-xs" style={{ color: 'var(--cm-success)' }}>
                       <IconCheck size={12} /> control configured
                     </div>
                   )}
@@ -182,7 +196,7 @@ export default function PosturePage() {
               ))}
             </ul>
 
-            <p className="mt-4 text-xs text-[var(--muted)]">
+            <p className="mt-4 text-xs text-cm-muted">
               <IconWarning size={12} className="mr-1 inline" />
               Each row is computed from the live service state, not editable text.
               Public Trust Center claims live at <Link href="/trust" className="underline">/trust</Link>.
