@@ -37,6 +37,90 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-26 18:01 PDT - design-language re-theme batch (5 slices)
+
+Shipped 5 full re-themes off the foreign/shadcn palettes onto cm-*, gated
+green (web typecheck + web build both pass; ci:verify still has the unrelated
+packages/telemetry red), pushed to main dc29d9c..00913a6:
+- 85debc9 feat(web/settings/invitations): re-theme onto the cm palette
+- 61bd735 feat(web/settings/policies): re-theme onto the cm palette
+- 6041d3e feat(web/posture): re-theme the security-posture scorecard onto cm
+- 65f98fb feat(web/settings/security): re-theme IP allowlist off shadcn onto cm
+- 00913a6 feat(web/settings/notifications): re-theme off shadcn onto cm
+
+Confirmed the drift is REAL not cosmetic: --bg/--surface/--card/--muted/--fg/
+--border + the shadcn bg-card/text-muted-foreground/bg-primary family are
+DEFINED NOWHERE in the app (only --cm-* ships in tokens.css), so these pages
+rendered on broken fallbacks (muted copy = full navy, cards = no surface fill).
+Remaining drift after this tick: ~28 pages still on the shadcn palette + ~25
+on the foreign --var palette (~50 total) - see the refilled queue below.
+
+### Queued frontend (refilled 2026-06-26 18:01 PDT)
+
+The DESIGN-LANGUAGE RE-THEME is still the highest-value standing theme and far
+from done (~50 pages remain). Group each tick's 5 by visual coherence. The two
+clusters: (a) the shadcn palette (bg-card/text-muted-foreground/bg-primary/
+bg-background/border-input/ring-ring) needs a FULL re-theme; (b) the foreign
+--var palette (--bg/--surface/--surface-hover/--card/--muted/--fg/--border/
+--bg-elev/--muted-fg) maps mechanically onto cm-* (bg->cm-bg, surface/card->
+cm-paper, border->cm-border, muted->cm-muted, fg->cm-fg, hover->cm-subtle).
+Status chips/inks always route through the brand feedback inks: --cm-success
+(green), --cm-cite (gold caution), --cm-danger (red), each with a 10% rgba
+tint (success rgba(47,122,85,0.10), danger rgba(180,66,60,0.10), cite uses
+--cm-cite-bg). Primary actions = bg-cm-fg / text-cm-bg ink buttons. Wire the
+shared SettingsCardSkeleton into any bare-Spinner loading state while you're in
+a page.
+
+RE-THEME BATCH A - access/identity settings (shadcn palette, cohere as a group):
+- [ ] feat(web/settings/members): re-theme the members + RBAC admin page off the
+  shadcn palette onto cm-*; role badges through cm inks. High-traffic admin page.
+- [ ] feat(web/settings/sessions): re-theme the active-sessions page; the
+  current-session highlight + revoke action through cm accent / --cm-danger.
+- [ ] feat(web/settings/sign-in-log): re-theme; success/failure rows through
+  --cm-success / --cm-danger inks instead of raw emerald/rose.
+- [ ] feat(web/settings/sign-in-anomalies): re-theme the impossible-travel page;
+  the anomaly flags through the cite-gold caution ink.
+- [ ] feat(web/settings/access-reviews): re-theme the recertification page;
+  pending/approved states through cm feedback inks.
+
+RE-THEME BATCH B - foreign --var settings (mechanical map, cohere as a group):
+- [ ] feat(web/settings/encryption): re-theme off --card/--muted-fg/--bg-elev/
+  --accent onto cm-*; KEK-active panel through --cm-success; SettingsCardSkeleton
+  already wired, keep it. (Reference page used in this tick's study.)
+- [ ] feat(web/settings/sso): re-theme off the foreign --var palette onto cm-*.
+- [ ] feat(web/settings/mfa): re-theme; enrolled/unenrolled states through cm inks.
+- [ ] feat(web/settings/maintenance): re-theme the storage-maintenance page;
+  compact/forget destructive actions through --cm-danger.
+- [ ] feat(web/settings/workspace-freeze): re-theme; the frozen-state banner
+  through the cite-gold caution surface.
+
+RE-THEME BATCH C - compliance/legal settings (mixed palette, cohere by section):
+- [ ] feat(web/settings/legal-hold): re-theme; active-hold banner -> cite caution.
+- [ ] feat(web/settings/sub-processors): re-theme the GDPR registry off --var.
+- [ ] feat(web/settings/ropa): re-theme the Article 30 register off --var.
+- [ ] feat(web/settings/dpa): re-theme off the shadcn palette; accepted receipt
+  state through --cm-success.
+- [ ] feat(web/settings/erasure-certificates): re-theme off --var; verified
+  certificate state through --cm-success.
+
+CHAT SURFACE (still the biggest product gap; pull one in if a re-theme batch
+doesn't cohere):
+- [ ] feat(web/chat): per-message conversation history within a thread - ChatShell
+  loses the prior Q/A when a new question is asked. Vertical stack of Q/A pairs
+  (newest at bottom), each with its own copy/share + a per-message collapsible
+  citation rail. The single biggest chat gap; carried across many ticks.
+- [ ] feat(web/composer): drag-and-drop file pin onto the composer to pre-pin a
+  source for the next question (surface a "Pinned: <path>" chip below the textarea).
+
+GLOBAL UX / POLISH (evergreen):
+- [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette,
+  ShareAnswerButton, ShortcutHelp) on a single <Dialog> primitive in @clawmind/ui
+  (focus trap, Esc, backdrop, scroll-lock) so future modals don't drift.
+- [ ] feat(web/welcome): finish the welcome guide visually - a 3-card tour
+  (chat + dashboard + sources) for a 30-second first-run orientation.
+- [ ] feat(web/a11y): roving-tabindex on the TopNav primary nav (ARIA menubar
+  pattern) for keyboard arrow-key movement.
+
 ### Queued frontend (refilled 2026-06-26 12:22 PDT)
 
 Fresh batch so future ticks never run dry. The biggest standing theme is the
@@ -46,22 +130,32 @@ tokens (cheap fixes), and (b) whole pages built in a DIFFERENT shadcn-style
 language (bg-card / text-muted-foreground / bg-primary) that need a full
 re-theme. Group a re-theme batch by visual coherence.
 
-DESIGN-LANGUAGE RE-THEME (highest-value; the 06:49 + 12:22 ticks started this):
-- [ ] feat(web/settings/security): re-theme the IP-allowlist page off the shadcn
-  palette (bg-card/bg-background/text-muted-foreground/bg-primary/border) onto
-  cm-*. It's a flagship security surface linked from the hub. Once done, wire in
-  the SettingsCardSkeleton (already built) for its loading state.
-- [ ] feat(web/settings/notifications): re-theme onto cm-* (same shadcn classes),
-  then swap its bespoke loading list for the shared skeleton.
-- [ ] feat(web/posture): re-theme the security-posture dashboard - it uses
-  bg-[var(--bg)]/(--card)/(--border) + bg-amber-500 status dots that are
-  off-brand. A high-signal page (compliance scorecard) worth getting right.
-- [ ] feat(web/settings/invitations): re-theme (foreign --bg/--surface/--border +
-  amber-500 status chips) onto cm-*; the status-chip colors should use the
-  cm feedback inks like the search chips just did (95f55d4).
-- [ ] feat(web/settings/policies): re-theme (--surface/--surface-hover/--warning-bg
-  + green-600 accepted state) onto cm-*; route the accepted/pending states
-  through --cm-success / --cm-muted.
+DESIGN-LANGUAGE RE-THEME (highest-value; the 06:49 + 12:22 + 18:01 ticks did this):
+- [x] feat(web/settings/security): re-theme the IP-allowlist page off the shadcn
+  palette onto cm-* + wire the SettingsCardSkeleton for its loading state. SHIPPED
+  65f98fb: full re-theme off bg-background/bg-card/text-muted-foreground/bg-primary/
+  border-input/ring-ring; toggle "on" uses the brand accent; caution hint -> cite
+  gold, errors -> --cm-danger, Saved -> --cm-success; SettingsCardSkeleton rows=4
+  replaces the bare Spinner (completes the c0f0ad9 deferral).
+- [x] feat(web/settings/notifications): re-theme onto cm-* + swap its bespoke
+  loading list for the shared skeleton. SHIPPED 00913a6: off the shadcn palette;
+  toggle "on" -> accent, off -> bg-cm-subtle; Saved -> --cm-success;
+  SettingsCardSkeleton rows=4 replaces the hand-rolled animate-pulse list.
+- [x] feat(web/posture): re-theme the security-posture scorecard. SHIPPED 6041d3e:
+  off --bg/--card/--border + emerald/amber/rose; two lookup maps (STATUS_INK/
+  STATUS_TINT) drive every pass/warn/fail surface (dots, badges, score tone, the
+  three count cards, the configured line) through --cm-success / cite gold /
+  --cm-danger so they can't drift.
+- [x] feat(web/settings/invitations): re-theme onto cm-*; status chips through the
+  cm feedback inks like the search chips (95f55d4). SHIPPED 85debc9: off
+  --bg/--surface/--border + amber/emerald/rose; pending -> cite gold, accepted ->
+  --cm-success, revoked -> --cm-danger; reveal panel -> cite-gold caution surface;
+  action banners -> success/danger inks.
+- [x] feat(web/settings/policies): re-theme onto cm-*; accepted/pending through
+  --cm-success / --cm-muted. SHIPPED 61bd735: off --surface/--surface-hover/
+  --warning-bg + green-600/red-600; Accept + Publish became ink buttons; the
+  "action required" banner -> cite-gold caution surface; accepted chip ->
+  --cm-success; required checkbox gets an accent tint.
 
 CHAT SURFACE (still the biggest product gap):
 - [ ] feat(web/chat): per-message conversation history within a thread - ChatShell
