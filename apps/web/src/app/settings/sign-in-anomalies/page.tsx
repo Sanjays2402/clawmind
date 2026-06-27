@@ -19,16 +19,18 @@ function fmtAbsolute(ts: number): string {
   return new Date(ts).toLocaleString();
 }
 
+// An open anomaly flag is a caution, not a hard failure, so it routes through
+// the citation-gold caution ink; once acknowledged it settles to --cm-success.
 function StatusBadge({ ack }: { ack: number | null }) {
   if (ack) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
+      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] px-2 py-0.5 text-[11px] font-medium text-[var(--cm-success)]">
         <IconCheck size={11} /> Acknowledged
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-100">
+    <span className="inline-flex items-center gap-1 rounded-full border border-[var(--cm-cite-line)] bg-[var(--cm-cite-bg)] px-2 py-0.5 text-[11px] font-medium text-cm-cite">
       <IconWarning size={11} /> Open
     </span>
   );
@@ -82,13 +84,13 @@ export default function SignInAnomaliesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
-              <Link href="/settings" className="hover:text-foreground">Settings</Link>
+            <div className="mb-1 flex items-center gap-2 text-xs text-cm-muted">
+              <Link href="/settings" className="hover:text-cm-fg">Settings</Link>
               <span>/</span>
               <span>Sign-in anomalies</span>
             </div>
@@ -96,38 +98,38 @@ export default function SignInAnomaliesPage() {
               <IconShield size={22} />
               Sign-in anomalies
             </h1>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+            <p className="mt-1 max-w-2xl text-sm text-cm-muted">
               Successful sign-ins that imply travel faster than a commercial flight between two countries. Detection is best-effort and never blocks a login; acknowledge a row once you have confirmed the activity.
             </p>
           </div>
           <button
             type="button"
             onClick={() => void load(scope)}
-            className="inline-flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm hover:bg-accent"
+            className="inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-cm-paper px-3 py-1.5 text-sm hover:bg-cm-subtle"
           >
             <IconRefresh size={14} /> Refresh
           </button>
         </div>
 
-        <div className="mb-4 inline-flex rounded-md border border-input bg-background p-1 text-sm">
+        <div className="mb-4 inline-flex rounded-md border border-cm-border bg-cm-paper p-1 text-sm">
           <button
             type="button"
             onClick={() => setScope('self')}
-            className={`rounded px-3 py-1 ${scope === 'self' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            className={`rounded px-3 py-1 ${scope === 'self' ? 'bg-cm-subtle font-medium text-cm-fg' : 'text-cm-muted hover:text-cm-fg'}`}
           >
             Your sign-ins
           </button>
           <button
             type="button"
             onClick={() => setScope('all')}
-            className={`rounded px-3 py-1 ${scope === 'all' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+            className={`rounded px-3 py-1 ${scope === 'all' ? 'bg-cm-subtle font-medium text-cm-fg' : 'text-cm-muted hover:text-cm-fg'}`}
           >
             Workspace (admin)
           </button>
         </div>
 
         {loading && (
-          <div className="flex items-center justify-center py-16 text-muted-foreground">
+          <div className="flex items-center justify-center py-16 text-cm-muted">
             <Spinner /> <span className="ml-2">Loading anomalies</span>
           </div>
         )}
@@ -158,24 +160,24 @@ export default function SignInAnomaliesPage() {
 
         {!loading && !error && !adminBlocked && data && data.records.length > 0 && (
           <div className="space-y-3">
-            <div className="text-xs text-muted-foreground">
+            <div className="text-xs text-cm-muted">
               Showing {data.records.length} of {data.total}. {data.openCount} open across the queue.
             </div>
-            <ul className="divide-y divide-border rounded-lg border border-border bg-card">
+            <ul className="divide-y divide-cm-border rounded-lg border border-cm-border bg-cm-paper">
               {data.records.map((r: SignInAnomalyRecord) => (
                 <li key={r.id} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <StatusBadge ack={r.acknowledgedAt} />
-                      <span className="font-mono text-xs text-muted-foreground">{r.actor}</span>
+                      <span className="cm-mono text-xs text-cm-muted">{r.actor}</span>
                     </div>
                     <div className="mt-1 text-sm">
                       <span className="font-semibold">{r.previous.country}</span>
-                      <span className="text-muted-foreground"> to </span>
+                      <span className="text-cm-muted"> to </span>
                       <span className="font-semibold">{r.current.country}</span>
-                      <span className="text-muted-foreground"> in {r.elapsedMinutes} min, implying {r.speedKmh.toLocaleString()} km/h (threshold {r.thresholdKmh})</span>
+                      <span className="text-cm-muted"> in {r.elapsedMinutes} min, implying {r.speedKmh.toLocaleString()} km/h (threshold {r.thresholdKmh})</span>
                     </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
+                    <div className="mt-1 text-xs text-cm-muted">
                       {r.previous.ip} via {r.previous.method} at {fmtAbsolute(r.previous.at)} then {r.current.ip} via {r.current.method} at {fmtAbsolute(r.current.at)}
                       {' '}({fmtRelative(r.createdAt)})
                     </div>
@@ -185,7 +187,7 @@ export default function SignInAnomaliesPage() {
                       type="button"
                       onClick={() => void ack(r.id)}
                       disabled={acking === r.id}
-                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm shadow-sm hover:bg-accent disabled:opacity-50"
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-cm-border bg-cm-paper px-3 py-1.5 text-sm hover:bg-cm-subtle disabled:opacity-50"
                     >
                       <IconCheck size={14} /> {acking === r.id ? 'Acknowledging' : 'Acknowledge'}
                     </button>
