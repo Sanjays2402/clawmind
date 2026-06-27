@@ -106,17 +106,19 @@ export default function WorkspaceFreezePage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <IconShield size={22} />
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-accent">
+              <IconShield size={22} />
+            </span>
             <div>
               <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">
                 Workspace freeze
               </h1>
-              <p className="text-sm text-[var(--muted-fg)]">
+              <p className="text-sm text-cm-muted">
                 Pause every mutating endpoint while keeping reads, exports, and
                 authentication available. Owner-only, MFA required.
               </p>
@@ -124,14 +126,14 @@ export default function WorkspaceFreezePage() {
           </div>
           <Link
             href="/settings"
-            className="inline-flex items-center gap-1 text-sm text-[var(--muted-fg)] hover:text-[var(--fg)]"
+            className="inline-flex items-center gap-1 text-sm text-cm-muted hover:text-cm-fg"
           >
             Back to settings <IconArrowRight size={14} />
           </Link>
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--muted-fg)]">
+          <div className="flex items-center gap-2 text-sm text-cm-muted">
             <Spinner /> Loading freeze status...
           </div>
         ) : error ? (
@@ -143,17 +145,19 @@ export default function WorkspaceFreezePage() {
             <section
               className={`rounded-lg border p-5 ${
                 freeze.active
-                  ? 'border-amber-500/50 bg-amber-500/10'
-                  : 'border-[var(--border)] bg-[var(--card)]'
+                  ? 'border-cm-cite-line bg-cm-cite-bg'
+                  : 'border-cm-border bg-cm-paper'
               }`}
             >
               <div className="flex items-start gap-3">
-                {freeze.active ? <IconWarning size={22} /> : <IconCheck size={22} />}
+                <span className={freeze.active ? 'text-cm-cite' : 'text-[var(--cm-success)]'}>
+                  {freeze.active ? <IconWarning size={22} /> : <IconCheck size={22} />}
+                </span>
                 <div className="flex-1 text-sm">
                   <div className="font-medium">
                     {freeze.active ? 'Workspace is FROZEN' : 'Workspace is live'}
                   </div>
-                  <div className="mt-1 text-[var(--muted-fg)]">
+                  <div className="mt-1 text-cm-muted">
                     {freeze.active ? (
                       <>
                         Mutating endpoints are returning HTTP 423. Reads,
@@ -177,13 +181,13 @@ export default function WorkspaceFreezePage() {
 
             <form
               onSubmit={activate}
-              className="space-y-4 rounded-lg border border-[var(--border)] bg-[var(--card)] p-5"
+              className="space-y-4 rounded-lg border border-cm-border bg-cm-paper p-5"
             >
               <div>
                 <h2 className="text-base font-semibold">
                   {freeze.active ? 'Update freeze metadata' : 'Freeze this workspace'}
                 </h2>
-                <p className="mt-1 text-sm text-[var(--muted-fg)]">
+                <p className="mt-1 text-sm text-cm-muted">
                   Audit-logged. Requires owner role and a recent MFA step-up.
                 </p>
               </div>
@@ -199,7 +203,7 @@ export default function WorkspaceFreezePage() {
                   onChange={(e) => setTicket(e.target.value)}
                   maxLength={200}
                   placeholder="e.g. SEC-2026-009"
-                  className="w-full rounded border border-[var(--border)] bg-transparent px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none"
+                  className="w-full rounded-md border border-cm-border bg-cm-bg px-3 py-2 text-sm placeholder:text-cm-faint focus:border-cm-accent focus:outline-none focus:ring-2 focus:ring-cm-accent"
                 />
               </div>
 
@@ -214,21 +218,21 @@ export default function WorkspaceFreezePage() {
                   maxLength={500}
                   rows={3}
                   placeholder="Short summary stored alongside the freeze record."
-                  className="w-full rounded border border-[var(--border)] bg-transparent px-3 py-2 text-sm focus:border-[var(--accent)] focus:outline-none"
+                  className="w-full rounded-md border border-cm-border bg-cm-bg px-3 py-2 text-sm placeholder:text-cm-faint focus:border-cm-accent focus:outline-none focus:ring-2 focus:ring-cm-accent"
                 />
-                <div className="text-right text-xs text-[var(--muted-fg)]">
+                <div className="text-right text-xs text-cm-muted">
                   {reason.length}/500
                 </div>
               </div>
 
               {actionError ? (
-                <div className="rounded border border-red-500/50 bg-red-500/10 p-3 text-sm">
-                  {actionError}
+                <div className="flex items-start gap-2 rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] p-3 text-sm text-[var(--cm-danger)]">
+                  <IconWarning size={16} /> <span>{actionError}</span>
                 </div>
               ) : null}
 
               {savedAt ? (
-                <div className="flex items-center gap-2 text-sm text-emerald-500">
+                <div className="flex items-center gap-2 text-sm text-[var(--cm-success)]">
                   <IconCheck size={16} /> Saved at {new Date(savedAt).toLocaleTimeString()}
                 </div>
               ) : null}
@@ -237,7 +241,7 @@ export default function WorkspaceFreezePage() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="inline-flex items-center gap-2 rounded bg-[var(--fg)] px-4 py-2 text-sm font-medium text-[var(--bg)] disabled:opacity-50"
+                  className="inline-flex items-center gap-2 rounded-md bg-cm-fg px-4 py-2 text-sm font-medium text-cm-bg transition hover:opacity-90 disabled:opacity-50"
                 >
                   {saving ? <Spinner /> : <IconShield size={16} />}
                   {freeze.active ? 'Update freeze' : 'Freeze workspace'}
@@ -247,7 +251,7 @@ export default function WorkspaceFreezePage() {
                     type="button"
                     onClick={() => void release()}
                     disabled={releasing}
-                    className="inline-flex items-center gap-2 rounded border border-[var(--border)] px-4 py-2 text-sm font-medium disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-md border border-cm-border px-4 py-2 text-sm font-medium transition hover:bg-cm-subtle disabled:opacity-50"
                   >
                     {releasing ? <Spinner /> : <IconRefresh size={16} />}
                     Release freeze
@@ -256,15 +260,15 @@ export default function WorkspaceFreezePage() {
               </div>
             </form>
 
-            <div className="rounded-lg border border-[var(--border)] bg-[var(--card)] p-5 text-sm text-[var(--muted-fg)]">
-              <h3 className="text-sm font-semibold text-[var(--fg)]">
+            <div className="rounded-lg border border-cm-border bg-cm-paper p-5 text-sm text-cm-muted">
+              <h3 className="text-sm font-semibold text-cm-fg">
                 What a freeze blocks
               </h3>
               <ul className="mt-2 list-inside list-disc space-y-1">
                 <li>Every POST, PUT, PATCH, DELETE outside the allowlist</li>
                 <li>Ingest, conversation writes, key issuance, webhook config</li>
               </ul>
-              <h3 className="mt-4 text-sm font-semibold text-[var(--fg)]">
+              <h3 className="mt-4 text-sm font-semibold text-cm-fg">
                 What stays available
               </h3>
               <ul className="mt-2 list-inside list-disc space-y-1">
