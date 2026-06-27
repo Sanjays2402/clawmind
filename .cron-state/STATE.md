@@ -37,6 +37,52 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-27 08:27 PDT - RE-THEME BATCH D: workspace/account settings (5 slices)
+
+Finished BATCH D - the five workspace/account settings pages still on the foreign
+--var palette. Confirmed (same finding as every prior re-theme tick) the drift is
+REAL not cosmetic: --bg / --bg-muted / --bg-elev / --card / --border / --muted /
+--muted-fg / --fg-muted / --fg / --accent are DEFINED NOWHERE in the app (only
+--cm-* ships in tokens.css), so all five rendered on broken fallbacks - cards with
+no surface fill, muted copy at full ink, inputs with no theme-aware focus ring -
+plus raw emerald/amber/red/rose/zinc status surfaces that ignore the brand. Each
+slice got a genuine UX upgrade on top of the mechanical map: whoami's auth chip
+through brand inks; retention's INPUT_CLS + ink Save + danger purge; warrant-canary
+a NEW state-driven status-panel surface (active=success wash / stale=cite caution /
+withdrawn=danger) + skeleton; workspace-deletion a NEW success-wash idle banner so
+the safe state reads as safe, Cancel as the ink primary (restoring writes is safe,
+not destructive); scim's token-reveal banner collapsed from hand-rolled amber
+light+dark variants to one --cm-cite gold caution surface. Three pages traded a
+bare inline Spinner for the shared SettingsCardSkeleton.
+
+Gated ONCE for the batch: web typecheck GREEN, web build GREEN (all routes compiled,
+incl. the 5 - /settings/whoami, /retention, /warrant-canary, /workspace-deletion,
+/scim), @clawmind/ui build GREEN. Batch diff is exactly 5 files, all under
+apps/web/src/app/settings/, 0 telemetry (ci:verify's only red remains the
+pre-existing, unrelated @clawmind/telemetry OTel SDK version-skew, never touched
+this tick). One in-gate fix (whoami had a truncated JSX literal from the read) was
+folded into its own slice via autosquash before pushing - history stayed one-slice-
+one-commit. Pushed e6f56cc..f3e33ed:
+- 9ca8267 feat(web/settings/whoami): identity debugger off --var; auth chip ->
+  --cm-success / neutral cm; Mono/Row/CopyButton/raw-JSON onto cm surfaces.
+- 04a7f89 feat(web/settings/retention): off --var; INPUT_CLS; Save -> ink, Saved ->
+  --cm-success; Apply-and-delete + action-error -> --cm-danger; ReportPanel onto cm.
+- 12f4025 feat(web/settings/warrant-canary): off --var; statusColor through brand
+  inks; NEW state-driven statusSurface; Sign/Save -> ink, Withdraw -> --cm-danger;
+  bare Spinner -> SettingsCardSkeleton.
+- 3cda052 feat(web/settings/workspace-deletion): pure destructive page off --var;
+  danger through --cm-danger; NEW idle -> --cm-success wash; Cancel -> ink (safe
+  restore); INPUT_CLS; Spinner -> skeleton.
+- f3e33ed feat(web/settings/scim): off --var; token-reveal -> --cm-cite caution
+  surface (dropped amber variants); Active -> --cm-success; Mint/Rotate -> ink,
+  Revoke -> --cm-danger; Spinner -> skeleton.
+
+NEXT TICK: BATCH E - access-policy --var settings (session-policy, mfa-policy,
+offboarding, domains, api-key-bruteforce) cohere as a group. After E, BATCH F
+(API-key policy, shadcn palette) and the CHAT SURFACE per-message history item
+(still the biggest remaining product gap) are queued below. ~31 settings pages
+still drift.
+
 ### TICK LOG 2026-06-27 04:13 PDT - RE-THEME BATCH C: compliance/legal settings (5 slices)
 
 Finished BATCH C - the five compliance/legal settings pages. Confirmed the drift
@@ -263,17 +309,25 @@ bg-cm-bg + placeholder:text-cm-faint + focus:ring-cm-accent. Wire SettingsCardSk
 into any bare-Spinner loading state while you're in the page. Group each tick by
 visual coherence.
 
-RE-THEME BATCH D - workspace/account --var settings (foreign --var, cohere as a group):
-- [ ] feat(web/settings/whoami): re-theme off --var (also has stray shadcn tokens);
-  the identity/claims card surfaces onto cm-paper.
-- [ ] feat(web/settings/retention): re-theme; the retention-window form + any
-  destructive purge action -> --cm-danger, saved -> --cm-success.
-- [ ] feat(web/settings/warrant-canary): re-theme; a healthy/current canary -> 
-  --cm-success, an overdue/expired statement -> cite-gold caution.
-- [ ] feat(web/settings/workspace-deletion): re-theme; this is a pure destructive
-  page - the delete-workspace confirm flow should read entirely through --cm-danger.
-- [ ] feat(web/settings/scim): re-theme the SCIM provisioning page; enabled state
-  -> accent/--cm-success, the bearer-token reveal panel -> cite-gold caution surface.
+RE-THEME BATCH D - workspace/account --var settings - DONE 2026-06-27 08:27:
+- [x] feat(web/settings/whoami): SHIPPED 9ca8267 - identity debugger off --var
+  (--bg-muted/--fg/--fg-muted/--border) + raw emerald; Mono/Row/CopyButton/details
+  -> cm surfaces; Authenticated chip -> --cm-success, Anonymous -> neutral cm-subtle.
+- [x] feat(web/settings/retention): SHIPPED 04a7f89 - off --var; INPUT_CLS hoist;
+  Save -> bg-cm-fg ink, Saved -> --cm-success; "Apply and delete" + action-error
+  -> --cm-danger 10% tint; ReportPanel onto cm; field errors -> text-cm-danger.
+- [x] feat(web/settings/warrant-canary): SHIPPED 12f4025 - off --var + raw
+  emerald/amber/red; statusColor through brand inks (active=success, stale=cite,
+  withdrawn=danger); NEW state-driven status-panel surface (statusSurface); Sign +
+  Save -> ink buttons; Withdraw -> --cm-danger; bare Spinner -> SettingsCardSkeleton.
+- [x] feat(web/settings/workspace-deletion): SHIPPED 3cda052 - the pure destructive
+  page off --var + raw red/zinc/emerald; danger reads through --cm-danger (PENDING
+  banner, Schedule, Mark-complete); NEW idle-state banner -> --cm-success wash (writes
+  safe); Cancel -> bg-cm-fg ink (safe restore); INPUT_CLS; Spinner -> skeleton.
+- [x] feat(web/settings/scim): SHIPPED f3e33ed - off --var; token-reveal banner ->
+  --cm-cite gold caution surface (dropped hand-rolled amber light+dark variants);
+  Active chip -> --cm-success, error pill -> --cm-danger; Mint/Rotate -> ink, Revoke
+  -> --cm-danger; bare Spinner -> SettingsCardSkeleton.
 
 RE-THEME BATCH E - access-policy --var settings (foreign --var, cohere as a group):
 - [ ] feat(web/settings/session-policy): re-theme; active policy -> --cm-success.
