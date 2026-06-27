@@ -27,7 +27,7 @@ import {
 
 function Mono({ children }: { children: React.ReactNode }) {
   return (
-    <span className="cm-mono rounded bg-[var(--bg-muted)] px-1.5 py-0.5 text-[12px] text-[var(--fg)]">
+    <span className="cm-mono rounded bg-cm-subtle px-1.5 py-0.5 text-[12px] text-cm-fg">
       {children}
     </span>
   );
@@ -36,8 +36,8 @@ function Mono({ children }: { children: React.ReactNode }) {
 function Row({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[140px_1fr] items-start gap-3 py-1.5 text-sm">
-      <div className="text-[var(--fg-muted)]">{label}</div>
-      <div className="text-[var(--fg)]">{value}</div>
+      <div className="text-cm-muted">{label}</div>
+      <div className="text-cm-fg">{value}</div>
     </div>
   );
 }
@@ -57,7 +57,7 @@ function CopyButton({ text }: { text: string }) {
           // is fine; the value is already visible on screen.
         }
       }}
-      className="inline-flex items-center gap-1 rounded border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--fg-muted)] hover:bg-[var(--bg-muted)]"
+      className="inline-flex items-center gap-1 rounded border border-cm-border px-2 py-0.5 text-[11px] text-cm-muted hover:bg-cm-subtle hover:text-cm-fg"
       aria-label="Copy to clipboard"
     >
       <IconCopy size={12} />
@@ -94,13 +94,13 @@ export default function WhoamiPage() {
     <main className="mx-auto max-w-3xl px-4 py-8 space-y-6">
       <TopNav />
       <header className="space-y-2">
-        <div className="text-sm text-[var(--fg-muted)] flex items-center gap-2">
-          <Link href="/settings" className="hover:underline">Settings</Link>
+        <div className="text-sm text-cm-muted flex items-center gap-2">
+          <Link href="/settings" className="hover:text-cm-fg hover:underline">Settings</Link>
           <IconArrowRight size={12} />
           <span>Identity</span>
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">Who am I</h1>
-        <p className="text-sm text-[var(--fg-muted)]">
+        <p className="text-sm text-cm-muted">
           The server&rsquo;s view of this request: the user behind the session, the API key
           behind a token, the scopes that key was granted, the source IP, and the request
           id the audit log will use. Share the request id with support when you open a
@@ -113,7 +113,7 @@ export default function WhoamiPage() {
           <IconRefresh size={14} /> Refresh
         </Button>
         {refreshedAt ? (
-          <span className="text-xs text-[var(--fg-muted)]">
+          <span className="text-xs text-cm-muted">
             Updated {new Date(refreshedAt).toLocaleTimeString()}
           </span>
         ) : null}
@@ -121,7 +121,7 @@ export default function WhoamiPage() {
 
       {loading && !data ? (
         <Card>
-          <div className="flex items-center gap-2 p-6 text-sm text-[var(--fg-muted)]">
+          <div className="flex items-center gap-2 p-6 text-sm text-cm-muted">
             <Spinner /> Loading identity
           </div>
         </Card>
@@ -132,18 +132,18 @@ export default function WhoamiPage() {
           <Card>
             <div className="p-5 space-y-1">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                <IconShield size={14} className="text-[var(--fg-muted)]" />
+                <IconShield size={14} className="text-cm-muted" />
                 Authentication
               </div>
               <Row
                 label="Status"
                 value={
                   data.authenticated ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[12px] text-emerald-500">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] px-2 py-0.5 text-[12px] text-cm-success">
                       Authenticated
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--bg-muted)] px-2 py-0.5 text-[12px] text-[var(--fg-muted)]">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-cm-border bg-cm-subtle px-2 py-0.5 text-[12px] text-cm-muted">
                       Anonymous
                     </span>
                   )
@@ -154,9 +154,9 @@ export default function WhoamiPage() {
                 <Row
                   label="Elevation"
                   value={
-                    <span className="text-[12px] text-[var(--fg)]">
+                    <span className="text-[12px] text-cm-fg">
                       <Mono>{data.elevation.fromRole}</Mono> &rarr; <Mono>{data.elevation.toRole}</Mono>{' '}
-                      <span className="text-[var(--fg-muted)]">
+                      <span className="text-cm-muted">
                         until {new Date(data.elevation.expiresAt).toLocaleString()}
                       </span>
                     </span>
@@ -169,20 +169,20 @@ export default function WhoamiPage() {
           <Card>
             <div className="p-5 space-y-1">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                <IconUsers size={14} className="text-[var(--fg-muted)]" />
+                <IconUsers size={14} className="text-cm-muted" />
                 User
               </div>
-              <Row label="User id" value={data.user.id ? <Mono>{data.user.id}</Mono> : <span className="text-[var(--fg-muted)]">none</span>} />
-              <Row label="Role" value={data.user.role ? <Mono>{data.user.role}</Mono> : <span className="text-[var(--fg-muted)]">none</span>} />
-              <Row label="Email" value={data.user.email ?? <span className="text-[var(--fg-muted)]">unknown</span>} />
-              <Row label="GitHub" value={data.user.github ? <Mono>{data.user.github}</Mono> : <span className="text-[var(--fg-muted)]">not linked</span>} />
+              <Row label="User id" value={data.user.id ? <Mono>{data.user.id}</Mono> : <span className="text-cm-muted">none</span>} />
+              <Row label="Role" value={data.user.role ? <Mono>{data.user.role}</Mono> : <span className="text-cm-muted">none</span>} />
+              <Row label="Email" value={data.user.email ?? <span className="text-cm-muted">unknown</span>} />
+              <Row label="GitHub" value={data.user.github ? <Mono>{data.user.github}</Mono> : <span className="text-cm-muted">not linked</span>} />
             </div>
           </Card>
 
           <Card>
             <div className="p-5 space-y-1">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                <IconKey size={14} className="text-[var(--fg-muted)]" />
+                <IconKey size={14} className="text-cm-muted" />
                 API key
               </div>
               {data.apiKey ? (
@@ -206,15 +206,15 @@ export default function WhoamiPage() {
                           ))}
                         </div>
                       ) : (
-                        <span className="text-[var(--fg-muted)]">unrestricted (legacy key)</span>
+                        <span className="text-cm-muted">unrestricted (legacy key)</span>
                       )
                     }
                   />
                 </>
               ) : (
-                <p className="text-sm text-[var(--fg-muted)]">
+                <p className="text-sm text-cm-muted">
                   This request was not authenticated with an API key. Issue one from{' '}
-                  <Link href="/keys" className="underline">/keys</Link> and curl{' '}
+                  <Link href="/keys" className="text-cm-fg underline">/keys</Link> and curl{' '}
                   <Mono>GET /v1/whoami</Mono> with{' '}
                   <Mono>Authorization: Bearer &lt;key&gt;</Mono> to see what that key can do.
                 </p>
@@ -225,7 +225,7 @@ export default function WhoamiPage() {
           <Card>
             <div className="p-5 space-y-1">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-                <IconNetwork size={14} className="text-[var(--fg-muted)]" />
+                <IconNetwork size={14} className="text-cm-muted" />
                 Request
               </div>
               <Row
@@ -244,7 +244,7 @@ export default function WhoamiPage() {
                   data.request.forwardedFor ? (
                     <Mono>{data.request.forwardedFor}</Mono>
                   ) : (
-                    <span className="text-[var(--fg-muted)]">none</span>
+                    <span className="text-cm-muted">none</span>
                   )
                 }
               />
@@ -252,9 +252,9 @@ export default function WhoamiPage() {
                 label="User-Agent"
                 value={
                   data.request.userAgent ? (
-                    <span className="break-all text-[12px] text-[var(--fg)]">{data.request.userAgent}</span>
+                    <span className="break-all text-[12px] text-cm-fg">{data.request.userAgent}</span>
                   ) : (
-                    <span className="text-[var(--fg-muted)]">unknown</span>
+                    <span className="text-cm-muted">unknown</span>
                   )
                 }
               />
@@ -262,9 +262,9 @@ export default function WhoamiPage() {
             </div>
           </Card>
 
-          <details className="rounded-lg border border-[var(--border)] bg-[var(--bg-muted)] p-3 text-sm">
-            <summary className="cursor-pointer text-[var(--fg)]">Raw JSON</summary>
-            <pre className="mt-2 overflow-x-auto rounded bg-[var(--bg)] p-3 text-[12px] text-[var(--fg)]">
+          <details className="rounded-lg border border-cm-border bg-cm-subtle p-3 text-sm">
+            <summary className="cursor-pointer text-cm-fg">Raw JSON</summary>
+            <pre className="mt-2 overflow-x-auto rounded bg-cm-bg p-3 text-[12px] text-cm-fg">
 {JSON.stringify(data, null, 2)}
             </pre>
           </details>
