@@ -14,6 +14,7 @@ import { api, API_BASE, ApiError, type ScimTokenView } from '@/lib/api';
 import {
   EmptyState,
   ErrorState,
+  SettingsCardSkeleton,
   Spinner,
   IconShield,
   IconKey,
@@ -123,15 +124,17 @@ export default function ScimSettingsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <IconShield size={22} />
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-accent">
+              <IconShield size={22} />
+            </span>
             <div>
               <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">SCIM provisioning</h1>
-              <p className="text-sm text-[var(--fg-muted)]">
+              <p className="text-sm text-cm-muted">
                 Push user lifecycle from Okta, Azure AD, or Google Workspace.
               </p>
             </div>
@@ -141,7 +144,7 @@ export default function ScimSettingsPage() {
               type="button"
               onClick={load}
               disabled={loading}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg-muted)] hover:bg-[var(--bg-elev)] disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:bg-cm-subtle hover:text-cm-fg disabled:opacity-50"
               aria-label="Refresh"
             >
               <IconRefresh size={14} />
@@ -149,7 +152,7 @@ export default function ScimSettingsPage() {
             </button>
             <Link
               href="/settings"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg-muted)] hover:bg-[var(--bg-elev)]"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:bg-cm-subtle hover:text-cm-fg"
             >
               Settings
               <IconArrowRight size={14} />
@@ -158,42 +161,40 @@ export default function ScimSettingsPage() {
         </div>
 
         {loading && !view ? (
-          <div className="flex items-center gap-2 text-sm text-[var(--fg-muted)]">
-            <Spinner /> Loading SCIM status
-          </div>
+          <SettingsCardSkeleton rows={3} />
         ) : error && !view ? (
           <ErrorState title="Could not load SCIM status" message={error} onRetry={load} />
         ) : (
           <div className="grid gap-6">
             {plaintext && (
               <section
-                className="rounded-xl border border-amber-300/50 bg-amber-50/60 p-4 dark:border-amber-500/40 dark:bg-amber-500/10"
+                className="rounded-xl border border-cm-cite-line bg-cm-cite-bg p-4"
                 role="alert"
               >
-                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-900 dark:text-amber-200">
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium text-cm-cite">
                   <IconWarning size={16} /> Copy this token now. It will not be shown again.
                 </div>
                 <div className="flex items-center gap-2">
-                  <code className="cm-mono flex-1 break-all rounded-md border border-amber-300/50 bg-white/60 px-3 py-2 text-[12px] text-amber-950 dark:bg-black/20 dark:text-amber-100">
+                  <code className="cm-mono flex-1 break-all rounded-md border border-cm-cite-line bg-cm-paper px-3 py-2 text-[12px] text-cm-fg">
                     {plaintext}
                   </code>
                   <button
                     type="button"
                     onClick={() => copy(plaintext)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-amber-400/60 px-3 py-2 text-sm text-amber-900 hover:bg-amber-100/60 dark:text-amber-100 dark:hover:bg-amber-500/20"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-cm-cite-line px-3 py-2 text-sm text-cm-cite hover:bg-cm-paper"
                   >
                     {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
                     {copied ? 'Copied' : 'Copy'}
                   </button>
                 </div>
-                <p className="mt-2 text-xs text-amber-900/80 dark:text-amber-200/80">
+                <p className="mt-2 text-xs text-cm-cite">
                   Paste into your IdP&rsquo;s SCIM connector as a bearer token, then dismiss this banner.
                 </p>
                 <div className="mt-3">
                   <button
                     type="button"
                     onClick={() => setPlaintext(null)}
-                    className="text-xs text-amber-900 underline hover:no-underline dark:text-amber-200"
+                    className="text-xs text-cm-cite underline hover:no-underline"
                   >
                     Dismiss
                   </button>
@@ -201,19 +202,19 @@ export default function ScimSettingsPage() {
               </section>
             )}
 
-            <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-5">
+            <section className="rounded-xl border border-cm-border bg-cm-paper p-5">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-medium text-[var(--fg)]">Bearer token</h2>
-                  <p className="text-xs text-[var(--fg-muted)]">
+                  <h2 className="text-sm font-medium text-cm-fg">Bearer token</h2>
+                  <p className="text-xs text-cm-muted">
                     Owner-only. Each rotate requires multi-factor verification and is recorded in the audit log.
                   </p>
                 </div>
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs ${
                     view?.present
-                      ? 'border-emerald-400/40 text-emerald-700 dark:text-emerald-300'
-                      : 'border-[var(--border)] text-[var(--fg-muted)]'
+                      ? 'border-[var(--cm-success)] text-cm-success'
+                      : 'border-cm-border text-cm-muted'
                   }`}
                 >
                   {view?.present ? <IconCheck size={12} /> : <IconKey size={12} />}
@@ -224,16 +225,16 @@ export default function ScimSettingsPage() {
               {view?.present ? (
                 <dl className="grid gap-2 text-sm">
                   <Row label="Token id">
-                    <span className="cm-mono text-[12px] text-[var(--fg)]">{view.id}</span>
+                    <span className="cm-mono text-[12px] text-cm-fg">{view.id}</span>
                   </Row>
                   <Row label="Created">
-                    <span className="text-[var(--fg-muted)]">{fmtTs(view.createdAt)}</span>
+                    <span className="text-cm-muted">{fmtTs(view.createdAt)}</span>
                   </Row>
                   <Row label="Created by">
-                    <span className="cm-mono text-[12px] text-[var(--fg-muted)]">{view.createdBy ?? 'unknown'}</span>
+                    <span className="cm-mono text-[12px] text-cm-muted">{view.createdBy ?? 'unknown'}</span>
                   </Row>
                   <Row label="Last used">
-                    <span className="text-[var(--fg-muted)]">{fmtTs(view.lastUsedAt)}</span>
+                    <span className="text-cm-muted">{fmtTs(view.lastUsedAt)}</span>
                   </Row>
                 </dl>
               ) : (
@@ -246,7 +247,7 @@ export default function ScimSettingsPage() {
               {error && (
                 <p
                   role="alert"
-                  className="mt-3 rounded-md border border-rose-300/50 bg-rose-50/60 px-3 py-2 text-xs text-rose-800 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200"
+                  className="mt-3 rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-3 py-2 text-xs text-cm-danger"
                 >
                   {error}
                 </p>
@@ -257,7 +258,7 @@ export default function ScimSettingsPage() {
                   type="button"
                   onClick={rotate}
                   disabled={busy !== null}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--fg)] px-3 py-1.5 text-sm text-[var(--bg)] hover:opacity-90 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-cm-fg px-3 py-1.5 text-sm font-medium text-cm-bg transition hover:opacity-90 disabled:opacity-50"
                 >
                   {busy === 'rotate' ? <Spinner /> : <IconRefresh size={14} />}
                   {view?.present ? 'Rotate token' : 'Mint token'}
@@ -267,7 +268,7 @@ export default function ScimSettingsPage() {
                     type="button"
                     onClick={revoke}
                     disabled={busy !== null}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg-muted)] hover:bg-[var(--bg)] disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-3 py-1.5 text-sm font-medium text-cm-danger transition hover:bg-[rgba(180,66,60,0.18)] disabled:opacity-50"
                   >
                     {busy === 'revoke' ? <Spinner /> : <IconTrash size={14} />}
                     Revoke
@@ -276,22 +277,22 @@ export default function ScimSettingsPage() {
               </div>
             </section>
 
-            <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-5">
-              <h2 className="mb-1 text-sm font-medium text-[var(--fg)]">Endpoints for your IdP</h2>
-              <p className="mb-4 text-xs text-[var(--fg-muted)]">
+            <section className="rounded-xl border border-cm-border bg-cm-paper p-5">
+              <h2 className="mb-1 text-sm font-medium text-cm-fg">Endpoints for your IdP</h2>
+              <p className="mb-4 text-xs text-cm-muted">
                 Paste these into Okta, Azure AD, Google Workspace, or any SCIM 2.0 connector.
               </p>
               <dl className="grid gap-2 text-sm">
                 <UrlRow label="Discovery" value={discoveryUrl} onCopy={() => copy(discoveryUrl)} />
                 <UrlRow label="Users base" value={usersUrl} onCopy={() => copy(usersUrl)} />
                 <Row label="Auth">
-                  <span className="text-[var(--fg-muted)]">Bearer token, header: Authorization: Bearer scim_&hellip;</span>
+                  <span className="text-cm-muted">Bearer token, header: Authorization: Bearer scim_***</span>
                 </Row>
                 <Row label="Content type">
-                  <span className="cm-mono text-[12px] text-[var(--fg-muted)]">application/scim+json</span>
+                  <span className="cm-mono text-[12px] text-cm-muted">application/scim+json</span>
                 </Row>
               </dl>
-              <p className="mt-4 text-xs text-[var(--fg-muted)]">
+              <p className="mt-4 text-xs text-cm-muted">
                 Supported operations: create, list, filter by userName, patch role and active, delete. Role is read
                 from the schema extension{' '}
                 <code className="cm-mono">urn:ietf:params:scim:schemas:extension:clawmind:2.0:User</code>.
@@ -307,7 +308,7 @@ export default function ScimSettingsPage() {
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="grid grid-cols-[120px_1fr] items-center gap-3 sm:grid-cols-[160px_1fr]">
-      <dt className="text-xs uppercase tracking-wide text-[var(--fg-muted)]">{label}</dt>
+      <dt className="text-xs uppercase tracking-wide text-cm-muted">{label}</dt>
       <dd>{children}</dd>
     </div>
   );
@@ -316,15 +317,15 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 function UrlRow({ label, value, onCopy }: { label: string; value: string; onCopy: () => void }) {
   return (
     <div className="grid grid-cols-[120px_1fr] items-center gap-3 sm:grid-cols-[160px_1fr]">
-      <dt className="text-xs uppercase tracking-wide text-[var(--fg-muted)]">{label}</dt>
+      <dt className="text-xs uppercase tracking-wide text-cm-muted">{label}</dt>
       <dd className="flex items-center gap-2">
-        <code className="cm-mono flex-1 truncate rounded-md border border-[var(--border)] bg-[var(--bg)] px-2 py-1 text-[12px] text-[var(--fg)]">
+        <code className="cm-mono flex-1 truncate rounded-md border border-cm-border bg-cm-bg px-2 py-1 text-[12px] text-cm-fg">
           {value || '(set CLAWMIND_API_BASE)'}
         </code>
         <button
           type="button"
           onClick={onCopy}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--border)] px-2 py-1 text-xs text-[var(--fg-muted)] hover:bg-[var(--bg)]"
+          className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2 py-1 text-xs text-cm-muted hover:bg-cm-subtle hover:text-cm-fg"
           aria-label={`Copy ${label}`}
         >
           <IconCopy size={12} />
