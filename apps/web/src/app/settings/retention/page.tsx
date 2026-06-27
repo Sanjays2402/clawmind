@@ -48,6 +48,11 @@ const FIELDS: FieldConfig[] = [
   },
 ];
 
+// Shared input chrome so every numeric field reads as one control on the
+// paper surface: cm-bg fill, faint placeholder, accent focus ring.
+const INPUT_CLS =
+  'rounded-lg border border-cm-border bg-cm-bg px-3 py-2 text-cm-fg outline-none placeholder:text-cm-faint focus:ring-2 focus:ring-cm-accent';
+
 function toInputValue(n: number | null): string {
   return n === null || n === undefined ? '' : String(n);
 }
@@ -191,15 +196,17 @@ export default function RetentionPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg)]">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <IconClockCountdown size={22} />
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-accent">
+              <IconClockCountdown size={22} />
+            </span>
             <div>
               <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">Data retention</h1>
-              <p className="mt-0.5 text-sm text-[var(--fg-muted)]">
+              <p className="mt-0.5 text-sm text-cm-muted">
                 Cap how long ClawMind keeps your records. Required by most compliance reviews.
               </p>
             </div>
@@ -208,7 +215,7 @@ export default function RetentionPage() {
             type="button"
             onClick={load}
             disabled={loading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg-muted)] hover:bg-[var(--bg-elev)] disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:bg-cm-subtle hover:text-cm-fg disabled:opacity-50"
             aria-label="Refresh"
           >
             <IconRefresh size={14} />
@@ -222,15 +229,15 @@ export default function RetentionPage() {
           <ErrorState title="Could not load retention policy" message={error} onRetry={load} />
         ) : policy && limits ? (
           <div className="grid gap-6">
-            <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-5">
+            <section className="rounded-xl border border-cm-border bg-cm-paper p-5">
               <div className="mb-4 flex items-start justify-between gap-3">
                 <div>
-                  <h2 className="text-sm font-semibold text-[var(--fg)]">Policy</h2>
-                  <p className="mt-0.5 text-xs text-[var(--fg-muted)]">
+                  <h2 className="text-sm font-semibold text-cm-fg">Policy</h2>
+                  <p className="mt-0.5 text-xs text-cm-muted">
                     Values are in days. Leave blank to keep forever.
                   </p>
                 </div>
-                <span className="text-xs text-[var(--fg-muted)]">
+                <span className="text-xs text-cm-muted">
                   Last sweep: {fmtDate(policy.lastSweepAt)}
                 </span>
               </div>
@@ -238,8 +245,8 @@ export default function RetentionPage() {
               <form onSubmit={save} className="grid gap-4 text-sm">
                 {FIELDS.map((f) => (
                   <label key={f.key} className="grid gap-1">
-                    <span className="font-medium text-[var(--fg)]">{f.label}</span>
-                    <span className="text-xs text-[var(--fg-muted)]">{f.hint}</span>
+                    <span className="font-medium text-cm-fg">{f.label}</span>
+                    <span className="text-xs text-cm-muted">{f.hint}</span>
                     <div className="flex items-center gap-2">
                       <input
                         type="number"
@@ -252,20 +259,20 @@ export default function RetentionPage() {
                         onChange={(e) =>
                           setDraft((d) => ({ ...d, [f.key]: e.target.value }))
                         }
-                        className="w-32 rounded-lg border border-[var(--border)] bg-[var(--bg)] px-3 py-2 text-[var(--fg)] outline-none focus:border-[var(--fg-muted)]"
+                        className={`w-32 ${INPUT_CLS}`}
                         aria-invalid={fieldErrors[f.key] ? true : undefined}
                       />
-                      <span className="text-xs text-[var(--fg-muted)]">days</span>
+                      <span className="text-xs text-cm-muted">days</span>
                     </div>
                     {fieldErrors[f.key] ? (
-                      <span className="text-xs text-red-500">{fieldErrors[f.key]}</span>
+                      <span className="text-xs text-cm-danger">{fieldErrors[f.key]}</span>
                     ) : null}
                   </label>
                 ))}
 
                 <div className="mt-2 flex items-center justify-between gap-3">
                   {savedAt ? (
-                    <span className="inline-flex items-center gap-1.5 text-xs text-[var(--fg-muted)]">
+                    <span className="inline-flex items-center gap-1.5 text-xs text-cm-success">
                       <IconCheck size={12} /> Saved
                     </span>
                   ) : (
@@ -274,7 +281,7 @@ export default function RetentionPage() {
                   <button
                     type="submit"
                     disabled={saving}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--fg)] px-3 py-1.5 text-sm font-medium text-[var(--bg)] hover:opacity-90 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-cm-fg px-3 py-1.5 text-sm font-medium text-cm-bg transition hover:opacity-90 disabled:opacity-50"
                   >
                     {saving ? <Spinner /> : <IconCheck size={14} />} Save policy
                   </button>
@@ -282,10 +289,10 @@ export default function RetentionPage() {
               </form>
             </section>
 
-            <section className="rounded-xl border border-[var(--border)] bg-[var(--bg-elev)] p-5">
+            <section className="rounded-xl border border-cm-border bg-cm-paper p-5">
               <div className="mb-3">
-                <h2 className="text-sm font-semibold text-[var(--fg)]">Sweep now</h2>
-                <p className="mt-0.5 text-xs text-[var(--fg-muted)]">
+                <h2 className="text-sm font-semibold text-cm-fg">Sweep now</h2>
+                <p className="mt-0.5 text-xs text-cm-muted">
                   Preview what the current policy would remove, then apply.
                 </p>
               </div>
@@ -295,7 +302,7 @@ export default function RetentionPage() {
                   type="button"
                   onClick={runPreview}
                   disabled={previewing || applying}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--fg)] hover:bg-[var(--bg)] disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-cm-border px-3 py-1.5 text-sm text-cm-fg hover:bg-cm-subtle disabled:opacity-50"
                 >
                   {previewing ? <Spinner /> : <IconShield size={14} />} Preview (dry run)
                 </button>
@@ -308,14 +315,14 @@ export default function RetentionPage() {
                     previewing ||
                     preview.history.removed + preview.conversations.removed === 0
                   }
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-1.5 text-sm text-red-500 hover:bg-red-500/20 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-3 py-1.5 text-sm font-medium text-cm-danger transition hover:bg-[rgba(180,66,60,0.18)] disabled:opacity-50"
                 >
                   {applying ? <Spinner /> : <IconTrash size={14} />} Apply and delete
                 </button>
               </div>
 
               {actionError ? (
-                <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-500">
+                <div className="mt-3 flex items-start gap-2 rounded-lg border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-3 py-2 text-xs text-cm-danger">
                   <IconWarning size={14} /> {actionError}
                 </div>
               ) : null}
@@ -329,7 +336,7 @@ export default function RetentionPage() {
 
             <Link
               href="/settings"
-              className="inline-flex items-center gap-1.5 text-sm text-[var(--fg-muted)] hover:text-[var(--fg)]"
+              className="inline-flex items-center gap-1.5 text-sm text-cm-muted hover:text-cm-fg"
             >
               Back to settings <IconArrowRight size={12} />
             </Link>
@@ -349,37 +356,37 @@ function ReportPanel({
 }) {
   const total = report.history.removed + report.conversations.removed;
   return (
-    <div className="mt-4 rounded-lg border border-[var(--border)] bg-[var(--bg)] p-3 text-sm">
+    <div className="mt-4 rounded-lg border border-cm-border bg-cm-bg p-3 text-sm">
       <div className="mb-2 flex items-center justify-between">
-        <span className="font-medium text-[var(--fg)]">
+        <span className="font-medium text-cm-fg">
           {variant === 'preview' ? 'Would remove' : 'Removed'}
         </span>
-        <span className="text-xs text-[var(--fg-muted)]">
+        <span className="text-xs text-cm-muted">
           {variant === 'preview' ? 'No data was changed' : `at ${new Date().toLocaleTimeString()}`}
         </span>
       </div>
       <dl className="grid gap-1.5 text-xs">
         <div className="flex justify-between">
-          <dt className="text-[var(--fg-muted)]">Ask history</dt>
-          <dd className="text-[var(--fg)]">
+          <dt className="text-cm-muted">Ask history</dt>
+          <dd className="text-cm-fg">
             {report.history.removed} removed, {report.history.kept} kept
           </dd>
         </div>
         <div className="flex justify-between">
-          <dt className="text-[var(--fg-muted)]">Conversations</dt>
-          <dd className="text-[var(--fg)]">
+          <dt className="text-cm-muted">Conversations</dt>
+          <dd className="text-cm-fg">
             {report.conversations.removed} removed, {report.conversations.kept} kept
           </dd>
         </div>
         <div className="flex justify-between">
-          <dt className="text-[var(--fg-muted)]">Audit retention hint</dt>
-          <dd className="text-[var(--fg)]">
+          <dt className="text-cm-muted">Audit retention hint</dt>
+          <dd className="text-cm-fg">
             {report.auditDays === null ? 'forever' : `${report.auditDays} days`}
           </dd>
         </div>
       </dl>
       {total === 0 ? (
-        <p className="mt-2 text-xs text-[var(--fg-muted)]">Nothing to remove right now.</p>
+        <p className="mt-2 text-xs text-cm-muted">Nothing to remove right now.</p>
       ) : null}
     </div>
   );
