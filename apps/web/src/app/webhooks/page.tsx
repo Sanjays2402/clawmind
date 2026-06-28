@@ -179,6 +179,17 @@ export default function WebhooksPage() {
     setTimeout(() => setCopied(false), 1500);
   }
 
+  // Delivery-health posture for the at-a-glance banner above the list. A
+  // failing endpoint is the thing an operator most needs to catch, so it
+  // outranks everything: any webhook with a non-zero failure count flips the
+  // banner to danger. Otherwise, if at least one is live we read healthy
+  // (success); if every endpoint is paused we read muted rather than green so
+  // a fully-stopped integration never masquerades as "all good".
+  const activeCount = items.filter((w) => w.active).length;
+  const failingCount = items.filter((w) => w.failureCount > 0).length;
+  const health: 'failing' | 'healthy' | 'paused' =
+    failingCount > 0 ? 'failing' : activeCount > 0 ? 'healthy' : 'paused';
+
   return (
     <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
@@ -199,7 +210,7 @@ export default function WebhooksPage() {
           </div>
         )}
 
-        <section className="mb-8 rounded-lg border border-cm-border bg-cm-panel p-5">
+        <section className="mb-8 rounded-lg border border-cm-border bg-cm-paper p-5">
           <h2 className="mb-3 text-[13px] font-medium text-cm-fg">Register a receiver</h2>
           <form onSubmit={create} className="flex flex-col gap-3">
             <label className="text-[12px] text-cm-muted">
@@ -284,7 +295,53 @@ export default function WebhooksPage() {
         </section>
 
         <section>
-          <h2 className="mb-3 text-[13px] font-medium text-cm-fg">Your webhooks</h2>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-[13px] font-medium text-cm-fg">Your webhooks</h2>
+            {!loading && items.length > 0 && (
+              <span
+                className={[
+                  'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-medium',
+                  health === 'failing'
+                    ? 'border-cm-danger/40 text-cm-danger'
+                    : health === 'healthy'
+                      ? 'border-cm-success/40 text-cm-success'
+                      : 'border-cm-border text-cm-muted',
+                ].join(' ')}
+                style={{
+                  background:
+                    health === 'failing'
+                      ? 'rgba(180, 66, 60, 0.10)'
+                      : health === 'healthy'
+                        ? 'rgba(47, 122, 85, 0.10)'
+                        : undefined,
+                }}
+                title={
+                  health === 'failing'
+                    ? `${failingCount} endpoint${failingCount === 1 ? '' : 's'} returning errors`
+                    : health === 'healthy'
+                      ? `${activeCount} live endpoint${activeCount === 1 ? '' : 's'}, all delivering`
+                      : 'Every endpoint is paused'
+                }
+              >
+                <span
+                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  style={{
+                    background:
+                      health === 'failing'
+                        ? 'var(--cm-danger)'
+                        : health === 'healthy'
+                          ? 'var(--cm-success)'
+                          : 'var(--cm-faint)',
+                  }}
+                />
+                {health === 'failing'
+                  ? `${failingCount} failing`
+                  : health === 'healthy'
+                    ? `${activeCount} live`
+                    : 'All paused'}
+              </span>
+            )}
+          </div>
           {loading ? (
             <div className="flex justify-center py-12"><Spinner /></div>
           ) : items.length === 0 ? (
@@ -294,27 +351,28 @@ export default function WebhooksPage() {
               body="Register a URL above to receive a signed POST for every matching event."
             />
           ) : (
-            <ul className="divide-y divide-cm-border rounded-lg border border-cm-border bg-cm-panel">
+            <ul className="divide-y divide-cm-border rounded-lg border border-cm-border bg-cm-paper">
               {items.map((wh) => (
                 <li key={wh.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className={[
-                        'inline-block h-2 w-2 rounded-full',
-                        wh.active ? 'bg-emerald-500' : 'bg-cm-muted',
-                      ].join(' ')} />
+                      <span
+                        className="inline-block h-2 w-2 rounded-full"
+                        style={{ background: wh.active ? 'var(--cm-success)' : 'var(--cm-faint)' }}
+                      />
                       <code className="truncate font-mono text-[13px] text-cm-fg">{wh.url}</code>
                     </div>
                     <div className="mt-1 flex flex-wrap gap-1 text-[11px] text-cm-muted">
                       {wh.events.map((e) => (
-                        <span key={e} className="rounded bg-cm-bg px-1.5 py-0.5">{e}</span>
+                        <span key={e} className="rounded bg-cm-subtle px-1.5 py-0.5">{e}</span>
                       ))}
                       <span>last delivery {fmtRelative(wh.lastDeliveryAt)}</span>
                       {wh.lastStatus !== null && <span>status {wh.lastStatus}</span>}
-                      {wh.failureCount > 0 && <span className="text-amber-500">{wh.failureCount} failing</span>}
+                      {wh.failureCount > 0 && <span className="text-cm-danger">{wh.failureCount} failing</span>}
                       {wh.previousSecretExpiresAt && wh.previousSecretExpiresAt > Date.now() && (
                         <span
-                          className="rounded border border-amber-500/40 bg-amber-500/10 px-1.5 py-0.5 text-amber-500"
+                          className="rounded border border-cm-cite-line px-1.5 py-0.5 text-cm-cite"
+                          style={{ background: 'var(--cm-cite-bg)' }}
                           title={`Old secret accepted until ${new Date(wh.previousSecretExpiresAt).toLocaleString()}`}
                         >
                           rotating, old secret ok until {fmtRelative(wh.previousSecretExpiresAt)}
@@ -353,7 +411,7 @@ export default function WebhooksPage() {
                       type="button"
                       onClick={() => remove(wh.id)}
                       disabled={busy === wh.id}
-                      className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1 text-[12px] text-cm-muted hover:text-rose-500 disabled:opacity-50"
+                      className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1 text-[12px] text-cm-muted hover:text-cm-danger disabled:opacity-50"
                     >
                       <IconTrash size={13} />
                       Delete
@@ -369,7 +427,8 @@ export default function WebhooksPage() {
           <section
             role="dialog"
             aria-label="New signing secret"
-            className="mt-6 rounded-lg border border-amber-500/50 bg-amber-500/10 p-4"
+            className="mt-6 rounded-lg border border-cm-cite-line p-4"
+            style={{ background: 'var(--cm-cite-bg)' }}
           >
             <div className="mb-2 flex items-center gap-2 text-[12px] font-medium text-cm-fg">
               <IconWarning size={14} />
@@ -402,7 +461,7 @@ export default function WebhooksPage() {
         )}
 
         {testResult && (
-          <section className="mt-6 rounded-lg border border-cm-border bg-cm-panel p-4">
+          <section className="mt-6 rounded-lg border border-cm-border bg-cm-paper p-4">
             <h3 className="mb-2 text-[12px] font-medium text-cm-fg">Last test fire</h3>
             <div className="font-mono text-[12px] text-cm-muted">
               attempt {testResult.attempt} {' '}
@@ -416,18 +475,21 @@ export default function WebhooksPage() {
         <section className="mt-8">
           <h2 className="mb-3 text-[13px] font-medium text-cm-fg">Recent deliveries</h2>
           {redeliverError && (
-            <div className="mb-3 rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-200">
+            <div
+              className="mb-3 rounded-md border border-cm-danger/40 px-3 py-2 text-[12px] text-cm-danger"
+              style={{ background: 'rgba(180, 66, 60, 0.10)' }}
+            >
               {redeliverError}
             </div>
           )}
           {redeliverResult && (
-            <div className="mb-3 rounded-md border border-cm-border bg-cm-panel px-3 py-2 text-[12px] text-cm-muted">
+            <div className="mb-3 rounded-md border border-cm-border bg-cm-paper px-3 py-2 text-[12px] text-cm-muted">
               Replayed: attempt {redeliverResult.attempt}{' '}
               {redeliverResult.status !== null ? `HTTP ${redeliverResult.status}` : 'no response'} in {redeliverResult.durationMs}ms{' '}
               {redeliverResult.ok ? (
-                <span className="text-emerald-400">ok</span>
+                <span className="text-cm-success">ok</span>
               ) : (
-                <span className="text-rose-400">failed{redeliverResult.error ? `: ${redeliverResult.error}` : ''}</span>
+                <span className="text-cm-danger">failed{redeliverResult.error ? `: ${redeliverResult.error}` : ''}</span>
               )}
             </div>
           )}
@@ -438,7 +500,7 @@ export default function WebhooksPage() {
               body="Trigger an ask or fire a test to see a row appear here."
             />
           ) : (
-            <div className="overflow-x-auto rounded-lg border border-cm-border bg-cm-panel">
+            <div className="overflow-x-auto rounded-lg border border-cm-border bg-cm-paper">
               <table className="w-full text-left text-[12px]">
                 <thead className="text-cm-muted">
                   <tr>
@@ -460,11 +522,11 @@ export default function WebhooksPage() {
                         <td className="px-3 py-2 text-cm-muted">
                           {fmtRelative(d.ts)}
                           {d.parentId && (
-                            <span className="ml-2 rounded bg-cm-bg px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-cm-muted">replay</span>
+                            <span className="ml-2 rounded bg-cm-subtle px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-cm-muted">replay</span>
                           )}
                         </td>
                         <td className="px-3 py-2 font-mono">{d.event}</td>
-                        <td className={['px-3 py-2 font-mono', d.ok ? 'text-emerald-500' : 'text-rose-500'].join(' ')}>
+                        <td className="px-3 py-2 font-mono" style={{ color: d.ok ? 'var(--cm-success)' : 'var(--cm-danger)' }}>
                           {d.status ?? d.error ?? 'n/a'}
                         </td>
                         <td className="px-3 py-2 text-cm-muted">{d.attempt}</td>
