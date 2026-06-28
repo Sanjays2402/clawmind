@@ -10,6 +10,7 @@ import {
 } from '@/lib/api';
 import {
   ErrorState,
+  SettingsCardSkeleton,
   Spinner,
   IconShield,
   IconWebhook,
@@ -30,6 +31,14 @@ const EVENT_DESCRIPTIONS: Record<WebhookEvent, string> = {
   'ingest.completed': 'Notification that a document or batch finished embedding. Metadata only.',
   'audit.event': 'Workspace-wide audit log fan-out for SIEM forwarding. Includes actor and action.',
 };
+
+// Events whose payload carries user content or PII. When one of these is
+// approved while enforcement is on we surface a gold caution chip so an
+// owner can see at a glance that a sensitive subject is reachable.
+const SENSITIVE_EVENTS: ReadonlySet<WebhookEvent> = new Set<WebhookEvent>([
+  'ask.completed',
+  'audit.event',
+]);
 
 export default function WebhookEventsAllowlistPage() {
   const [record, setRecord] = useState<WebhookEventsAllowlistRecord | null>(null);
@@ -83,6 +92,11 @@ export default function WebhookEventsAllowlistPage() {
 
   const canEnable = chosen.size > 0;
 
+  // How many approved events carry sensitive content while enforcement is
+  // live. Drives the posture banner so an owner reads the data-exposure
+  // surface, not just the on/off bit.
+  const sensitiveApproved = Array.from(chosen).filter((e) => SENSITIVE_EVENTS.has(e)).length;
+
   const save = async () => {
     if (!record) return;
     setSaving(true);
@@ -108,19 +122,19 @@ export default function WebhookEventsAllowlistPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:py-10">
         <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex items-start gap-3">
-            <span className="rounded-md border bg-muted/30 p-2 text-primary">
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-accent">
               <IconShield size={22} />
             </span>
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">
                 Webhook event allowlist
               </h1>
-              <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+              <p className="mt-1 max-w-xl text-sm text-cm-muted">
                 Restrict which webhook event subjects can be subscribed to
                 at all. When enforced, a webhook that asks for an event
                 outside the list is rejected at registration, blocked on
@@ -129,24 +143,24 @@ export default function WebhookEventsAllowlistPage() {
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-cm-muted">
             <Link
               href="/webhooks"
-              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 hover:bg-muted/50"
+              className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1.5 hover:bg-cm-subtle"
             >
               <IconWebhook size={14} />
               Webhooks
             </Link>
             <Link
               href="/settings"
-              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 hover:bg-muted/50"
+              className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1.5 hover:bg-cm-subtle"
             >
               <IconSettings size={14} />
               Settings
             </Link>
             <Link
               href="/audit"
-              className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1.5 hover:bg-muted/50"
+              className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1.5 hover:bg-cm-subtle"
             >
               Audit log
               <IconArrowRight size={14} />
@@ -154,14 +168,7 @@ export default function WebhookEventsAllowlistPage() {
           </div>
         </header>
 
-        {loading && (
-          <div className="rounded-lg border bg-card p-6">
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Spinner size={14} />
-              Loading event allowlist
-            </div>
-          </div>
-        )}
+        {loading && <SettingsCardSkeleton rows={4} />}
 
         {!loading && error && (
           <ErrorState title="Could not load event allowlist" message={error} onRetry={load} />
@@ -169,16 +176,51 @@ export default function WebhookEventsAllowlistPage() {
 
         {!loading && !error && record && (
           <div className="space-y-6">
-            <section className="rounded-lg border bg-card p-4 sm:p-5">
+            {/* Posture banner: lead with the data-exposure surface, not just
+                the on/off bit, since these subjects carry user content. */}
+            {enabled && canEnable && sensitiveApproved > 0 && (
+              <div className="flex items-start gap-2 rounded-md border border-cm-cite-line bg-cm-cite-bg p-3 text-xs text-cm-cite">
+                <IconWarning size={14} className="mt-0.5 shrink-0" />
+                <span>
+                  Enforced with {chosen.size} approved{' '}
+                  {chosen.size === 1 ? 'event' : 'events'}, {sensitiveApproved} of
+                  which {sensitiveApproved === 1 ? 'carries' : 'carry'} user
+                  content or audit detail. Keep the receiver allowlist tight for
+                  these subjects.
+                </span>
+              </div>
+            )}
+            {enabled && canEnable && sensitiveApproved === 0 && (
+              <div className="flex items-start gap-2 rounded-md border border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] p-3 text-xs text-cm-success">
+                <IconCheck size={14} className="mt-0.5 shrink-0" />
+                <span>
+                  Enforced with {chosen.size} approved{' '}
+                  {chosen.size === 1 ? 'event' : 'events'}, all metadata-only. No
+                  high-sensitivity subject is currently subscribable.
+                </span>
+              </div>
+            )}
+            {!enabled && (
+              <div className="flex items-start gap-2 rounded-md border border-cm-border bg-cm-subtle p-3 text-xs text-cm-muted">
+                <IconWebhook size={14} className="mt-0.5 shrink-0" />
+                <span>
+                  Not enforced. Every event in the catalogue remains subscribable.
+                  Selections below are saved for reference until you turn
+                  enforcement on.
+                </span>
+              </div>
+            )}
+
+            <section className="rounded-lg border border-cm-border bg-cm-paper p-4 sm:p-5">
               <div className="flex items-start gap-3">
-                <span className="mt-0.5 shrink-0 rounded-md border bg-muted/30 p-2 text-muted-foreground">
+                <span className="mt-0.5 shrink-0 rounded-md border border-cm-border bg-cm-subtle p-2 text-cm-muted">
                   <IconWebhook size={18} />
                 </span>
                 <div className="min-w-0 flex-1">
                   <label htmlFor="enabled" className="block text-sm font-medium">
                     Enforce event allowlist
                   </label>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
+                  <p className="mt-0.5 text-xs text-cm-muted">
                     {enabled
                       ? 'On. Webhooks that subscribe to any event not in the list below are blocked at registration, on update, and at delivery.'
                       : 'Off. Selections are saved but not enforced. Every webhook event in the catalogue remains subscribable.'}
@@ -200,16 +242,21 @@ export default function WebhookEventsAllowlistPage() {
                       setEnabled((v) => !v);
                       setSavedAt(null);
                     }}
+                    style={
+                      enabled
+                        ? { background: 'var(--cm-accent)', borderColor: 'var(--cm-accent)' }
+                        : undefined
+                    }
                     className={[
                       'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors',
-                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                      'focus:outline-none focus-visible:ring-2 focus-visible:ring-cm-accent focus-visible:ring-offset-2 focus-visible:ring-offset-cm-bg',
                       'disabled:cursor-not-allowed disabled:opacity-60',
-                      enabled ? 'bg-primary border-primary' : 'bg-muted/40 border-input',
+                      enabled ? '' : 'bg-cm-subtle border-cm-border',
                     ].join(' ')}
                   >
                     <span
                       className={[
-                        'inline-block size-5 transform rounded-full bg-background shadow transition-transform',
+                        'inline-block size-5 transform rounded-full bg-cm-paper shadow transition-transform',
                         enabled ? 'translate-x-5' : 'translate-x-0.5',
                       ].join(' ')}
                     />
@@ -217,37 +264,58 @@ export default function WebhookEventsAllowlistPage() {
                 </div>
               </div>
               {enabled && !canEnable && (
-                <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-xs">
+                <div className="mt-3 flex items-start gap-2 rounded-md border border-cm-cite-line bg-cm-cite-bg p-3 text-xs text-cm-cite">
                   <IconWarning size={14} />
                   <span>Select at least one event before enforcing the allowlist.</span>
                 </div>
               )}
             </section>
 
-            <section className="rounded-lg border bg-card">
-              <div className="border-b p-4">
+            <section className="rounded-lg border border-cm-border bg-cm-paper">
+              <div className="border-b border-cm-border p-4">
                 <h2 className="text-sm font-medium">Approved events</h2>
-                <p className="mt-0.5 text-xs text-muted-foreground">
+                <p className="mt-0.5 text-xs text-cm-muted">
                   {chosen.size} of {catalogue.length} events approved. Unchecked
                   events are unsubscribable while enforcement is on; in-flight
                   deliveries for revoked events stop immediately.
                 </p>
               </div>
-              <ul className="divide-y">
+              <ul className="divide-y divide-cm-border">
                 {catalogue.map((e) => {
                   const on = chosen.has(e);
+                  const sensitive = SENSITIVE_EVENTS.has(e);
                   return (
-                    <li key={e} className="flex items-start gap-3 p-4">
+                    <li
+                      key={e}
+                      className={[
+                        'flex items-start gap-3 p-4 transition-colors',
+                        on ? 'bg-cm-accent-soft' : '',
+                      ].join(' ')}
+                    >
                       <input
                         id={`evt-${e}`}
                         type="checkbox"
                         checked={on}
                         onChange={() => toggle(e)}
-                        className="mt-1 size-4 cursor-pointer"
+                        className="mt-1 size-4 cursor-pointer accent-cm-accent"
                       />
                       <label htmlFor={`evt-${e}`} className="min-w-0 flex-1 cursor-pointer">
-                        <div className="font-mono text-sm">{e}</div>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="font-mono text-sm">{e}</span>
+                          {sensitive && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-cm-cite-line bg-cm-cite-bg px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cm-cite">
+                              <IconWarning size={10} />
+                              Sensitive
+                            </span>
+                          )}
+                          {on && (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-cm-accent-line bg-cm-accent-soft px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cm-accent-ink">
+                              <IconCheck size={10} />
+                              Approved
+                            </span>
+                          )}
+                        </div>
+                        <p className="mt-0.5 text-xs text-cm-muted">
                           {EVENT_DESCRIPTIONS[e] ?? 'Webhook event.'}
                         </p>
                       </label>
@@ -258,16 +326,16 @@ export default function WebhookEventsAllowlistPage() {
             </section>
 
             {saveError && (
-              <div className="flex items-start gap-2 rounded-md border border-red-500/40 bg-red-500/10 p-3 text-xs">
+              <div className="flex items-start gap-2 rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] p-3 text-xs text-cm-danger">
                 <IconWarning size={14} />
                 <span>{saveError.message}</span>
               </div>
             )}
 
             <div className="flex items-center justify-between gap-3">
-              <div className="text-xs text-muted-foreground">
+              <div className="text-xs text-cm-muted">
                 {savedAt !== null && !dirty ? (
-                  <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                  <span className="inline-flex items-center gap-1 text-cm-success">
                     <IconCheck size={14} />
                     Saved
                   </span>
@@ -282,7 +350,7 @@ export default function WebhookEventsAllowlistPage() {
                   type="button"
                   onClick={load}
                   disabled={saving || !dirty}
-                  className="rounded-md border px-3 py-1.5 text-xs hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-md border border-cm-border px-3 py-1.5 text-xs hover:bg-cm-subtle disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Discard
                 </button>
@@ -290,7 +358,7 @@ export default function WebhookEventsAllowlistPage() {
                   type="button"
                   onClick={save}
                   disabled={saving || !dirty || (enabled && !canEnable)}
-                  className="inline-flex items-center gap-2 rounded-md border bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-md bg-cm-fg px-3 py-1.5 text-xs font-medium text-cm-bg hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {saving && <Spinner size={12} />}
                   Save allowlist
