@@ -324,7 +324,7 @@ export default function HistoryPage() {
           <div style={{ margin: '24px 0 0', display: 'grid', gap: 22 }}>
             {grouped.map((group) => (
               <section key={group.dayStart}>
-                <DayHeader label={group.label} count={group.items.length} />
+                <DayHeader label={group.label} count={group.items.length} items={group.items} />
                 <ul style={{ listStyle: 'none', padding: 0, margin: '10px 0 0', display: 'grid', gap: 10 }}>
                   {group.items.map((it) => renderRow(it))}
                 </ul>
@@ -393,9 +393,12 @@ export default function HistoryPage() {
 
 /**
  * Sticky per-day header that floats just under the TopNav while its group
- * scrolls past. The count gives a quiet sense of how busy a day was.
+ * scrolls past. The count gives a quiet sense of how busy a day was; the
+ * model-mix strip beside it turns that day's answers into a shape — one
+ * segment per model, width proportional to how many answers it produced — so
+ * a glance reads "mostly one model" vs "a real spread" without opening a row.
  */
-function DayHeader({ label, count }: { label: string; count: number }) {
+function DayHeader({ label, count, items }: { label: string; count: number; items: HistoryItem[] }) {
   return (
     <div
       style={{
@@ -403,7 +406,7 @@ function DayHeader({ label, count }: { label: string; count: number }) {
         top: 0,
         zIndex: 5,
         display: 'flex',
-        alignItems: 'baseline',
+        alignItems: 'center',
         gap: 10,
         padding: '6px 0',
         background: 'var(--cm-bg)',
@@ -421,11 +424,80 @@ function DayHeader({ label, count }: { label: string; count: number }) {
       >
         {label}
       </h2>
+      <ModelMixBar items={items} />
       <span className="cm-hairline" style={{ flex: 1 }} />
       <span className="cm-mono" style={{ fontSize: 11, color: 'var(--cm-faint)' }}>
         {count}
       </span>
     </div>
+  );
+}
+
+// Ordered ink palette for the model-mix segments. Drawn from the brand tokens
+// (not raw colour) so the strip stays on-palette; the dominant model takes the
+// accent, the rest fall to citation gold, ink-soft, muted, faint in turn.
+const MODEL_INKS = [
+  'var(--cm-accent)',
+  'var(--cm-cite)',
+  'var(--cm-fg-soft)',
+  'var(--cm-muted)',
+  'var(--cm-faint)',
+];
+
+/**
+ * Segmented strip showing the distribution of models across a day's answers,
+ * widest segment first. A single-model day reads as one solid accent bar; a
+ * mixed day breaks into proportional bands. Hover any segment for the model
+ * name + share; the whole strip carries an aria-label summary for SR users.
+ */
+function ModelMixBar({ items }: { items: HistoryItem[] }) {
+  const segments = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const it of items) {
+      const m = it.model || 'unknown';
+      counts.set(m, (counts.get(m) ?? 0) + 1);
+    }
+    const total = items.length || 1;
+    return [...counts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .map(([model, n], i) => ({
+        model,
+        n,
+        pct: (n / total) * 100,
+        ink: MODEL_INKS[Math.min(i, MODEL_INKS.length - 1)] ?? 'var(--cm-faint)',
+      }));
+  }, [items]);
+
+  if (segments.length === 0) return null;
+
+  const summary = segments.map((s) => `${s.model} ${s.n}`).join(', ');
+  return (
+    <span
+      role="img"
+      aria-label={`Models this day: ${summary}`}
+      title={segments.map((s) => `${s.model} · ${s.n} (${Math.round(s.pct)}%)`).join('\n')}
+      style={{
+        display: 'inline-flex',
+        width: 96,
+        height: 6,
+        borderRadius: 999,
+        overflow: 'hidden',
+        background: 'var(--cm-subtle)',
+        border: '1px solid var(--cm-border)',
+      }}
+    >
+      {segments.map((s, i) => (
+        <span
+          key={s.model + i}
+          style={{
+            width: `${s.pct}%`,
+            background: s.ink,
+            // A whisker between bands so adjacent segments stay legible.
+            boxShadow: i > 0 ? 'inset 1px 0 0 var(--cm-bg)' : undefined,
+          }}
+        />
+      ))}
+    </span>
   );
 }
 
