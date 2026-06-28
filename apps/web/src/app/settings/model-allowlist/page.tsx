@@ -12,6 +12,7 @@ import {
 import {
   EmptyState,
   ErrorState,
+  SettingsCardSkeleton,
   Spinner,
   IconArrowRight,
   IconPlus,
@@ -20,6 +21,10 @@ import {
   IconTrash,
   IconWarning,
 } from '@clawmind/ui';
+
+// Shared input styling: theme-aware surface + brand focus ring.
+const INPUT_CLS =
+  'flex-1 rounded-md border border-cm-border bg-cm-bg px-3 py-2 text-sm text-cm-fg outline-none placeholder:text-cm-faint focus:ring-2 focus:ring-cm-accent';
 
 function fmtDate(ts: number): string {
   if (!ts) return 'never';
@@ -144,23 +149,25 @@ export default function ModelAllowlistPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-12">
-        <div className="mb-6 flex items-center gap-2 text-sm text-muted-foreground">
-          <Link href="/settings" className="hover:text-foreground">
+        <div className="mb-6 flex items-center gap-2 text-sm text-cm-muted">
+          <Link href="/settings" className="hover:text-cm-fg">
             Settings
           </Link>
           <IconArrowRight className="h-3.5 w-3.5" />
-          <span className="text-foreground">Model allowlist</span>
+          <span className="text-cm-fg">Model allowlist</span>
         </div>
 
         <header className="mb-8">
           <div className="mb-2 flex items-center gap-2">
-            <IconShield className="h-5 w-5 text-muted-foreground" />
+            <span className="rounded-md border border-cm-border bg-cm-subtle p-1.5 text-cm-accent">
+              <IconShield className="h-4 w-4" />
+            </span>
             <h1 className="text-2xl font-semibold tracking-tight">Model allowlist</h1>
           </div>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-sm text-cm-muted">
             Control which LLM model identifiers may serve answers in this workspace. Enforced
             after the LLM returns its model tag on /v1/ask and before the SSE stream opens on
             /v1/ask/stream. A denied model is rejected with 422 model-not-allowed and an audit
@@ -168,18 +175,14 @@ export default function ModelAllowlistPage() {
           </p>
         </header>
 
-        {loading && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Spinner /> Loading policy
-          </div>
-        )}
+        {loading && <SettingsCardSkeleton rows={3} />}
 
         {error && !loading && <ErrorState title="Could not load policy" message={error} />}
 
         {!loading && !error && policy && (
           <>
-            <section className="mb-8 rounded-lg border border-border bg-card p-5">
-              <h2 className="mb-3 text-sm font-medium">Mode</h2>
+            <section className="mb-8 rounded-lg border border-cm-border bg-cm-paper p-5">
+              <h2 className="mb-3 text-sm font-medium text-cm-fg">Mode</h2>
               <div className="flex flex-col gap-2 sm:flex-row">
                 {(['disabled', 'allow', 'block'] as const).map((m) => {
                   const active = policy.mode === m;
@@ -192,8 +195,8 @@ export default function ModelAllowlistPage() {
                       className={[
                         'flex-1 rounded-md border px-3 py-2 text-sm transition',
                         active
-                          ? 'border-foreground bg-foreground/5 font-medium'
-                          : 'border-border hover:border-foreground/40',
+                          ? 'border-cm-accent bg-cm-accent-soft font-medium text-cm-fg'
+                          : 'border-cm-border text-cm-muted hover:border-cm-accent-line hover:text-cm-fg',
                         savingMode ? 'opacity-60' : '',
                       ].join(' ')}
                     >
@@ -202,34 +205,31 @@ export default function ModelAllowlistPage() {
                   );
                 })}
               </div>
-              <p className="mt-3 text-xs text-muted-foreground">{MODE_HINT[policy.mode]}</p>
+              <p className="mt-3 text-xs text-cm-muted">{MODE_HINT[policy.mode]}</p>
               {policy.mode === 'allow' && policy.models.length === 0 && (
-                <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-xs">
-                  <IconWarning
-                    className="mt-0.5 h-4 w-4 text-amber-500"
-                   
-                  />
+                <div className="mt-3 flex items-start gap-2 rounded-md border border-cm-cite-line bg-cm-cite-bg p-3 text-xs text-cm-cite">
+                  <IconWarning className="mt-0.5 h-4 w-4 shrink-0" />
                   <span>
                     Allow mode is on with an empty list. Every /v1/ask call will be rejected
                     until you add at least one approved model.
                   </span>
                 </div>
               )}
-              <p className="mt-3 text-xs text-muted-foreground">
+              <p className="mt-3 text-xs text-cm-muted">
                 Last updated {fmtDate(policy.updatedAt)}
                 {policy.updatedBy ? ` by ${policy.updatedBy}` : ''}.
               </p>
             </section>
 
-            <section className="mb-8 rounded-lg border border-border bg-card p-5">
-              <h2 className="mb-3 text-sm font-medium">Add a model</h2>
+            <section className="mb-8 rounded-lg border border-cm-border bg-cm-paper p-5">
+              <h2 className="mb-3 text-sm font-medium text-cm-fg">Add a model</h2>
               <form onSubmit={onAdd} className="flex flex-col gap-3">
                 <div className="flex flex-col gap-2 sm:flex-row">
                   <input
                     value={model}
                     onChange={(e) => setModel(e.target.value)}
                     placeholder="model id, e.g. gpt-4o-mini"
-                    className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-foreground focus:outline-none"
+                    className={INPUT_CLS}
                     maxLength={200}
                     required
                   />
@@ -237,7 +237,7 @@ export default function ModelAllowlistPage() {
                     value={label}
                     onChange={(e) => setLabel(e.target.value)}
                     placeholder="label (optional)"
-                    className="flex-1 rounded-md border border-border bg-background px-3 py-2 text-sm focus:border-foreground focus:outline-none"
+                    className={INPUT_CLS}
                     maxLength={120}
                   />
                 </div>
@@ -245,7 +245,7 @@ export default function ModelAllowlistPage() {
                   <button
                     type="submit"
                     disabled={saving || !model.trim()}
-                    className="inline-flex items-center gap-2 rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-md bg-cm-fg px-3 py-2 text-sm font-medium text-cm-bg hover:opacity-90 disabled:opacity-50"
                   >
                     {saving ? <Spinner /> : <IconPlus className="h-4 w-4" />}
                     Add model
@@ -253,27 +253,30 @@ export default function ModelAllowlistPage() {
                   <button
                     type="button"
                     onClick={() => void load()}
-                    className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-2 text-sm hover:border-foreground/40"
+                    className="inline-flex items-center gap-2 rounded-md border border-cm-border px-3 py-2 text-sm text-cm-fg hover:bg-cm-subtle"
                   >
                     <IconRefresh className="h-4 w-4" /> Refresh
                   </button>
                 </div>
               </form>
               {actionError && (
-                <p className="mt-3 text-xs text-red-500">{actionError}</p>
+                <div className="mt-3 flex items-start gap-2 rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] p-3 text-xs text-cm-danger">
+                  <IconWarning className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{actionError}</span>
+                </div>
               )}
               {savedAt && !actionError && (
-                <p className="mt-3 text-xs text-muted-foreground">
+                <p className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] px-2.5 py-1 text-xs text-cm-success">
                   Saved {fmtDate(savedAt)}
                 </p>
               )}
             </section>
 
-            <section className="rounded-lg border border-border bg-card">
-              <div className="border-b border-border p-5">
-                <h2 className="text-sm font-medium">
+            <section className="rounded-lg border border-cm-border bg-cm-paper">
+              <div className="border-b border-cm-border p-5">
+                <h2 className="text-sm font-medium text-cm-fg">
                   Configured models{' '}
-                  <span className="text-muted-foreground">({policy.models.length})</span>
+                  <span className="text-cm-muted">({policy.models.length})</span>
                 </h2>
               </div>
               {policy.models.length === 0 ? (
@@ -284,17 +287,17 @@ export default function ModelAllowlistPage() {
                   />
                 </div>
               ) : (
-                <ul className="divide-y divide-border">
+                <ul className="divide-y divide-cm-border">
                   {policy.models.map((rule: ModelAllowlistRule) => (
                     <li
                       key={rule.id}
                       className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="min-w-0">
-                        <code className="block truncate font-mono text-sm">
+                        <code className="block truncate font-mono text-sm text-cm-fg">
                           {rule.model}
                         </code>
-                        <p className="mt-0.5 text-xs text-muted-foreground">
+                        <p className="mt-0.5 text-xs text-cm-muted">
                           {rule.label ? `${rule.label} - ` : ''}added {fmtDate(rule.createdAt)}
                         </p>
                       </div>
@@ -302,7 +305,7 @@ export default function ModelAllowlistPage() {
                         type="button"
                         onClick={() => void onRemove(rule.id)}
                         disabled={removingId === rule.id}
-                        className="inline-flex items-center gap-2 self-start rounded-md border border-border px-3 py-1.5 text-xs hover:border-red-500/60 hover:text-red-500 disabled:opacity-50 sm:self-auto"
+                        className="inline-flex items-center gap-2 self-start rounded-md border border-cm-border px-3 py-1.5 text-xs text-cm-fg transition hover:border-[var(--cm-danger)] hover:bg-[rgba(180,66,60,0.10)] hover:text-cm-danger disabled:opacity-50 sm:self-auto"
                       >
                         {removingId === rule.id ? (
                           <Spinner />
