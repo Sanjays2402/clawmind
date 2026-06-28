@@ -37,6 +37,72 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-28 05:24 PDT - RE-THEME BATCH H: access/trust settings (5 slices)
+
+Finished BATCH H - the access/trust settings cluster, completing the multi-tick
+settings re-theme that began with BATCH A. Four of the five (role-elevation,
+recovery-contacts, vendor-access, share-policy) were on the foreign shadcn palette
+(bg-background / bg-card / text-muted-foreground / border-border / border-input /
+bg-primary text-primary-foreground / focus:ring-ring / destructive) PLUS hand-rolled
+raw emerald/amber/rose status surfaces. Same confirmed-REAL finding as every prior
+re-theme tick: none of those shadcn tokens are defined anywhere in the app (only
+--cm-* ships in tokens.css + the @theme bridge in globals.css), so all four rendered
+on broken fallbacks - cards with no surface fill, "primary" CTAs with no brand fill,
+inputs with no theme-aware focus ring. The fifth (trust) was the DEEPEST drift in
+the whole settings tree: built entirely on inline style={} objects with raw hex
+(#111827 ink button, #b91c1c error text, #e5e7eb borders) and a bare <main> with no
+themed surface at all - it grepped as 0 shadcn tokens precisely because it predated
+the Tailwind/cm system entirely.
+
+Each slice got a genuine state-driven UX upgrade on top of the mechanical map:
+role-elevation a NEW live access-posture banner (active grants -> success / pending
+-> cite caution / clear -> muted) so an owner sees at a glance whether anyone holds
+break-glass access or is waiting on them, PLUS status chips + approve/deny/revoke
+buttons routed through brand inks; recovery-contacts a NEW public-escalation-coverage
+banner (the unauthenticated /v1/recovery-contacts projection only emits active+public
+contacts, so count how many qualify - success when a named public path exists, cite
+caution when none are public with copy that branches on whether a fallback email is
+set) so the empty-public-list gap stops hiding behind a populated operator console;
+vendor-access re-cast the lockbox OPEN/CLOSED banner on brand semantics (OPEN = vendor
+support can read right now -> cite gold with a live inline countdown chip / CLOSED =
+safe default -> success), mint-once token panel + disabled notice off raw amber onto
+cite-gold; share-policy a NEW 3-state share-governance posture banner derived from the
+live toggle matrix (off entirely -> success most-restrictive / required-expiry and/or
+TTL cap -> accent governed, naming the active guardrails / neither -> cite open
+posture) + the toggle matrix checkboxes -> accent-cm-accent with disabled dimming;
+trust fully converted off inline-style raw hex to the cm Tailwind language (cm-paper
+cards, INPUT_CLS, ink Save, accent View-public link), framework cards gained a
+state-driven left accent border (achieved -> success / in-progress -> cite /
+not-pursued -> border) + a NEW compliance-posture headline banner (achieved -> success
+/ only in-progress -> cite / none -> muted). Four hoisted a shared INPUT_CLS (bg-cm-bg
++ placeholder:text-cm-faint + focus:ring-cm-accent); four traded a bare inline Spinner
+for SettingsCardSkeleton; every Remove/Retire/Revoke -> --cm-danger; every Save -> ink
+bg-cm-fg text-cm-bg button.
+
+Gated ONCE for the batch: web typecheck GREEN, web build GREEN (all routes compiled,
+incl. the 5 - /settings/role-elevation, /recovery-contacts, /vendor-access,
+/share-policy, /trust), @clawmind/ui build GREEN. Batch diff is exactly 5 files, all
+under apps/web/src/app/settings/, 0 residual drift tokens in any of them (verified by
+grep), 0 telemetry touched (ci:verify's only red remains the pre-existing, unrelated
+@clawmind/telemetry OTel SDK version-skew, never touched this tick). Pushed
+cd2d2b5..ede760b:
+- 89fb45c feat(web/settings/role-elevation): re-theme off shadcn + raw emerald/amber/
+  rose; NEW live access-posture banner; INPUT_CLS; brand-ink status chips + buttons.
+- 7ac5f62 feat(web/settings/recovery-contacts): re-theme; NEW public-coverage banner;
+  INPUT_CLS; accent checkbox; success/cite chips; danger Retire; skeleton.
+- d64d91a feat(web/settings/vendor-access): re-theme + raw amber/emerald + destructive;
+  lockbox banner OPEN->cite gold w/ live countdown / CLOSED->success; accent checkboxes.
+- 892d83c feat(web/settings/share-policy): re-theme; NEW 3-state governance posture
+  banner (off/governed/open); accent toggle matrix; skeleton.
+- ede760b feat(web/settings/trust): convert off inline-style raw hex to cm language;
+  state-driven framework-card accent borders; NEW compliance-posture headline banner.
+
+NEXT TICK: BATCH H done -> the /settings re-theme is COMPLETE (batches A-H). The next
+coherent cluster is TOP-LEVEL PAGES (shadcn drift outside /settings) - it is queued
+below and refilled. Pull the 5: webhooks, usage, stats, shares, stale. After that the
+CHAT SURFACE per-message conversation history remains the biggest standing product gap
+- pull it in if the top-level batch doesn't cohere into a clean 5.
+
 ### TICK LOG 2026-06-27 22:59 PDT - RE-THEME BATCH G: allowlist/network settings (5 slices)
 
 Finished BATCH G - the five allowlist/network settings pages still on the foreign
@@ -555,22 +621,26 @@ RE-THEME BATCH G - allowlist/network settings (shadcn palette) - DONE 2026-06-27
 - [x] feat(web/settings/sign-in-geofence): SHIPPED 5e39cbf - re-theme + raw emerald/amber;
   country chips state-driven by mode (success allow / danger block); probe decision pills.
 
-RE-THEME BATCH H - access/trust settings (shadcn palette, cohere as a group):
-- [ ] feat(web/settings/role-elevation): re-theme; pending elevation requests -> cite caution,
-  approved -> --cm-success, the request/grant ink buttons.
-- [ ] feat(web/settings/recovery-contacts): re-theme; verified contact -> --cm-success,
-  unverified -> cite; add/remove inks.
-- [ ] feat(web/settings/vendor-access): re-theme; active grants -> cm-paper, expired -> muted,
-  revoke -> --cm-danger.
-- [ ] feat(web/settings/share-policy): re-theme; the toggle matrix through accent.
-- [ ] feat(web/settings/trust): re-theme the trust-center page; posture states through cm inks.
+RE-THEME BATCH H - access/trust settings - DONE 2026-06-28 05:24 PDT:
+- [x] feat(web/settings/role-elevation): SHIPPED 89fb45c - re-theme off shadcn + raw
+  emerald/amber/rose; NEW live access-posture banner; brand-ink status chips + buttons.
+- [x] feat(web/settings/recovery-contacts): SHIPPED 7ac5f62 - re-theme; NEW public-
+  escalation-coverage banner; success/cite chips; danger Retire; skeleton.
+- [x] feat(web/settings/vendor-access): SHIPPED d64d91a - re-theme + raw amber/emerald +
+  destructive; lockbox OPEN->cite gold w/ live countdown / CLOSED->success.
+- [x] feat(web/settings/share-policy): SHIPPED 892d83c - re-theme; NEW 3-state governance
+  posture banner (off/governed/open); accent toggle matrix; skeleton.
+- [x] feat(web/settings/trust): SHIPPED ede760b - convert off inline-style raw hex to cm
+  language; state-driven framework-card accent borders; NEW compliance-posture banner.
 
-TOP-LEVEL PAGES (shadcn drift outside /settings; pull a coherent 5 if settings runs thin):
+>>> The /settings re-theme is now COMPLETE (batches A-H). NEXT cluster = TOP-LEVEL PAGES.
+
+RE-THEME BATCH I - TOP-LEVEL PAGES (shadcn drift outside /settings; the next coherent 5):
 - [ ] feat(web/webhooks): re-theme the webhooks dashboard; delivery success/fail -> brand inks.
 - [ ] feat(web/usage): re-theme the usage page; the per-kind bars through accent.
-- [ ] feat(web/stats): re-theme the stats page.
-- [ ] feat(web/shares): re-theme the shares list.
-- [ ] feat(web/stale): re-theme the stale-sources page.
+- [ ] feat(web/stats): re-theme the stats page; metric cards on cm-paper, deltas through inks.
+- [ ] feat(web/shares): re-theme the shares list; active -> cm-paper, expired/revoked -> muted.
+- [ ] feat(web/stale): re-theme the stale-sources page; staleness urgency through cite/danger.
 
 
 CHAT SURFACE (still the biggest product gap; pull one in if a re-theme batch
