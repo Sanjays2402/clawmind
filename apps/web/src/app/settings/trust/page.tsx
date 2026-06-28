@@ -10,12 +10,27 @@ import {
   type ComplianceStatus,
   type TrustLink,
 } from '@/lib/api';
-import { ErrorState, Spinner, IconCheck, IconPlus, IconRefresh, IconShield, IconTrash, IconWarning } from '@clawmind/ui';
+import {
+  ErrorState,
+  SettingsCardSkeleton,
+  Spinner,
+  IconArrowRight,
+  IconCheck,
+  IconPlus,
+  IconRefresh,
+  IconShield,
+  IconTrash,
+  IconWarning,
+} from '@clawmind/ui';
 
 // Owner-only Trust Center editor. The unauthenticated public projection
 // at /trust is what procurement reviewers actually see; this page is the
 // admin console that produces it. Every save round-trips through PUT
 // /v1/trust, which requires owner role and MFA step-up at the API.
+
+// Shared control styling: theme-aware surface + brand focus ring.
+const INPUT_CLS =
+  'w-full rounded-md border border-cm-border bg-cm-bg px-3 py-2 text-sm text-cm-fg outline-none placeholder:text-cm-faint focus:ring-2 focus:ring-cm-accent';
 
 const STATUSES: { value: ComplianceStatus; label: string }[] = [
   { value: 'achieved', label: 'Achieved' },
@@ -123,51 +138,94 @@ export default function TrustSettingsPage() {
     setSavedAt(null);
   }, []);
 
-  const publicHref = useMemo(() => '/trust', []);
+  // Compliance posture from the live framework list. achieved certs are the
+  // headline a buyer wants -> success; otherwise in-progress work -> cite;
+  // an empty list -> muted prompt to add the first framework.
+  const achievedCount = useMemo(
+    () => profile?.frameworks.filter((f) => f.status === 'achieved' && f.name.trim()).length ?? 0,
+    [profile],
+  );
+  const inProgressCount = useMemo(
+    () => profile?.frameworks.filter((f) => f.status === 'in_progress' && f.name.trim()).length ?? 0,
+    [profile],
+  );
 
   return (
-    <>
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
-      <main style={{ maxWidth: 880, margin: '40px auto', padding: '0 24px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 8 }}>
+      <main className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+        <div className="mb-4 flex items-center gap-2 text-sm text-cm-muted">
+          <Link href="/settings" className="hover:text-cm-fg">Settings</Link>
+          <IconArrowRight size={14} />
+          <span className="text-cm-fg">Trust Center</span>
+        </div>
+
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <IconShield size={22} />
-              <h1 style={{ fontSize: 28, fontWeight: 700, margin: 0 }}>Trust Center</h1>
-            </div>
-            <p style={{ color: 'var(--cm-muted)', margin: '6px 0 0' }}>
-              Edit the public page that procurement and security reviewers will see.
-              <Link href={publicHref} style={{ marginLeft: 8 }}>View public page</Link>
+            <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
+              <IconShield size={24} /> Trust Center
+            </h1>
+            <p className="mt-1 text-sm text-cm-muted">
+              Edit the public page that procurement and security reviewers will see.{' '}
+              <Link href="/trust" className="text-cm-accent hover:underline">
+                View public page
+              </Link>
             </p>
           </div>
           <button
+            type="button"
             onClick={() => void load()}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 12px', border: '1px solid var(--cm-border, #e5e7eb)', borderRadius: 8, background: 'transparent', cursor: 'pointer' }}
+            className="inline-flex items-center gap-1 rounded-md border border-cm-border px-3 py-1.5 text-sm hover:bg-cm-subtle"
           >
             <IconRefresh size={16} /> Refresh
           </button>
         </div>
 
-        {loading && (
-          <div style={{ padding: 40, display: 'flex', alignItems: 'center', gap: 10, color: 'var(--cm-muted)' }}>
-            <Spinner /> Loading trust profile...
-          </div>
-        )}
-
-        {error && !loading && <ErrorState message={error} />}
-
-        {profile && !loading && !error && (
+        {loading ? (
+          <SettingsCardSkeleton rows={5} />
+        ) : error ? (
+          <ErrorState message={error} onRetry={() => void load()} />
+        ) : profile ? (
           <form
             onSubmit={(e) => { e.preventDefault(); void save(); }}
-            style={{ marginTop: 24, display: 'grid', gap: 24 }}
+            className="mt-2 grid gap-6"
           >
+            {/* Compliance posture: the headline a reviewer scans for. */}
+            {achievedCount > 0 ? (
+              <div className="flex items-start gap-2 rounded-md border border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] p-3 text-xs text-cm-success">
+                <IconCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  {achievedCount} {achievedCount === 1 ? 'framework is' : 'frameworks are'} marked
+                  achieved{inProgressCount > 0 ? `, ${inProgressCount} in progress` : ''}. This is
+                  what a buyer sees first on the public Trust Center.
+                </span>
+              </div>
+            ) : inProgressCount > 0 ? (
+              <div className="flex items-start gap-2 rounded-md border border-cm-cite-line bg-cm-cite-bg p-3 text-xs text-cm-cite">
+                <IconWarning className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  {inProgressCount} {inProgressCount === 1 ? 'framework is' : 'frameworks are'} in
+                  progress and none are achieved yet. The public page will show effort underway but
+                  no certification.
+                </span>
+              </div>
+            ) : (
+              <div className="flex items-start gap-2 rounded-md border border-cm-border bg-cm-subtle p-3 text-xs text-cm-muted">
+                <IconShield className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  No compliance frameworks listed yet. Add SOC 2, ISO 27001, or whichever apply so a
+                  reviewer can see your posture at a glance.
+                </span>
+              </div>
+            )}
+
             <Field label="Summary" hint="Plain text shown at the top of the public page.">
               <textarea
                 value={profile.summary}
                 onChange={(e) => update('summary', e.target.value)}
                 rows={4}
                 maxLength={4000}
-                style={inputStyle}
+                className={`${INPUT_CLS} resize-y`}
                 placeholder="One paragraph that describes your security posture."
               />
             </Field>
@@ -178,7 +236,7 @@ export default function TrustSettingsPage() {
                 value={profile.securityContactEmail ?? ''}
                 onChange={(e) => update('securityContactEmail', e.target.value || null)}
                 maxLength={320}
-                style={inputStyle}
+                className={INPUT_CLS}
                 placeholder="security@example.com"
               />
             </Field>
@@ -189,7 +247,7 @@ export default function TrustSettingsPage() {
                 value={profile.vulnerabilityPolicyUrl ?? ''}
                 onChange={(e) => update('vulnerabilityPolicyUrl', e.target.value || null)}
                 maxLength={500}
-                style={inputStyle}
+                className={INPUT_CLS}
                 placeholder="https://example.com/security/disclosure"
               />
             </Field>
@@ -199,7 +257,7 @@ export default function TrustSettingsPage() {
                 value={profile.encryptionAtRest ?? ''}
                 onChange={(e) => update('encryptionAtRest', e.target.value || null)}
                 maxLength={500}
-                style={inputStyle}
+                className={INPUT_CLS}
                 placeholder="AES-256 at the storage layer"
               />
             </Field>
@@ -209,7 +267,7 @@ export default function TrustSettingsPage() {
                 value={profile.encryptionInTransit ?? ''}
                 onChange={(e) => update('encryptionInTransit', e.target.value || null)}
                 maxLength={500}
-                style={inputStyle}
+                className={INPUT_CLS}
                 placeholder="TLS 1.3 for every public endpoint"
               />
             </Field>
@@ -219,56 +277,67 @@ export default function TrustSettingsPage() {
                 value={profile.dataResidency ?? ''}
                 onChange={(e) => update('dataResidency', e.target.value || null)}
                 maxLength={500}
-                style={inputStyle}
+                className={INPUT_CLS}
                 placeholder="us-east-1 by default; EU residency available on request"
               />
             </Field>
 
             <section>
-              <div style={sectionHeader}>
+              <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-cm-muted">
                 <span>Compliance frameworks ({profile.frameworks.length})</span>
-                <button type="button" onClick={addFramework} style={smallButton}>
+                <button type="button" onClick={addFramework} className={SMALL_BTN}>
                   <IconPlus size={14} /> Add
                 </button>
               </div>
               {profile.frameworks.length === 0 && (
-                <p style={{ color: 'var(--cm-muted)', margin: '8px 0 0' }}>No frameworks yet.</p>
+                <p className="mt-2 text-sm text-cm-muted">No frameworks yet.</p>
               )}
-              {profile.frameworks.map((f, i) => (
-                <div key={i} style={cardStyle}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
-                    <input value={f.name} onChange={(e) => patchFramework(i, { name: e.target.value })} placeholder="SOC 2 Type II" style={inputStyle} maxLength={120} />
-                    <select value={f.status} onChange={(e) => patchFramework(i, { status: e.target.value as ComplianceStatus })} style={inputStyle}>
-                      {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
-                    </select>
-                    <input type="date" value={f.issuedAt ?? ''} onChange={(e) => patchFramework(i, { issuedAt: e.target.value || null })} style={inputStyle} />
-                    <input value={f.auditor ?? ''} onChange={(e) => patchFramework(i, { auditor: e.target.value || null })} placeholder="Auditor" style={inputStyle} maxLength={200} />
-                    <input type="url" value={f.reportUrl ?? ''} onChange={(e) => patchFramework(i, { reportUrl: e.target.value || null })} placeholder="Report URL" style={inputStyle} maxLength={500} />
+              {profile.frameworks.map((f, i) => {
+                const tone =
+                  f.status === 'achieved'
+                    ? 'border-l-[var(--cm-success)]'
+                    : f.status === 'in_progress'
+                      ? 'border-l-cm-cite-line'
+                      : 'border-l-cm-border';
+                return (
+                  <div
+                    key={i}
+                    className={`mt-3 rounded-lg border border-cm-border border-l-4 ${tone} bg-cm-paper p-3`}
+                  >
+                    <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(180px,1fr))]">
+                      <input value={f.name} onChange={(e) => patchFramework(i, { name: e.target.value })} placeholder="SOC 2 Type II" className={INPUT_CLS} maxLength={120} />
+                      <select value={f.status} onChange={(e) => patchFramework(i, { status: e.target.value as ComplianceStatus })} className={INPUT_CLS}>
+                        {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                      </select>
+                      <input type="date" value={f.issuedAt ?? ''} onChange={(e) => patchFramework(i, { issuedAt: e.target.value || null })} className={INPUT_CLS} />
+                      <input value={f.auditor ?? ''} onChange={(e) => patchFramework(i, { auditor: e.target.value || null })} placeholder="Auditor" className={INPUT_CLS} maxLength={200} />
+                      <input type="url" value={f.reportUrl ?? ''} onChange={(e) => patchFramework(i, { reportUrl: e.target.value || null })} placeholder="Report URL" className={INPUT_CLS} maxLength={500} />
+                    </div>
+                    <button type="button" onClick={() => removeFramework(i)} className={`${SMALL_BTN} mt-2 text-cm-danger hover:bg-[rgba(180,66,60,0.10)]`} aria-label="Remove framework">
+                      <IconTrash size={14} /> Remove
+                    </button>
                   </div>
-                  <button type="button" onClick={() => removeFramework(i)} style={{ ...smallButton, marginTop: 8 }} aria-label="Remove framework">
-                    <IconTrash size={14} /> Remove
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </section>
 
             <section>
-              <div style={sectionHeader}>
+              <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-cm-muted">
                 <span>Additional links ({profile.links.length})</span>
-                <button type="button" onClick={addLink} style={smallButton}>
+                <button type="button" onClick={addLink} className={SMALL_BTN}>
                   <IconPlus size={14} /> Add
                 </button>
               </div>
               {profile.links.length === 0 && (
-                <p style={{ color: 'var(--cm-muted)', margin: '8px 0 0' }}>No links yet.</p>
+                <p className="mt-2 text-sm text-cm-muted">No links yet.</p>
               )}
               {profile.links.map((l, i) => (
-                <div key={i} style={cardStyle}>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'minmax(160px, 1fr) 2fr', gap: 12 }}>
-                    <input value={l.label} onChange={(e) => patchLink(i, { label: e.target.value })} placeholder="Privacy Policy" style={inputStyle} maxLength={80} />
-                    <input type="url" value={l.url} onChange={(e) => patchLink(i, { url: e.target.value })} placeholder="https://example.com/privacy" style={inputStyle} maxLength={500} />
+                <div key={i} className="mt-3 rounded-lg border border-cm-border bg-cm-paper p-3">
+                  <div className="grid gap-3 [grid-template-columns:minmax(160px,1fr)_2fr]">
+                    <input value={l.label} onChange={(e) => patchLink(i, { label: e.target.value })} placeholder="Privacy Policy" className={INPUT_CLS} maxLength={80} />
+                    <input type="url" value={l.url} onChange={(e) => patchLink(i, { url: e.target.value })} placeholder="https://example.com/privacy" className={INPUT_CLS} maxLength={500} />
                   </div>
-                  <button type="button" onClick={() => removeLink(i)} style={{ ...smallButton, marginTop: 8 }} aria-label="Remove link">
+                  <button type="button" onClick={() => removeLink(i)} className={`${SMALL_BTN} mt-2 text-cm-danger hover:bg-[rgba(180,66,60,0.10)]`} aria-label="Remove link">
                     <IconTrash size={14} /> Remove
                   </button>
                 </div>
@@ -276,82 +345,44 @@ export default function TrustSettingsPage() {
             </section>
 
             {actionError && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#b91c1c' }}>
+              <div className="flex items-start gap-2 rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] p-3 text-sm text-cm-danger">
                 <IconWarning size={16} /> {actionError}
               </div>
             )}
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div className="flex flex-wrap items-center gap-3">
               <button
                 type="submit"
                 disabled={submitting}
-                style={{ padding: '10px 16px', borderRadius: 8, background: '#111827', color: 'white', border: 'none', cursor: submitting ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+                className="inline-flex items-center gap-2 rounded-md bg-cm-fg px-4 py-2 text-sm font-medium text-cm-bg hover:opacity-90 disabled:opacity-50"
               >
                 {submitting ? <Spinner /> : <IconCheck size={16} />}
                 {submitting ? 'Saving...' : 'Save trust profile'}
               </button>
               {savedAt && (
-                <span style={{ color: 'var(--cm-muted)', fontSize: 13 }}>
-                  Saved at {new Date(savedAt).toISOString().slice(11, 19)}
+                <span className="inline-flex items-center gap-1 text-xs text-cm-success">
+                  <IconCheck size={12} /> Saved at {new Date(savedAt).toISOString().slice(11, 19)}
                 </span>
               )}
-              <span style={{ color: 'var(--cm-muted)', fontSize: 13, marginLeft: 'auto' }}>
+              <span className="ml-auto text-xs text-cm-muted">
                 Last updated {fmtDate(profile.updatedAt)}{profile.updatedBy ? ` by ${profile.updatedBy}` : ''}
               </span>
             </div>
           </form>
-        )}
+        ) : null}
       </main>
-    </>
+    </div>
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  padding: '8px 10px',
-  border: '1px solid var(--cm-border, #e5e7eb)',
-  borderRadius: 8,
-  background: 'var(--cm-bg, white)',
-  color: 'inherit',
-  fontSize: 14,
-  width: '100%',
-  fontFamily: 'inherit',
-};
-
-const cardStyle: React.CSSProperties = {
-  padding: 12,
-  border: '1px solid var(--cm-border, #e5e7eb)',
-  borderRadius: 10,
-  marginTop: 12,
-};
-
-const sectionHeader: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  fontSize: 13,
-  fontWeight: 600,
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
-  color: 'var(--cm-muted)',
-};
-
-const smallButton: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  padding: '6px 10px',
-  border: '1px solid var(--cm-border, #e5e7eb)',
-  borderRadius: 8,
-  background: 'transparent',
-  cursor: 'pointer',
-  fontSize: 13,
-};
+const SMALL_BTN =
+  'inline-flex items-center gap-1.5 rounded-md border border-cm-border bg-transparent px-2.5 py-1 text-xs text-cm-fg transition-colors hover:bg-cm-subtle';
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
-    <label style={{ display: 'grid', gap: 6 }}>
-      <span style={{ fontSize: 13, fontWeight: 600 }}>{label}</span>
-      {hint && <span style={{ fontSize: 12, color: 'var(--cm-muted)' }}>{hint}</span>}
+    <label className="grid gap-1.5">
+      <span className="text-sm font-semibold">{label}</span>
+      {hint && <span className="text-xs text-cm-muted">{hint}</span>}
       {children}
     </label>
   );
