@@ -40,12 +40,23 @@ export default function TagsPage() {
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
-    if (!needle) return items;
-    return items.filter((t) => t.tag.toLowerCase().includes(needle));
+    const base = needle ? items.filter((t) => t.tag.toLowerCase().includes(needle)) : items;
+    // Rank by frequency (desc), then alpha for ties, so the labels carrying
+    // the most material always sit at the top-left where the eye lands first.
+    return [...base].sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag));
   }, [items, q]);
 
   const totalRefs = useMemo(
     () => items.reduce((acc, t) => acc + t.count, 0),
+    [items],
+  );
+
+  // Scale every usage bar to the single most-used tag so the busiest label is
+  // full-width and the rest read proportionally against it. A daily user can
+  // then tell a canonical, heavily-applied tag from a one-off at a glance,
+  // which the bare count chip never communicated.
+  const maxCount = useMemo(
+    () => items.reduce((m, t) => Math.max(m, t.count), 0) || 1,
     [items],
   );
 
@@ -105,22 +116,41 @@ export default function TagsPage() {
             />
           ) : (
             <ul className="cm-card grid grid-cols-1 gap-px overflow-hidden bg-cm-border sm:grid-cols-2">
-              {filtered.map((t) => (
+              {filtered.map((t) => {
+                const pct = Math.max(4, Math.round((t.count / maxCount) * 100));
+                return (
                 <li key={t.tag} className="bg-cm-bg">
                   <Link
                     href={{ pathname: `/tags/${encodeURIComponent(t.tag)}` }}
-                    className="flex items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-cm-accent-soft"
+                    className="flex flex-col gap-2 px-4 py-3 transition-colors hover:bg-cm-accent-soft"
                   >
-                    <div className="flex min-w-0 items-center gap-2">
-                      <IconTag size={14} className="shrink-0 text-cm-accent" />
-                      <span className="truncate font-mono text-sm" title={t.tag}>{t.tag}</span>
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <IconTag size={14} className="shrink-0 text-cm-accent" />
+                        <span className="truncate font-mono text-sm" title={t.tag}>{t.tag}</span>
+                      </div>
+                      <span className="shrink-0 rounded-full border border-cm-border px-2 py-0.5 text-xs text-cm-muted">
+                        {t.count}
+                      </span>
                     </div>
-                    <span className="shrink-0 rounded-full border border-cm-border px-2 py-0.5 text-xs text-cm-muted">
-                      {t.count}
-                    </span>
+                    {/* Proportional usage bar: width = this tag's reference
+                        count as a share of the most-used tag. Turns the flat
+                        grid into a frequency map so heavy, canonical labels
+                        stand out from one-off tags at a glance. */}
+                    <div
+                      className="h-1 w-full overflow-hidden rounded-full bg-cm-subtle"
+                      role="img"
+                      aria-label={`${t.count} reference${t.count === 1 ? '' : 's'}`}
+                    >
+                      <div
+                        className="h-full rounded-full bg-cm-accent transition-all duration-300"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
                   </Link>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>
