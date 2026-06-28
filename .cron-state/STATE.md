@@ -37,6 +37,77 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-28 14:37 PDT - CHAT MULTI-TURN + data-viz vein (5 slices)
+
+Pulled the CHAT SURFACE per-message conversation history - the single biggest
+standing product gap, carried + flagged "PULL IT NEXT" across many ticks - as the
+anchor slice, then shipped 3 data-viz-vein upgrades and 1 chat companion the
+multi-turn work creates the need for. 5 real slices, 0 filler.
+
+THE CORE FINDING (verified by reading ChatShell.tsx, not guessed): the chat held a
+SINGLE answer/sources/question in component state and submit() WIPED all of it on
+every new question (setAnswer(''), setSources([]), ...). So the conversation was
+amnesiac - ask a follow-up and the prior Q/A vanished entirely, and the question
+itself only ever lived in the composer (gone on submit). This is why it was the
+top gap: the chat literally could not hold a conversation.
+
+The 5 slices:
+- chat (anchor): replace the single-answer state with a `turns: Turn[]` model. Each
+  Turn = {id, question, answer, sources, error, done}. submit() prepends a turn and
+  streams into it; the whole thread stays on screen + scrollable. Composer is
+  TOP-anchored (Reflect/Mem style), so newest renders directly under it - exactly
+  where the old single answer sat - and you scroll DOWN into history. (Deliberate
+  divergence from the queue's "newest at bottom" note, which assumed a bottom
+  composer; newest-on-top is the consistent flow for a top composer. Documented in
+  the commit + code comments.) Each turn: serif question header (the asked question
+  is now PERSISTENT, was lost on submit), its answer, per-turn Copy/Share, per-turn
+  error/retry. A single sticky margin rail follows the ACTIVE turn (streaming a new
+  turn, or clicking a citation in an older one, sets it active) so per-turn citation
+  numbering + the rail stay coherent without stacking N rails. [ ] cite cycle + j/k
+  rail scope to the active turn. "New thread" resets the surface; thread meta strip
+  shows the exchange count. SHIPPED 006d868.
+- sources: the per-source feedback boost was raw text ("boost +0.40"); turned it
+  into a DIVERGING signal bar around a centre line (boost>0 grows right in
+  --cm-success, boost<0 grows left in --cm-danger, scaled to the strongest |boost|
+  in view), numeric value alongside in tabular-nums. SHIPPED 9884478.
+- history: the per-day group headers showed a bare count; added a MODEL-MIX
+  segmented strip (one band per model that day, width = share, widest first, ordered
+  brand-ink palette accent->cite->fg-soft->muted->faint) so a busy/varied day reads
+  as a shape. groupByDay already hands each header its items - pure presentation.
+  SHIPPED ea6c876.
+- pins: pinnedAt was plain text; added a per-row RECENCY LANE (left vertical rail,
+  fill maps the pin's age within the min/max set - freshest fills solid accent,
+  oldest a 12%-floored sliver, older rows use softer accent-line) + a "newest" badge.
+  SHIPPED e74ccca.
+- chat (companion): a THREAD OUTLINE navigator - multi-turn creates a scrollable
+  stack, so a floating bottom-left "Thread N/M" pill expands into an index of every
+  question (newest first), click to scroll+activate an exchange, active marked, each
+  row shows its source count. Hidden for a single-exchange thread. New component
+  ThreadOutline + stable cm-turn-<id> anchors with scroll-margin on each turn block.
+  SHIPPED 72c9109.
+
+Gated ONCE for the batch: web typecheck GREEN, web build GREEN (all 102 routes
+compiled, incl. the 4 touched - /chat now 10.8kB with multi-turn+outline, /sources,
+/history, /pins), @clawmind/ui build GREEN (echo-ok no-op). Batch diff is 4 page/
+component files under apps/web/src + 1 new component (ThreadOutline.tsx), 0 backend/
+packages, 0 telemetry. The lone build warning (history line 624 sources->useMemo) is
+PRE-EXISTING in HistoryRow (identical at line 552 pre-tick, only shifted by my
+ModelMixBar insertion above it) - NOT introduced this tick. Pushed 34e3293..72c9109:
+- 006d868 feat(web/chat): per-message conversation history within a thread.
+- 9884478 feat(web/sources): diverging boost signal bar on the source list.
+- ea6c876 feat(web/history): per-day model-mix strip in the day header.
+- e74ccca feat(web/pins): per-row recency lane on the pin list.
+- 72c9109 feat(web/chat): thread outline navigator for multi-turn threads.
+
+NEXT TICK: the #1 standing product gap (chat multi-turn) is now CLOSED. The
+remaining CHAT SURFACE queue item is the composer drag-and-drop pin (needs a small
+API touch - the /pins endpoint exists, surface a "Pinned: <path>" chip). The
+data-viz vein proven over the last two ticks (proportional/diverging bars, segmented
+mix strips, recency lanes, posture chips) is still a strong evergreen for the
+remaining list/dashboard pages - see the refilled DATA-VIZ VEIN + GLOBAL UX queues
+below. The welcome 3-card tour queue item is effectively DONE (welcome/page.tsx is
+already a complete real 3-step action flow, not a stub) - dropped from the queue.
+
 ### TICK LOG 2026-06-28 10:53 PDT - TOP-LEVEL PAGES batch I: re-theme + data-viz (5 slices)
 
 Started the post-/settings cluster: top-level pages outside /settings. The queued
@@ -726,31 +797,43 @@ to a set max, state-driven posture chips) is a strong evergreen vein for the rem
 list/dashboard pages (sources feedback boosts, history model-mix, stats already has a
 donut). A fresh queue is refilled below.
 
-CHAT SURFACE (NOW the biggest product gap; pull it in NEXT tick):
-- [ ] feat(web/chat): per-message conversation history within a thread - ChatShell
-  loses the prior Q/A when a new question is asked. Vertical stack of Q/A pairs
-  (newest at bottom), each with its own copy/share + a per-message collapsible
-  citation rail. The single biggest chat gap; carried across many ticks.
+CHAT SURFACE (multi-turn DONE 2026-06-28 14:37; one item remains):
+- [x] feat(web/chat): per-message conversation history within a thread. SHIPPED
+  006d868 - turns[] model, per-turn Q header + answer + Copy/Share + retry, single
+  rail follows the active turn, [ ]/j-k scoped to active turn, New thread reset.
+- [x] feat(web/chat): thread outline navigator (companion to multi-turn). SHIPPED
+  72c9109 - floating Thread N/M pill, index of questions, jump+activate, hidden <2.
 - [ ] feat(web/composer): drag-and-drop file pin onto the composer to pre-pin a
   source for the next question (surface a "Pinned: <path>" chip below the textarea).
+  NEEDS a minimal API touch to thread the pinned path into the ask request; the
+  /pins endpoint already exists. The last remaining chat-surface gap.
 
-DATA-VIZ VEIN (evergreen; the pattern proven this tick - turn dumped numbers into
-shapes a daily user reads at a glance):
-- [ ] feat(web/sources): the per-source feedback boost (+0.40 / -0.25) is raw text;
-  turn it into a diverging signal (success right / danger left of a centre line).
-- [ ] feat(web/history): the per-day group headers show a bare count; add a tiny
-  model-mix or source-count sparkline so a busy day reads as a shape.
-- [ ] feat(web/pins): pinned sources show pinnedAt/pinnedBy as text; consider a
-  recency lane so the freshest pins are visually distinct.
+DATA-VIZ VEIN (evergreen; proven over batches I + this tick - turn dumped numbers
+into shapes a daily user reads at a glance: proportional/diverging bars, segmented
+mix strips, recency lanes, posture chips):
+- [x] feat(web/sources): diverging feedback-boost signal bar. SHIPPED 9884478.
+- [x] feat(web/history): per-day model-mix segmented strip. SHIPPED ea6c876.
+- [x] feat(web/pins): per-row recency lane + newest badge. SHIPPED e74ccca.
+- [ ] feat(web/saved): the saved-search rows show run counts as text; a tiny
+  new-vs-removed delta bar per saved search would read as a shape (DigestSummary
+  carries lastNewCount/lastRemovedCount).
+- [ ] feat(web/usage): the byKind ask/search split is two numbers; a single
+  proportional ask-vs-search bar would show the workload mix at a glance.
+- [ ] feat(web/collections): item counts per collection are bare; a proportional
+  bar scaled to the largest collection turns the grid into a size map.
+- [ ] feat(web/dashboard): audit/scan whether any dashboard tiles dump raw numbers
+  that would read better as the proven bar/posture-chip patterns.
 
 GLOBAL UX / POLISH (evergreen):
 - [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette,
   ShareAnswerButton, ShortcutHelp) on a single <Dialog> primitive in @clawmind/ui
   (focus trap, Esc, backdrop, scroll-lock) so future modals don't drift.
-- [ ] feat(web/welcome): finish the welcome guide visually - a 3-card tour
-  (chat + dashboard + sources) for a 30-second first-run orientation.
 - [ ] feat(web/a11y): roving-tabindex on the TopNav primary nav (ARIA menubar
   pattern) for keyboard arrow-key movement.
+- [x] feat(web/welcome): finish the welcome guide visually. DROPPED - welcome/page.tsx
+  is already a complete real 3-step action flow (ingest/ask/configure with live
+  progress, seed button, dismiss/reset), not a stub. Building a separate tour would
+  be padding.
 
 ### Queued frontend (refilled 2026-06-26 12:22 PDT)
 
