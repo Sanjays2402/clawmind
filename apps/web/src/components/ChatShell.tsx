@@ -27,6 +27,30 @@ interface Source {
   displayPath?: string;
 }
 
+// A single question/answer exchange in the running thread. The chat used to
+// hold ONE answer and wipe it on every new question, so the conversation was
+// amnesiac — ask a follow-up and the prior Q/A vanished. A thread is now an
+// ordered list of these, so the whole exchange stays on screen and scrollable.
+interface Turn {
+  id: string;
+  question: string;
+  answer: string;
+  sources: Source[];
+  error: string | null;
+  done: boolean;
+}
+
+function makeTurnId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      /* fall through */
+    }
+  }
+  return 'turn-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+}
+
 export function ChatShell({
   threadId: _t,
   onThread: _o,
@@ -35,11 +59,20 @@ export function ChatShell({
   onThread: (id: string | null) => void;
 }) {
   const [question, setQuestion] = useState('');
-  const [answer, setAnswer] = useState('');
-  const [sources, setSources] = useState<Source[]>([]);
+  // The thread, newest-first. The composer lives at the TOP of the page
+  // (Reflect/Mem style), so the just-asked turn renders directly beneath it —
+  // exactly where the old single answer used to sit — and you scroll DOWN into
+  // older turns. (A bottom-anchored composer would put newest at the bottom;
+  // ours is top-anchored, so newest-on-top is the consistent reading flow.)
+  const [turns, setTurns] = useState<Turn[]>([]);
+  // Which turn the source rail + citation keyboard cycle currently track. The
+  // single sticky rail shows ONE turn's sources at a time (stacking every
+  // turn's rail would bloat the margin and break per-turn citation numbers);
+  // streaming a new turn — or clicking a citation in an older one — makes that
+  // turn active.
+  const [activeTurnId, setActiveTurnId] = useState<string | null>(null);
   const [activeSource, setActiveSource] = useState<Source | null>(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [namespaces, setNamespaces] = useState<Ns[]>(['memory', 'projects', 'sessions']);
   const [composerFocus, setComposerFocus] = useState(0);
   const [tokenCount, setTokenCount] = useState(0);
@@ -48,6 +81,8 @@ export function ChatShell({
   const cancelRef = useRef<boolean>(false);
   const searchParams = useSearchParams();
   const prefillRef = useRef<string | null>(null);
+
+  const activeTurn = turns.find((t) => t.id === activeTurnId) ?? null;
 
   useEffect(() => {
     const initial = searchParams.get('q');
@@ -73,14 +108,16 @@ export function ChatShell({
     writeNsPref(next);
   }, []);
 
-  // `[` / `]` cycle through the citations in the answer body, in the order
-  // they first appear. Each step focuses the matching pill, marks its
-  // source active, and reveals the rail card (scroll + flash). The cycle
-  // only contains sources that are actually cited, so a 12-source rail
-  // with 3 citations steps through exactly those 3. Suppressed while the
-  // user is typing in the composer or a rail filter.
+  // `[` / `]` cycle through the citations in the ACTIVE turn's answer, in the
+  // order they first appear. Each step focuses the matching pill, marks its
+  // source active, and reveals the rail card (scroll + flash). The cycle only
+  // contains sources that are actually cited. Suppressed while the user is
+  // typing in the composer or a rail filter.
   useEffect(() => {
-    if (!answer) return;
+    const turn = turns.find((t) => t.id === activeTurnId);
+    if (!turn || !turn.answer) return;
+    const answer = turn.answer;
+    const turnSources = turn.sources;
     function onKey(e: KeyboardEvent) {
       if (e.key !== '[' && e.key !== ']') return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -89,7 +126,7 @@ export function ChatShell({
         const tag = target.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
       }
-      const cited = citedOrder(answer, sources);
+      const cited = citedOrder(answer, turnSources);
       if (cited.length === 0) return;
       e.preventDefault();
       const curIdx = activeSource ? cited.findIndex((s) => s.id === activeSource.id) : -1;
@@ -108,7 +145,7 @@ export function ChatShell({
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [answer, sources, activeSource]);
+  }, [turns, activeTurnId, activeSource]);
 
   // `/` focuses the composer from anywhere on the chat page, mirroring the
   // rail's j/k muscle memory. Suppressed while typing in any input/textarea
@@ -131,53 +168,107 @@ export function ChatShell({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  // Stream a question into a specific turn. Shared by a fresh submit and an
+  // in-place retry, so both paths write tokens/sources/errors into the same
+  // turn shape. Resets the target turn's body first (a retry re-streams a
+  // failed turn cleanly) and makes that turn active so the rail follows it.
+  const runStream = useCallback(
+    async (turnId: string, q: string) => {
+      setLoading(true);
+      setActiveTurnId(turnId);
+      setActiveSource(null);
+      setTokenCount(0);
+      setLastTokenMs(null);
+      lastTokenAtRef.current = null;
+      cancelRef.current = false;
+      setTurns((prev) =>
+        prev.map((t) =>
+          t.id === turnId ? { ...t, answer: '', sources: [], error: null, done: false } : t,
+        ),
+      );
+      try {
+        await api.stream({ q, namespaces }, (evt) => {
+          if (cancelRef.current) return;
+          if (evt.type === 'sources') {
+            const srcs = evt.value as Source[];
+            setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, sources: srcs } : t)));
+          }
+          if (evt.type === 'token') {
+            const now = Date.now();
+            const prev = lastTokenAtRef.current;
+            if (prev !== null) setLastTokenMs(now - prev);
+            lastTokenAtRef.current = now;
+            setTokenCount((c) => c + 1);
+            const tok = evt.value as string;
+            setTurns((cur) => cur.map((t) => (t.id === turnId ? { ...t, answer: t.answer + tok } : t)));
+          }
+          if (evt.type === 'error') {
+            const msg = (evt.value as { message: string }).message;
+            setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, error: msg } : t)));
+          }
+        });
+      } catch (err) {
+        const msg = (err as Error).message;
+        setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, error: msg } : t)));
+      } finally {
+        setLoading(false);
+        setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, done: true } : t)));
+      }
+    },
+    [namespaces],
+  );
+
   async function submit(q: string = question) {
-    if (!q.trim() || loading) return;
-    setLoading(true);
-    setError(null);
-    setAnswer('');
-    setSources([]);
-    setActiveSource(null);
-    setTokenCount(0);
-    setLastTokenMs(null);
-    lastTokenAtRef.current = null;
-    cancelRef.current = false;
-    try {
-      await api.stream({ q, namespaces }, (evt) => {
-        if (cancelRef.current) return;
-        if (evt.type === 'sources') setSources(evt.value as Source[]);
-        if (evt.type === 'token') {
-          const now = Date.now();
-          const prev = lastTokenAtRef.current;
-          if (prev !== null) setLastTokenMs(now - prev);
-          lastTokenAtRef.current = now;
-          setTokenCount((c) => c + 1);
-          setAnswer((a) => a + (evt.value as string));
-        }
-        if (evt.type === 'error') setError((evt.value as { message: string }).message);
-      });
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setLoading(false);
-    }
+    const trimmed = q.trim();
+    if (!trimmed || loading) return;
+    const id = makeTurnId();
+    const turn: Turn = { id, question: trimmed, answer: '', sources: [], error: null, done: false };
+    // Prepend so the newest exchange sits directly under the composer.
+    setTurns((prev) => [turn, ...prev]);
+    // Clear the composer for the follow-up — the question is preserved in the
+    // turn header now, so the field doesn't need to keep holding it.
+    setQuestion('');
+    await runStream(id, trimmed);
   }
 
-  // "Edit and try again" from the error panel: clear the error and return
-  // the caret to the composer with the failed question still in the field.
-  function editAndRetry() {
-    setError(null);
+  // Re-run a turn's question in place (from its error panel).
+  function retryTurn(id: string) {
+    if (loading) return;
+    const turn = turns.find((t) => t.id === id);
+    if (!turn) return;
+    void runStream(id, turn.question);
+  }
+
+  // Drop a turn's question back into the composer so the reader can tweak it
+  // and ask again (which starts a fresh turn). Clears nothing on the existing
+  // turn — editing is non-destructive.
+  function editTurn(q: string) {
+    setQuestion(q);
+    setComposerFocus((n) => n + 1);
+  }
+
+  // Start a clean thread: clears the running exchange and returns focus to the
+  // composer. The prior thread is gone from the surface (history still keeps
+  // each answer server-side), giving a deliberate "new conversation" reset.
+  function newThread() {
+    if (loading) return;
+    setTurns([]);
+    setActiveTurnId(null);
+    setActiveSource(null);
+    setQuestion('');
     setComposerFocus((n) => n + 1);
   }
 
   // Clicking a starter prompt in the empty state drops it into the composer
   // and returns focus there (caret at end via focusSignal) so the reader can
-  // tweak or submit immediately. The list was plain text before; making each
-  // one actionable turns the empty state into a one-tap on-ramp.
+  // tweak or submit immediately.
   function pickStarter(prompt: string) {
     setQuestion(prompt);
     setComposerFocus((n) => n + 1);
   }
+
+  const hasThread = turns.length > 0;
+  const streamingId = loading ? activeTurnId : null;
 
   return (
     <main className="min-h-screen flex flex-col bg-cm-bg">
@@ -206,67 +297,188 @@ export function ChatShell({
             focusSignal={composerFocus}
           />
 
+          {/* Thread meta strip: turn count + a deliberate "new thread" reset.
+              Only present once an exchange exists. */}
+          {hasThread && (
+            <div className="mt-4 flex items-center justify-between">
+              <span className="cm-mono text-[11px] uppercase tracking-[0.12em] text-cm-faint">
+                {turns.length} {turns.length === 1 ? 'exchange' : 'exchanges'} in this thread
+              </span>
+              <button
+                type="button"
+                onClick={newThread}
+                disabled={loading}
+                className="cm-mono inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1 text-[11px] text-cm-fg-soft transition-colors hover:bg-cm-accent-soft hover:text-cm-fg disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                New thread
+              </button>
+            </div>
+          )}
+
           <div className="mt-8">
-            {!answer && !loading && !error && (
+            {!hasThread && !loading && (
               <EmptyReading onPick={pickStarter} />
             )}
-            {loading && answer === '' && !error && (
-              <ChatAnswerSkeleton />
-            )}
-            {error && (
-              <ChatError
-                message={error}
-                onRetry={() => submit(question)}
-                onEdit={editAndRetry}
-              />
-            )}
-            {answer && (
-              <>
-                <ChatStream
-                  text={answer}
-                  sources={sources}
-                  activeId={activeSource?.id ?? null}
-                  onCite={setActiveSource}
-                />
-                {loading && (
-                  <StreamProgress tokens={tokenCount} lastMs={lastTokenMs} />
-                )}
-                {/* Sentinel parked at the live token edge. JumpToLatest
-                    observes it to know when the reader has scrolled above the
-                    streaming text. */}
-                <div id="cm-stream-end" aria-hidden="true" />
-                {!loading && (
-                  <div className="mt-6 flex items-center justify-end gap-2 border-t border-cm-border pt-4">
-                    <CopyAnswerButton
-                      query={question}
-                      answer={answer}
-                      sources={sources}
-                    />
-                    <ShareAnswerButton
-                      query={question}
-                      answer={answer}
-                      sources={sources}
-                    />
-                  </div>
-                )}
-              </>
+
+            {hasThread && (
+              <div className="flex flex-col">
+                {turns.map((turn, i) => (
+                  <TurnBlock
+                    key={turn.id}
+                    turn={turn}
+                    separated={i > 0}
+                    isActive={turn.id === activeTurnId}
+                    activeSourceId={turn.id === activeTurnId ? activeSource?.id ?? null : null}
+                    streaming={turn.id === streamingId}
+                    tokenCount={tokenCount}
+                    lastTokenMs={lastTokenMs}
+                    onCite={(s) => {
+                      setActiveTurnId(turn.id);
+                      setActiveSource(s);
+                    }}
+                    onFocusTurn={() => {
+                      setActiveTurnId(turn.id);
+                      setActiveSource(null);
+                    }}
+                    onRetry={() => retryTurn(turn.id)}
+                    onEdit={() => editTurn(turn.question)}
+                  />
+                ))}
+              </div>
             )}
           </div>
         </section>
 
         <aside className="min-w-0 lg:sticky lg:top-24 lg:self-start">
-          {loading && sources.length === 0 ? (
+          {loading && activeTurn && activeTurn.sources.length === 0 ? (
             <SourcesRailSkeleton />
           ) : (
-            <SourcesPane sources={sources} active={activeSource} onSelect={setActiveSource} />
+            <SourcesPane
+              sources={activeTurn?.sources ?? []}
+              active={activeSource}
+              onSelect={setActiveSource}
+            />
           )}
         </aside>
       </div>
 
-      {/* Floating "jump to latest" while the answer streams and the reader
-          has scrolled above the live token edge. */}
-      <JumpToLatest active={loading && answer !== ''} />
+      {/* Floating "jump to latest" while the active answer streams and the
+          reader has scrolled above the live token edge. */}
+      <JumpToLatest active={loading && (activeTurn?.answer ?? '') !== ''} />
     </main>
+  );
+}
+
+// One question/answer exchange. Renders the question as a quiet header (so the
+// reader always sees what was asked — it used to live only in the composer and
+// vanish on submit), then the streamed answer with its citation rail wiring,
+// per-turn copy/share, and a per-turn error panel. Clicking anywhere in a
+// turn's answer column makes it the active turn so the margin rail follows it.
+function TurnBlock({
+  turn,
+  separated,
+  isActive,
+  activeSourceId,
+  streaming,
+  tokenCount,
+  lastTokenMs,
+  onCite,
+  onFocusTurn,
+  onRetry,
+  onEdit,
+}: {
+  turn: Turn;
+  separated: boolean;
+  isActive: boolean;
+  activeSourceId: string | null;
+  streaming: boolean;
+  tokenCount: number;
+  lastTokenMs: number | null;
+  onCite: (s: Source) => void;
+  onFocusTurn: () => void;
+  onRetry: () => void;
+  onEdit: () => void;
+}) {
+  const showSkeleton = streaming && turn.answer === '' && !turn.error;
+  return (
+    <article
+      className={separated ? 'mt-10 border-t border-cm-border pt-10' : ''}
+      onMouseDown={onFocusTurn}
+    >
+      <QuestionHeader text={turn.question} active={isActive} />
+
+      <div className="mt-4">
+        {showSkeleton && <ChatAnswerSkeleton />}
+
+        {turn.error && turn.answer === '' && (
+          <ChatError message={turn.error} onRetry={onRetry} onEdit={onEdit} />
+        )}
+
+        {turn.answer && (
+          <>
+            <ChatStream
+              text={turn.answer}
+              sources={turn.sources}
+              activeId={activeSourceId}
+              onCite={onCite}
+            />
+            {streaming && <StreamProgress tokens={tokenCount} lastMs={lastTokenMs} />}
+            {/* Sentinel parked at the live token edge of the streaming turn.
+                JumpToLatest observes it to know when the reader has scrolled
+                above the streaming text. */}
+            {streaming && <div id="cm-stream-end" aria-hidden="true" />}
+
+            {/* A turn that errored mid-stream keeps its partial answer and adds
+                a compact inline retry line rather than discarding the text. */}
+            {turn.error && (
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-cm-border bg-cm-cite-bg px-3 py-2 text-[13px] text-cm-fg-soft">
+                <span>The answer stopped early: {turn.error}</span>
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  className="cm-mono rounded border border-cm-border px-2 py-0.5 text-[11px] text-cm-fg-soft hover:bg-cm-accent-soft hover:text-cm-fg"
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {turn.done && !turn.error && (
+              <div className="mt-6 flex items-center justify-end gap-2 border-t border-cm-border pt-4">
+                <CopyAnswerButton query={turn.question} answer={turn.answer} sources={turn.sources} />
+                <ShareAnswerButton query={turn.question} answer={turn.answer} sources={turn.sources} />
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </article>
+  );
+}
+
+// The asked question, shown above its answer. A short uppercase label + the
+// question in the serif display face, with a left accent tick on the active
+// turn so the eye can find which exchange the margin rail is tracking.
+function QuestionHeader({ text, active }: { text: string; active: boolean }) {
+  return (
+    <div className="flex gap-3">
+      <span
+        aria-hidden="true"
+        className="mt-1 w-[3px] shrink-0 self-stretch rounded-full"
+        style={{ background: active ? 'var(--cm-accent-line)' : 'var(--cm-border)' }}
+      />
+      <div className="min-w-0">
+        <span className="cm-mono text-[10.5px] uppercase tracking-[0.14em] text-cm-faint">
+          Asked
+        </span>
+        <h2
+          className="cm-serif mt-0.5 text-[20px] leading-snug text-cm-fg"
+          style={{ fontWeight: 500, letterSpacing: -0.01 }}
+        >
+          {text}
+        </h2>
+      </div>
+    </div>
   );
 }
 
