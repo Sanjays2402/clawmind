@@ -37,6 +37,59 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-27 18:10 PDT - RE-THEME BATCH F: API-key policy settings (5 slices)
+
+Finished BATCH F - the five API-key-policy + usage pages, all on the foreign
+shadcn palette (bg-background / bg-card / text-muted-foreground / bg-primary
+text-primary-foreground / border-border / destructive / focus:ring-ring). Same
+finding as every prior re-theme tick, confirmed REAL not cosmetic: none of those
+tokens are defined anywhere in the app (only --cm-* ships in tokens.css + the
+@theme color bridge in globals.css), so all five rendered on broken fallbacks -
+cards with no surface fill, muted copy at full ink, "primary" CTAs with no brand
+fill, inputs with no theme-aware focus ring - PLUS hand-rolled raw red/amber
+status surfaces (api-key-expiry urgency, api-key-inactivity count cards + status
+pills + sweep button, model-allowlist empty-allow warning) that ignore the brand.
+Each slice got a genuine UX upgrade on top of the mechanical shadcn->cm map:
+api-key-policy a NEW state-driven enforcement banner (activeCaps() counts how many
+of the 6 caps constrain new keys -> success wash if any, cite caution "Unrestricted"
+if all-zero so the posture gap reads); api-key-expiry's urgencyClass through brand
+inks (<=1d danger / <=7d cite / else muted) + the "expiring soon" stat card a
+state-driven cite surface; api-key-inactivity's three count cards state-driven
+(Approaching -> cite, Past-threshold -> danger), the destructive Sweep button +
+post-sweep result through danger/success, status pills mapped; quota a NEW
+three-state usage-health banner + colored progress meter (quotaHealth(): over>=100%
+danger / near>=80% cite / healthy success, unlimited skips it); model-allowlist's
+active mode button a bg-cm-accent-soft wash + accent border, empty-allow warning
+off raw amber to --cm-cite, per-model Remove a --cm-danger hover wash. All four
+multi-state pages hoisted a shared INPUT_CLS; four traded a bare inline Spinner for
+the shared SettingsCardSkeleton.
+
+Gated ONCE for the batch: web typecheck GREEN, web build GREEN (all routes
+compiled, incl. the 5 - /settings/api-key-policy, /api-key-expiry,
+/api-key-inactivity, /quota, /model-allowlist), @clawmind/ui build GREEN. Batch
+diff is exactly 5 files, all under apps/web/src/app/settings/, 0 telemetry
+(ci:verify's only red remains the pre-existing, unrelated @clawmind/telemetry OTel
+SDK version-skew, never touched this tick). Pushed be647cb..f69ddb1:
+- 28486c6 feat(web/settings/api-key-policy): off shadcn; NEW enforcement banner
+  (activeCaps -> success / cite); INPUT_CLS; ink Save; Clear-all -> --cm-danger.
+- 64106b0 feat(web/settings/api-key-expiry): off shadcn + raw red/amber; urgencyClass
+  through brand inks; expiring-soon card -> cite surface; INPUT_CLS; ink Save; skeleton.
+- 3f95aad feat(web/settings/api-key-inactivity): off shadcn + raw red/amber; count
+  cards state-driven (cite/danger); Sweep + result -> danger/success; status pills mapped.
+- 9448a49 feat(web/settings/quota): off shadcn; NEW 3-state usage-health banner +
+  colored meter (quotaHealth over/near/healthy); INPUT_CLS; ink Save; skeleton.
+- f69ddb1 feat(web/settings/model-allowlist): off shadcn + raw amber/red; active mode
+  -> accent-soft wash; empty-allow -> --cm-cite; Remove -> --cm-danger hover; ink Add.
+
+NEXT TICK: BATCH F was the LAST queued re-theme batch. The remaining shadcn-palette
+settings pages still drift (recovery-contacts, role-elevation, sign-in-geofence,
+share-policy, trust, vendor-access, webhook-allowlist, webhook-events-allowlist,
+workspace-export, workspace-ip-allowlist, workspace-origin-allowlist, usage, and the
+top-level /webhooks /shares /sources /stats /stale /tags pages). A fresh BATCH G
+queue is refilled below grouping the next coherent cluster. After the settings
+re-theme is exhausted, the CHAT SURFACE per-message history item is STILL the
+biggest remaining product gap - pull it in if a re-theme batch doesn't cohere.
+
 ### TICK LOG 2026-06-27 13:08 PDT - RE-THEME BATCH E: access-policy settings (5 slices)
 
 Finished BATCH E - the five access-policy pages still on the foreign --var palette.
@@ -395,15 +448,69 @@ RE-THEME BATCH E - access-policy --var settings - DONE 2026-06-27 13:08:
   --cm-success "Armed and clear"); eventChipClass routes log events (lock=danger, unlock=
   success, fail=neutral); locked rows + summary -> --cm-danger, tracking -> --cm-cite; skeleton.
 
-RE-THEME BATCH F - API-key policy settings (shadcn palette, cohere as a group):
-- [ ] feat(web/settings/api-key-policy): re-theme off bg-card/text-muted-foreground/
-  bg-primary; the save CTA -> bg-cm-fg ink button.
-- [ ] feat(web/settings/api-key-expiry): re-theme; expiry-enforced -> --cm-success.
-- [ ] feat(web/settings/api-key-inactivity): re-theme; the auto-revoke window form.
-- [ ] feat(web/settings/quota): re-theme the usage-quota page; over-quota -> 
-  --cm-danger, near-limit -> cite caution, healthy -> --cm-success.
-- [ ] feat(web/settings/model-allowlist): re-theme; allowed model chips through cm
-  inks, the add/remove buttons -> ink + --cm-danger.
+RE-THEME BATCH F - API-key policy settings (shadcn palette) - DONE 2026-06-27 18:10:
+- [x] feat(web/settings/api-key-policy): SHIPPED 28486c6 - off shadcn; NEW state-driven
+  enforcement banner (activeCaps counts the 6 caps -> success wash if any constrain
+  new keys / cite "Unrestricted" if all-zero); INPUT_CLS; ink Save; Clear-all-caps ->
+  --cm-danger; Saved -> --cm-success; brand-accent checkboxes; SettingsCardSkeleton.
+- [x] feat(web/settings/api-key-expiry): SHIPPED 64106b0 - off shadcn + raw red/amber;
+  urgencyClass through brand inks (<=1d danger, <=7d cite, else muted); expiring-soon
+  stat card -> state-driven cite surface; warnDays=0 hint -> cite; INPUT_CLS; ink Save;
+  Saved -> --cm-success; SettingsCardSkeleton.
+- [x] feat(web/settings/api-key-inactivity): SHIPPED 3f95aad - off shadcn + raw red/amber;
+  three count cards state-driven (Approaching -> cite, Past-threshold -> danger); Sweep
+  button + post-sweep result -> --cm-danger / --cm-success; at-risk status pills (expired
+  -> danger, warn -> cite); idleDays=0 hint -> cite; INPUT_CLS; ink Save; skeleton.
+- [x] feat(web/settings/quota): SHIPPED 9448a49 - off shadcn; NEW three-state usage-health
+  banner + colored progress meter (quotaHealth: over>=100% danger / near>=80% cite /
+  healthy success, unlimited skips it); INPUT_CLS; ink Save; field errors + Saved -> brand
+  inks; SettingsCardSkeleton.
+- [x] feat(web/settings/model-allowlist): SHIPPED f69ddb1 - off shadcn + raw amber/red;
+  active mode button -> bg-cm-accent-soft wash + accent border; empty-allow warning off
+  raw amber -> --cm-cite gold caution; per-model Remove -> --cm-danger hover wash; ink Add;
+  action errors -> --cm-danger, Saved -> --cm-success; INPUT_CLS; SettingsCardSkeleton.
+
+
+### Queued frontend re-theme (refilled 2026-06-27 18:10 PDT)
+
+BATCH F exhausted the queued batches A-F. The remaining settings drift is still the
+shadcn palette (bg-background -> cm-bg, bg-card -> cm-paper, text-muted-foreground ->
+cm-muted, border-border/border-input -> cm-border, bg-muted -> cm-subtle, bg-primary
+text-primary-foreground -> bg-cm-fg text-cm-bg ink button, destructive -> --cm-danger,
+focus:ring-ring -> focus:ring-cm-accent). Status/feedback ALWAYS routes through the brand
+inks: --cm-success (green, 10% rgba(47,122,85,0.10) tint), --cm-cite gold caution
+(bg-cm-cite-bg/border-cm-cite-line/text-cm-cite), --cm-danger (red, 10% rgba(180,66,60,0.10)
+tint). Hoist repeated input classes to a const INPUT_CLS on bg-cm-bg + placeholder:text-cm-
+faint + focus:ring-cm-accent. Wire SettingsCardSkeleton into any bare-Spinner loading state.
+Group each tick's 5 by visual coherence; give each slice a genuine state-driven UX upgrade
+on top of the mechanical map.
+
+RE-THEME BATCH G - allowlist/network settings (shadcn palette, cohere as a group):
+- [ ] feat(web/settings/webhook-allowlist): re-theme off shadcn; allowed-host chips through
+  cm inks, add/remove -> ink + --cm-danger; empty-list state -> cite caution if enforcing.
+- [ ] feat(web/settings/webhook-events-allowlist): re-theme; selected-event toggles -> accent.
+- [ ] feat(web/settings/workspace-ip-allowlist): re-theme; active CIDR rows -> cm-paper,
+  self-IP highlight -> accent chip, remove -> --cm-danger.
+- [ ] feat(web/settings/workspace-origin-allowlist): re-theme; origin rows + add/remove inks.
+- [ ] feat(web/settings/sign-in-geofence): re-theme; allowed/blocked country states ->
+  --cm-success / --cm-danger, the rich list page.
+
+RE-THEME BATCH H - access/trust settings (shadcn palette, cohere as a group):
+- [ ] feat(web/settings/role-elevation): re-theme; pending elevation requests -> cite caution,
+  approved -> --cm-success, the request/grant ink buttons.
+- [ ] feat(web/settings/recovery-contacts): re-theme; verified contact -> --cm-success,
+  unverified -> cite; add/remove inks.
+- [ ] feat(web/settings/vendor-access): re-theme; active grants -> cm-paper, expired -> muted,
+  revoke -> --cm-danger.
+- [ ] feat(web/settings/share-policy): re-theme; the toggle matrix through accent.
+- [ ] feat(web/settings/trust): re-theme the trust-center page; posture states through cm inks.
+
+TOP-LEVEL PAGES (shadcn drift outside /settings; pull a coherent 5 if settings runs thin):
+- [ ] feat(web/webhooks): re-theme the webhooks dashboard; delivery success/fail -> brand inks.
+- [ ] feat(web/usage): re-theme the usage page; the per-kind bars through accent.
+- [ ] feat(web/stats): re-theme the stats page.
+- [ ] feat(web/shares): re-theme the shares list.
+- [ ] feat(web/stale): re-theme the stale-sources page.
 
 
 CHAT SURFACE (still the biggest product gap; pull one in if a re-theme batch
