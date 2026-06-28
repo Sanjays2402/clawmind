@@ -26,6 +26,10 @@ import {
   IconArrowRight,
 } from '@clawmind/ui';
 
+// Shared input styling: theme-aware surface + brand focus ring.
+const INPUT_CLS =
+  'rounded-md border border-cm-border bg-cm-bg px-3 py-2 text-sm text-cm-fg outline-none placeholder:text-cm-faint focus:ring-2 focus:ring-cm-accent';
+
 function uniqueUpper(list: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -147,18 +151,23 @@ export default function SignInGeofencePage() {
     }
   }, [record, enabled, mode, countries, requireCountry, confirmLockout]);
 
+  // Whether the listed countries are a permit set (allow mode) or a deny
+  // set (block mode) drives the chip color: allow -> success green,
+  // block -> danger red, so the list reads as what it does.
+  const chipTone = mode === 'allow' ? 'success' : 'danger';
+
   return (
-    <div className="min-h-screen bg-background text-foreground">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-6 flex items-start gap-3">
-          <IconShield className="mt-1 h-6 w-6 text-muted-foreground" />
+          <IconShield className="mt-1 h-6 w-6 text-cm-muted" />
           <div>
             <h1 className="text-xl font-semibold tracking-tight">Sign-in geofence</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-cm-muted">
               Restrict where members may complete a GitHub or OIDC sign-in. The
               country is resolved from a trusted upstream header such as
-              <code className="mx-1 rounded bg-muted px-1 py-0.5 text-xs">cf-ipcountry</code>
+              <code className="mx-1 rounded bg-cm-subtle px-1 py-0.5 text-xs text-cm-fg">cf-ipcountry</code>
               and evaluated only at the OAuth callback, so an existing session
               is not killed when a member travels.
             </p>
@@ -166,28 +175,28 @@ export default function SignInGeofencePage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+          <div className="flex items-center gap-2 text-sm text-cm-muted" aria-live="polite">
             <Spinner /> Loading policy
           </div>
         ) : err ? (
-          <div className="rounded-md border border-destructive/40 bg-destructive/5 p-4 text-sm">
-            <div className="flex items-center gap-2 font-medium text-destructive">
+          <div className="rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] p-4 text-sm">
+            <div className="flex items-center gap-2 font-medium text-cm-danger">
               <IconWarning className="h-4 w-4" /> {err}
             </div>
             <button
               onClick={() => void load()}
-              className="mt-2 text-xs underline underline-offset-2 hover:text-foreground"
+              className="mt-2 text-xs text-cm-accent underline underline-offset-2 hover:text-cm-accent-ink"
             >
               Try again
             </button>
           </div>
         ) : record && limits ? (
           <div className="space-y-6">
-            <section className="rounded-lg border bg-card p-4">
+            <section className="rounded-lg border border-cm-border bg-cm-paper p-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h2 className="text-sm font-medium">Enforcement</h2>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-xs text-cm-muted">
                     When off, every authenticated callback is permitted regardless of country.
                   </p>
                 </div>
@@ -196,7 +205,7 @@ export default function SignInGeofencePage() {
                     type="checkbox"
                     checked={enabled}
                     onChange={(e) => setEnabled(e.target.checked)}
-                    className="h-4 w-4 accent-foreground"
+                    className="h-4 w-4 accent-cm-accent"
                     aria-label="Enable sign-in geofence"
                   />
                   {enabled ? 'Enabled' : 'Disabled'}
@@ -205,8 +214,8 @@ export default function SignInGeofencePage() {
 
               <fieldset className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2" disabled={!enabled}>
                 <label
-                  className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm ${
-                    mode === 'allow' ? 'border-foreground/40 bg-muted/40' : 'border-border'
+                  className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm transition-colors ${
+                    mode === 'allow' ? 'border-cm-accent bg-cm-accent-soft' : 'border-cm-border'
                   } ${enabled ? '' : 'opacity-50'}`}
                 >
                   <input
@@ -215,18 +224,18 @@ export default function SignInGeofencePage() {
                     value="allow"
                     checked={mode === 'allow'}
                     onChange={() => setMode('allow')}
-                    className="mt-0.5 h-4 w-4 accent-foreground"
+                    className="mt-0.5 h-4 w-4 accent-cm-accent"
                   />
                   <span>
                     <span className="font-medium">Allow only listed</span>
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="block text-xs text-cm-muted">
                       Sign-ins must originate from one of the countries below.
                     </span>
                   </span>
                 </label>
                 <label
-                  className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm ${
-                    mode === 'block' ? 'border-foreground/40 bg-muted/40' : 'border-border'
+                  className={`flex cursor-pointer items-start gap-3 rounded-md border p-3 text-sm transition-colors ${
+                    mode === 'block' ? 'border-cm-accent bg-cm-accent-soft' : 'border-cm-border'
                   } ${enabled ? '' : 'opacity-50'}`}
                 >
                   <input
@@ -235,11 +244,11 @@ export default function SignInGeofencePage() {
                     value="block"
                     checked={mode === 'block'}
                     onChange={() => setMode('block')}
-                    className="mt-0.5 h-4 w-4 accent-foreground"
+                    className="mt-0.5 h-4 w-4 accent-cm-accent"
                   />
                   <span>
                     <span className="font-medium">Block listed</span>
-                    <span className="block text-xs text-muted-foreground">
+                    <span className="block text-xs text-cm-muted">
                       Every country is permitted except those below.
                     </span>
                   </span>
@@ -252,25 +261,27 @@ export default function SignInGeofencePage() {
                   checked={requireCountry}
                   onChange={(e) => setRequireCountry(e.target.checked)}
                   disabled={!enabled}
-                  className="mt-0.5 h-4 w-4 accent-foreground"
+                  className="mt-0.5 h-4 w-4 accent-cm-accent"
                 />
                 <span>
                   <span className="font-medium">Fail closed on unknown country</span>
-                  <span className="block text-xs text-muted-foreground">
+                  <span className="block text-xs text-cm-muted">
                     Block any sign-in where no trusted header resolves to a country. Recommended.
                   </span>
                 </span>
               </label>
             </section>
 
-            <section className="rounded-lg border bg-card p-4">
+            <section className="rounded-lg border border-cm-border bg-cm-paper p-4">
               <div className="mb-3 flex items-center justify-between">
                 <div>
                   <h2 className="text-sm font-medium">
-                    Countries <span className="text-xs text-muted-foreground">({countries.length}/{limits.maxCountries})</span>
+                    Countries <span className="text-xs text-cm-muted">({countries.length}/{limits.maxCountries})</span>
                   </h2>
-                  <p className="text-xs text-muted-foreground">
-                    ISO 3166-1 alpha-2 codes (US, DE, JP). Pasting a comma-separated list works.
+                  <p className="text-xs text-cm-muted">
+                    {mode === 'allow'
+                      ? 'Permitted origins. ISO 3166-1 alpha-2 codes (US, DE, JP). Pasting a comma-separated list works.'
+                      : 'Blocked origins. ISO 3166-1 alpha-2 codes (US, DE, JP). Pasting a comma-separated list works.'}
                   </p>
                 </div>
               </div>
@@ -297,20 +308,20 @@ export default function SignInGeofencePage() {
                   }}
                   placeholder="US"
                   maxLength={2}
-                  className="flex-1 rounded-md border bg-background px-3 py-2 text-sm uppercase tracking-widest focus:border-foreground/40 focus:outline-none"
+                  className={`${INPUT_CLS} flex-1 uppercase tracking-widest`}
                   aria-label="Country code"
                 />
                 <button
                   onClick={addCountry}
                   disabled={!/^[a-z]{2}$/i.test(pending.trim())}
-                  className="inline-flex items-center gap-1 rounded-md border px-3 py-2 text-sm hover:bg-muted disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-md border border-cm-border px-3 py-2 text-sm hover:bg-cm-subtle disabled:opacity-50"
                 >
                   <IconPlus className="h-4 w-4" /> Add
                 </button>
               </div>
 
               {countries.length === 0 ? (
-                <p className="mt-3 text-xs italic text-muted-foreground">
+                <p className="mt-3 text-xs italic text-cm-muted">
                   No countries yet. Allow-mode cannot be enabled with an empty list.
                 </p>
               ) : (
@@ -318,13 +329,17 @@ export default function SignInGeofencePage() {
                   {countries.map((c) => (
                     <li
                       key={c}
-                      className="inline-flex items-center gap-2 rounded-full border bg-muted/40 px-3 py-1 text-xs"
+                      className={
+                        chipTone === 'success'
+                          ? 'inline-flex items-center gap-2 rounded-full border border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] px-3 py-1 text-xs text-cm-success'
+                          : 'inline-flex items-center gap-2 rounded-full border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-3 py-1 text-xs text-cm-danger'
+                      }
                     >
                       <span className="font-mono">{c}</span>
                       <button
                         onClick={() => removeCountry(c)}
                         aria-label={`Remove ${c}`}
-                        className="text-muted-foreground hover:text-destructive"
+                        className="opacity-70 transition hover:opacity-100"
                       >
                         <IconTrash className="h-3 w-3" />
                       </button>
@@ -334,43 +349,43 @@ export default function SignInGeofencePage() {
               )}
             </section>
 
-            <section className="rounded-lg border bg-card p-4">
+            <section className="rounded-lg border border-cm-border bg-cm-paper p-4">
               <h2 className="mb-2 flex items-center gap-2 text-sm font-medium">
-                <IconNetwork className="h-4 w-4 text-muted-foreground" /> What the server sees
+                <IconNetwork className="h-4 w-4 text-cm-muted" /> What the server sees
               </h2>
               {probe ? (
                 <dl className="grid grid-cols-3 gap-2 text-xs">
-                  <dt className="text-muted-foreground">Resolved country</dt>
+                  <dt className="text-cm-muted">Resolved country</dt>
                   <dd className="col-span-2 font-mono">
-                    {probe.country ?? <span className="italic text-muted-foreground">none</span>}
+                    {probe.country ?? <span className="italic text-cm-muted">none</span>}
                   </dd>
-                  <dt className="text-muted-foreground">Source header</dt>
+                  <dt className="text-cm-muted">Source header</dt>
                   <dd className="col-span-2 font-mono">
-                    {probe.source ?? <span className="italic text-muted-foreground">none of {probe.usingHeaders.join(', ')}</span>}
+                    {probe.source ?? <span className="italic text-cm-muted">none of {probe.usingHeaders.join(', ')}</span>}
                   </dd>
-                  <dt className="text-muted-foreground">Your IP</dt>
+                  <dt className="text-cm-muted">Your IP</dt>
                   <dd className="col-span-2 font-mono">{probe.ip}</dd>
-                  <dt className="text-muted-foreground">Current decision</dt>
+                  <dt className="text-cm-muted">Current decision</dt>
                   <dd className="col-span-2">
                     {probe.wouldAllow ? (
-                      <span className="inline-flex items-center gap-1 text-emerald-600">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] px-2 py-0.5 text-cm-success">
                         <IconCheck className="h-3 w-3" /> Allowed
                       </span>
                     ) : (
-                      <span className="inline-flex items-center gap-1 text-destructive">
+                      <span className="inline-flex items-center gap-1 rounded-full border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-2 py-0.5 text-cm-danger">
                         <IconWarning className="h-3 w-3" /> Blocked ({probe.reason})
                       </span>
                     )}
                   </dd>
                 </dl>
               ) : (
-                <p className="text-xs italic text-muted-foreground">Probe unavailable.</p>
+                <p className="text-xs italic text-cm-muted">Probe unavailable.</p>
               )}
             </section>
 
             {saveErr ? (
-              <div className="rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                <div className="flex items-center gap-2 text-destructive">
+              <div className="rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] p-3 text-sm">
+                <div className="flex items-center gap-2 text-cm-danger">
                   <IconWarning className="h-4 w-4" /> {saveErr}
                 </div>
                 {saveErr.includes('confirm') ? (
@@ -379,7 +394,7 @@ export default function SignInGeofencePage() {
                       type="checkbox"
                       checked={confirmLockout}
                       onChange={(e) => setConfirmLockout(e.target.checked)}
-                      className="mt-0.5 h-3 w-3 accent-foreground"
+                      className="mt-0.5 h-3 w-3 accent-cm-accent"
                     />
                     <span>
                       I understand this will block sign-ins from my current country and I have an alternate way back in.
@@ -389,15 +404,15 @@ export default function SignInGeofencePage() {
               </div>
             ) : null}
 
-            <div className="flex items-center justify-between gap-3 border-t pt-4">
-              <div className="text-xs text-muted-foreground">
+            <div className="flex items-center justify-between gap-3 border-t border-cm-border pt-4">
+              <div className="text-xs text-cm-muted">
                 {record.updatedBy ? (
                   <>Last updated by <span className="font-mono">{record.updatedBy}</span></>
                 ) : (
                   <>Never modified</>
                 )}
                 {savedAt ? (
-                  <span className="ml-2 inline-flex items-center gap-1 text-emerald-600">
+                  <span className="ml-2 inline-flex items-center gap-1 text-cm-success">
                     <IconCheck className="h-3 w-3" /> Saved
                   </span>
                 ) : null}
@@ -406,14 +421,14 @@ export default function SignInGeofencePage() {
                 <button
                   onClick={() => void load()}
                   disabled={saving}
-                  className="rounded-md border px-3 py-2 text-sm hover:bg-muted"
+                  className="rounded-md border border-cm-border px-3 py-2 text-sm hover:bg-cm-subtle"
                 >
                   Reset
                 </button>
                 <button
                   onClick={() => void save()}
                   disabled={!dirty || saving}
-                  className="inline-flex items-center gap-1 rounded-md bg-foreground px-3 py-2 text-sm font-medium text-background hover:opacity-90 disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-md bg-cm-fg px-3 py-2 text-sm font-medium text-cm-bg hover:opacity-90 disabled:opacity-50"
                 >
                   {saving ? <Spinner /> : <IconArrowRight className="h-4 w-4" />}
                   Save policy
@@ -421,9 +436,9 @@ export default function SignInGeofencePage() {
               </div>
             </div>
 
-            <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-cm-muted">
               Need the curl recipe?{' '}
-              <Link className="underline underline-offset-2" href="/settings">
+              <Link className="text-cm-accent underline underline-offset-2 hover:text-cm-accent-ink" href="/settings">
                 Back to settings
               </Link>
               .
