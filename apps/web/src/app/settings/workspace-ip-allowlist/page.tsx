@@ -26,6 +26,10 @@ import {
   IconArrowRight,
 } from '@clawmind/ui';
 
+// Shared input styling: theme-aware surface + brand focus ring.
+const INPUT_CLS =
+  'rounded-md border border-cm-border bg-cm-bg px-2.5 py-1.5 text-sm text-cm-fg outline-none placeholder:text-cm-faint focus:ring-2 focus:ring-cm-accent';
+
 interface DraftRule {
   id: string;
   cidr: string;
@@ -139,22 +143,31 @@ export default function WorkspaceIpAllowlistPage() {
   const dirty = record ? isDirty(record, enabled, draft) : false;
   const ruleCount = draft.filter((r) => r.cidr.trim().length > 0).length;
 
+  // Enforcement posture: success when locked down to N ranges, cite-gold
+  // caution when enforcement is on but no range is filled (a save that
+  // would reject every request), muted when off entirely.
+  const posture: 'locked' | 'gap' | 'off' = !enabled
+    ? 'off'
+    : ruleCount > 0
+      ? 'locked'
+      : 'gap';
+
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
       <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-6 flex items-start gap-3">
-          <IconShield className="mt-1 h-6 w-6 text-foreground" />
+          <IconShield className="mt-1 h-6 w-6 text-cm-fg" />
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Workspace IP allowlist</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-cm-muted">
               Lock the entire workspace down to a fixed set of corporate IP ranges. Applies to every
               authenticated request from every member, including API keys. Liveness and the controls
               on this page are never gated.
             </p>
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-2 text-xs text-cm-muted">
               Owner only. See also the{' '}
-              <Link href="/settings/security" className="underline">
+              <Link href="/settings/security" className="text-cm-accent hover:underline">
                 per-user allowlist
               </Link>{' '}
               if a single account needs its own range.
@@ -163,7 +176,7 @@ export default function WorkspaceIpAllowlistPage() {
         </div>
 
         {loading ? (
-          <div className="flex items-center gap-2 py-12 text-sm text-muted-foreground">
+          <div className="flex items-center gap-2 py-12 text-sm text-cm-muted">
             <Spinner /> Loading
           </div>
         ) : err ? (
@@ -172,17 +185,47 @@ export default function WorkspaceIpAllowlistPage() {
           <EmptyState title="No data" body="Nothing to show yet." />
         ) : (
           <div className="space-y-6">
-            <section className="rounded-md border border-border bg-card p-5">
+            {/* Live enforcement posture for the whole workspace. */}
+            {posture === 'locked' && (
+              <div className="flex items-start gap-2 rounded-md border border-[var(--cm-success)] bg-[rgba(47,122,85,0.10)] p-3 text-xs text-cm-success">
+                <IconCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Locked down. Every authenticated request must originate from one
+                  of {ruleCount} allowed {ruleCount === 1 ? 'range' : 'ranges'};
+                  all other source IPs are rejected workspace-wide.
+                </span>
+              </div>
+            )}
+            {posture === 'gap' && (
+              <div className="flex items-start gap-2 rounded-md border border-cm-cite-line bg-cm-cite-bg p-3 text-xs text-cm-cite">
+                <IconWarning className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Enforcement is on with no range filled. Saving now would reject
+                  every request to the workspace - add at least one range below.
+                </span>
+              </div>
+            )}
+            {posture === 'off' && (
+              <div className="flex items-start gap-2 rounded-md border border-cm-border bg-cm-subtle p-3 text-xs text-cm-muted">
+                <IconNetwork className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  Open. Requests are accepted from any source IP. Rules below are
+                  kept on file until you turn enforcement on.
+                </span>
+              </div>
+            )}
+
+            <section className="rounded-md border border-cm-border bg-cm-paper p-5">
               <label className="flex items-start gap-3">
                 <input
                   type="checkbox"
                   checked={enabled}
                   onChange={(e) => setEnabled(e.target.checked)}
-                  className="mt-1 h-4 w-4 accent-foreground"
+                  className="mt-1 h-4 w-4 accent-cm-accent"
                 />
                 <div>
                   <div className="font-medium">Enforce workspace allowlist</div>
-                  <div className="mt-1 text-sm text-muted-foreground">
+                  <div className="mt-1 text-sm text-cm-muted">
                     When on, only requests from a listed range will reach the API for any member of
                     this workspace. Off keeps the workspace open and the rules are kept on file.
                   </div>
@@ -190,12 +233,12 @@ export default function WorkspaceIpAllowlistPage() {
               </label>
             </section>
 
-            <section className="rounded-md border border-border bg-card">
-              <div className="flex items-center justify-between border-b border-border px-5 py-3">
+            <section className="rounded-md border border-cm-border bg-cm-paper">
+              <div className="flex items-center justify-between border-b border-cm-border px-5 py-3">
                 <div className="flex items-center gap-2">
-                  <IconNetwork className="h-4 w-4 text-muted-foreground" />
+                  <IconNetwork className="h-4 w-4 text-cm-muted" />
                   <h2 className="text-sm font-medium">Allowed ranges</h2>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-xs text-cm-muted">
                     {ruleCount} of {limits.maxRules}
                   </span>
                 </div>
@@ -203,60 +246,69 @@ export default function WorkspaceIpAllowlistPage() {
                   type="button"
                   onClick={addRule}
                   disabled={draft.length >= limits.maxRules}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-1 rounded-md border border-cm-border px-2.5 py-1 text-xs hover:bg-cm-subtle disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <IconPlus className="h-3.5 w-3.5" /> Add range
                 </button>
               </div>
               {draft.length === 0 ? (
-                <div className="px-5 py-10 text-center text-sm text-muted-foreground">
+                <div className="px-5 py-10 text-center text-sm text-cm-muted">
                   No ranges yet. Add an IP or CIDR like 203.0.113.0/24.
                 </div>
               ) : (
-                <ul className="divide-y divide-border">
-                  {draft.map((r) => (
-                    <li key={r.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center">
-                      <input
-                        value={r.cidr}
-                        onChange={(e) => updateRule(r.id, { cidr: e.target.value })}
-                        placeholder="203.0.113.0/24"
-                        className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 font-mono text-sm sm:w-64"
-                      />
-                      <input
-                        value={r.label}
-                        onChange={(e) => updateRule(r.id, { label: e.target.value })}
-                        placeholder="Label (e.g. HQ VPN)"
-                        maxLength={limits.maxLabel}
-                        className="w-full rounded-md border border-input bg-background px-2.5 py-1.5 text-sm sm:flex-1"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeRule(r.id)}
-                        className="inline-flex items-center justify-center rounded-md border border-border p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
-                        aria-label="Remove range"
+                <ul className="divide-y divide-cm-border">
+                  {draft.map((r) => {
+                    const active = r.cidr.trim().length > 0;
+                    return (
+                      <li
+                        key={r.id}
+                        className={[
+                          'flex flex-col gap-2 p-4 transition-colors sm:flex-row sm:items-center',
+                          active ? 'bg-cm-paper' : 'bg-cm-subtle/40',
+                        ].join(' ')}
                       >
-                        <IconTrash className="h-4 w-4" />
-                      </button>
-                    </li>
-                  ))}
+                        <input
+                          value={r.cidr}
+                          onChange={(e) => updateRule(r.id, { cidr: e.target.value })}
+                          placeholder="203.0.113.0/24"
+                          className={`${INPUT_CLS} w-full font-mono sm:w-64`}
+                        />
+                        <input
+                          value={r.label}
+                          onChange={(e) => updateRule(r.id, { label: e.target.value })}
+                          placeholder="Label (e.g. HQ VPN)"
+                          maxLength={limits.maxLabel}
+                          className={`${INPUT_CLS} w-full sm:flex-1`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeRule(r.id)}
+                          className="inline-flex items-center justify-center rounded-md border border-cm-border p-1.5 text-cm-muted transition hover:border-[var(--cm-danger)] hover:bg-[rgba(180,66,60,0.10)] hover:text-cm-danger"
+                          aria-label="Remove range"
+                        >
+                          <IconTrash className="h-4 w-4" />
+                        </button>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </section>
 
             {enabled && (
-              <label className="flex items-start gap-3 rounded-md border border-border bg-card p-4 text-sm">
+              <label className="flex items-start gap-3 rounded-md border border-cm-cite-line bg-cm-cite-bg p-4 text-sm">
                 <input
                   type="checkbox"
                   checked={confirmLockout}
                   onChange={(e) => setConfirmLockout(e.target.checked)}
-                  className="mt-1 h-4 w-4 accent-foreground"
+                  className="mt-1 h-4 w-4 accent-cm-accent"
                 />
                 <div>
-                  <div className="flex items-center gap-2 font-medium">
-                    <IconWarning className="h-4 w-4 text-amber-600" />
+                  <div className="flex items-center gap-2 font-medium text-cm-cite">
+                    <IconWarning className="h-4 w-4" />
                     I understand my current IP may not be allowed
                   </div>
-                  <div className="mt-1 text-xs text-muted-foreground">
+                  <div className="mt-1 text-xs text-cm-muted">
                     Only required for break-glass changes from a bastion outside the corporate range.
                     Without this, the server will refuse a change that would lock you out.
                   </div>
@@ -265,20 +317,20 @@ export default function WorkspaceIpAllowlistPage() {
             )}
 
             {saveErr && (
-              <div className="rounded-md border border-destructive bg-destructive/10 px-4 py-2 text-sm text-destructive">
+              <div className="rounded-md border border-[var(--cm-danger)] bg-[rgba(180,66,60,0.10)] px-4 py-2 text-sm text-cm-danger">
                 {saveErr}
               </div>
             )}
             {savedAt && !saveErr && !dirty && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <IconCheck className="h-4 w-4 text-emerald-600" /> Saved
+              <div className="flex items-center gap-2 text-sm text-cm-success">
+                <IconCheck className="h-4 w-4" /> Saved
               </div>
             )}
 
             <div className="flex items-center justify-between">
               <Link
                 href="/admin"
-                className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+                className="inline-flex items-center gap-1 text-sm text-cm-muted hover:text-cm-fg"
               >
                 Back to admin <IconArrowRight className="h-3.5 w-3.5" />
               </Link>
@@ -286,7 +338,7 @@ export default function WorkspaceIpAllowlistPage() {
                 type="button"
                 onClick={save}
                 disabled={!dirty || saving}
-                className="inline-flex items-center gap-2 rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-md bg-cm-fg px-4 py-2 text-sm font-medium text-cm-bg hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {saving ? <Spinner /> : null}
                 Save workspace allowlist
