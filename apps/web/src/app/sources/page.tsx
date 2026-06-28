@@ -67,6 +67,18 @@ export default function SourcesPage() {
     [items],
   );
 
+  // Strongest |boost| in the current feedback set. The diverging boost bars
+  // scale against it so the longest bar is always the most-nudged source and
+  // every other reads proportionally — a relative shape, not an absolute one.
+  const maxBoost = useMemo(() => {
+    let m = 0;
+    for (const fb of Object.values(feedbackMap)) {
+      const a = Math.abs(fb.boost);
+      if (a > m) m = a;
+    }
+    return m;
+  }, [feedbackMap]);
+
   async function vote(path: string, v: 1 | -1) {
     const current = feedbackMap[path];
     try {
@@ -177,9 +189,7 @@ export default function SourcesPage() {
                           <span>{fmtBytes(it.bytes)}</span>
                           <span>{fmtRelative(it.ingestedAt)}</span>
                           {fb && fb.boost !== 0 && (
-                            <span className={fb.boost > 0 ? 'text-cm-success' : 'text-cm-danger'}>
-                              boost {fb.boost > 0 ? '+' : ''}{fb.boost.toFixed(2)}
-                            </span>
+                            <BoostBar boost={fb.boost} max={maxBoost} />
                           )}
                         </div>
                       </button>
@@ -211,6 +221,54 @@ export default function SourcesPage() {
         )}
       </div>
     </main>
+  );
+}
+
+/**
+ * Diverging boost signal. The per-source feedback boost used to render as raw
+ * text ("boost +0.40"); a daily user had to read each number to feel which
+ * sources are favoured vs penalised. This turns it into a shape around a centre
+ * line: a positive boost grows RIGHT in success green, a negative boost grows
+ * LEFT in danger red, each scaled to the strongest |boost| in view. The numeric
+ * value still rides alongside for the exact figure.
+ */
+function BoostBar({ boost, max }: { boost: number; max: number }) {
+  const up = boost > 0;
+  // Proportion of the half-track this boost fills (min 8% so a tiny nudge is
+  // still visible as a sliver). max can be 0 only when boost is 0, which the
+  // caller already filters out.
+  const frac = max > 0 ? Math.max(0.08, Math.min(1, Math.abs(boost) / max)) : 0;
+  const pct = `${frac * 50}%`;
+  const ink = up ? 'var(--cm-success)' : 'var(--cm-danger)';
+  return (
+    <span
+      className="inline-flex items-center gap-1.5"
+      title={`Retrieval boost ${up ? '+' : ''}${boost.toFixed(2)}`}
+    >
+      <span
+        aria-hidden="true"
+        className="relative inline-block h-2 w-16 overflow-hidden rounded-full"
+        style={{ background: 'var(--cm-subtle)' }}
+      >
+        {/* centre tick */}
+        <span
+          className="absolute top-0 bottom-0"
+          style={{ left: '50%', width: 1, background: 'var(--cm-border-strong)' }}
+        />
+        {/* diverging fill: anchored at the centre, growing toward its side */}
+        <span
+          className="absolute top-0 bottom-0"
+          style={{
+            background: ink,
+            width: pct,
+            ...(up ? { left: '50%' } : { right: '50%' }),
+          }}
+        />
+      </span>
+      <span className={up ? 'text-cm-success' : 'text-cm-danger'} style={{ fontVariantNumeric: 'tabular-nums' }}>
+        {up ? '+' : ''}{boost.toFixed(2)}
+      </span>
+    </span>
   );
 }
 
