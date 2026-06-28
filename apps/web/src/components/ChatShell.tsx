@@ -11,6 +11,7 @@ import { CopyAnswerButton } from './CopyAnswerButton';
 import { ChatError } from './ChatError';
 import { StreamProgress } from './StreamProgress';
 import { JumpToLatest } from './JumpToLatest';
+import { ThreadOutline } from './ThreadOutline';
 import { api } from '@/lib/api';
 import { revealSourceCard } from '@/lib/sourceNav';
 import { citedOrder, citePillId } from '@/lib/citations';
@@ -49,6 +50,12 @@ function makeTurnId(): string {
     }
   }
   return 'turn-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+// Stable DOM id for a turn's article, so the thread outline can scroll an
+// exchange into view by id.
+function turnAnchorId(id: string): string {
+  return 'cm-turn-' + id;
 }
 
 export function ChatShell({
@@ -259,6 +266,21 @@ export function ChatShell({
     setComposerFocus((n) => n + 1);
   }
 
+  // Jump to an exchange from the thread outline: make it the active turn (so
+  // the margin rail follows it) and scroll its block into view. Reduced-motion
+  // users get an instant jump.
+  function jumpToTurn(id: string) {
+    setActiveTurnId(id);
+    setActiveSource(null);
+    if (typeof document === 'undefined') return;
+    const el = document.getElementById(turnAnchorId(id));
+    if (!el) return;
+    const reduce =
+      typeof window !== 'undefined' &&
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ block: 'start', behavior: reduce ? 'auto' : 'smooth' });
+  }
+
   // Clicking a starter prompt in the empty state drops it into the composer
   // and returns focus there (caret at end via focusSignal) so the reader can
   // tweak or submit immediately.
@@ -325,6 +347,7 @@ export function ChatShell({
                 {turns.map((turn, i) => (
                   <TurnBlock
                     key={turn.id}
+                    anchorId={turnAnchorId(turn.id)}
                     turn={turn}
                     separated={i > 0}
                     isActive={turn.id === activeTurnId}
@@ -365,6 +388,14 @@ export function ChatShell({
       {/* Floating "jump to latest" while the active answer streams and the
           reader has scrolled above the live token edge. */}
       <JumpToLatest active={loading && (activeTurn?.answer ?? '') !== ''} />
+
+      {/* Floating thread outline: an index of the exchanges in this thread.
+          Hidden for a single-exchange thread. */}
+      <ThreadOutline
+        turns={turns.map((t) => ({ id: t.id, question: t.question, sourceCount: t.sources.length }))}
+        activeId={activeTurnId}
+        onJump={jumpToTurn}
+      />
     </main>
   );
 }
@@ -376,6 +407,7 @@ export function ChatShell({
 // turn's answer column makes it the active turn so the margin rail follows it.
 function TurnBlock({
   turn,
+  anchorId,
   separated,
   isActive,
   activeSourceId,
@@ -388,6 +420,7 @@ function TurnBlock({
   onEdit,
 }: {
   turn: Turn;
+  anchorId: string;
   separated: boolean;
   isActive: boolean;
   activeSourceId: string | null;
@@ -402,7 +435,9 @@ function TurnBlock({
   const showSkeleton = streaming && turn.answer === '' && !turn.error;
   return (
     <article
+      id={anchorId}
       className={separated ? 'mt-10 border-t border-cm-border pt-10' : ''}
+      style={{ scrollMarginTop: 96 }}
       onMouseDown={onFocusTurn}
     >
       <QuestionHeader text={turn.question} active={isActive} />
