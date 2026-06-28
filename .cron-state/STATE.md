@@ -37,6 +37,64 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-27 22:59 PDT - RE-THEME BATCH G: allowlist/network settings (5 slices)
+
+Finished BATCH G - the five allowlist/network settings pages still on the foreign
+shadcn palette (bg-background / bg-card / text-muted-foreground / bg-primary
+text-primary-foreground / border / border-input / ring-ring / destructive /
+accent-foreground) PLUS hand-rolled raw emerald/amber/red status surfaces. Same
+confirmed-REAL finding as every prior re-theme tick: none of those shadcn tokens
+are defined anywhere in the app (only --cm-* ships in tokens.css + the @theme color
+bridge in globals.css), so all five rendered on broken fallbacks - cards with no
+surface fill, "primary" CTAs with no brand fill, inputs with no theme-aware focus
+ring, toggles/checkboxes with no brand accent.
+
+Each slice got a genuine state-driven UX upgrade on top of the mechanical map:
+webhook-allowlist a NEW 3-state enforcement-posture banner (enforced+hosts ->
+success / enforced+empty -> cite "blocks every delivery" gap / off -> muted);
+webhook-events-allowlist a NEW data-exposure posture banner counting how many
+approved subjects carry user content (ask.completed/audit.event) routed through
+cite gold vs --cm-success when metadata-only, PLUS per-event rows state-driven
+(approved -> bg-cm-accent-soft wash + Approved accent chip, sensitive subjects ->
+gold Sensitive chip); workspace-ip-allowlist a NEW lockdown posture banner
+(locked->success / enforced-but-no-range -> cite "would reject every request" gap /
+open->muted) + active rows on cm-paper, empty draft rows dim to cm-subtle, the
+break-glass self-lockout confirm moved off raw amber onto the cite-gold surface;
+workspace-origin-allowlist a NEW CORS posture banner with ADDITIVE semantics
+(enforced+origins->success / enforced+empty->cite baseline-only, deliberately NOT
+flagged as a hard gap the way IP is, since it falls back to the vendor baseline /
+off->muted); sign-in-geofence's country chips now state-driven by mode (allow ->
+--cm-success permit set / block -> --cm-danger deny set, helper copy switches too)
++ the live server-probe decision chip off raw emerald/destructive onto success/
+danger pills + mode radio cards selected -> accent. All five hoisted a shared
+INPUT_CLS (bg-cm-bg + placeholder:text-cm-faint + focus:ring-cm-accent); two traded
+a bare inline Spinner for SettingsCardSkeleton; checkboxes/radios -> accent-cm-accent;
+every Remove -> --cm-danger hover wash; every Save -> ink bg-cm-fg text-cm-bg button.
+
+Gated ONCE for the batch: web typecheck GREEN, web build GREEN (all routes
+compiled, incl. the 5 - /settings/webhook-allowlist, /webhook-events-allowlist,
+/workspace-ip-allowlist, /workspace-origin-allowlist, /sign-in-geofence),
+@clawmind/ui build GREEN. Batch diff is exactly 5 files, all under
+apps/web/src/app/settings/, 0 telemetry (ci:verify's only red remains the
+pre-existing, unrelated @clawmind/telemetry OTel SDK version-skew, never touched
+this tick). Pushed 883521e..5e39cbf:
+- b5ff671 feat(web/settings/webhook-allowlist): re-theme off shadcn; NEW enforcement
+  posture banner (enforced/gap/off); INPUT_CLS; Remove -> danger; ink Save; skeleton.
+- c943561 feat(web/settings/webhook-events-allowlist): re-theme; NEW sensitive-event
+  data-exposure banner + per-event approved wash + Sensitive/Approved chips; skeleton.
+- c3734b2 feat(web/settings/workspace-ip-allowlist): re-theme + raw emerald/amber;
+  NEW lockdown posture banner; active-row wash; self-lockout confirm -> cite gold.
+- c63ae1a feat(web/settings/workspace-origin-allowlist): re-theme; NEW additive-CORS
+  posture banner (additive/baseline/off); active-row wash; ink Save.
+- 5e39cbf feat(web/settings/sign-in-geofence): re-theme + raw emerald/amber; country
+  chips state-driven by mode (success allow / danger block); probe decision pills.
+
+NEXT TICK: BATCH G done. BATCH H (access/trust: role-elevation, recovery-contacts,
+vendor-access, share-policy, trust) is queued below and is the next coherent cluster
+- pull it. After H, the TOP-LEVEL PAGES cluster (webhooks/usage/stats/shares/stale)
+still drifts on shadcn, then the CHAT SURFACE per-message history item remains the
+biggest standing product gap - pull it in if a re-theme batch doesn't cohere.
+
 ### TICK LOG 2026-06-27 18:10 PDT - RE-THEME BATCH F: API-key policy settings (5 slices)
 
 Finished BATCH F - the five API-key-policy + usage pages, all on the foreign
@@ -485,15 +543,17 @@ faint + focus:ring-cm-accent. Wire SettingsCardSkeleton into any bare-Spinner lo
 Group each tick's 5 by visual coherence; give each slice a genuine state-driven UX upgrade
 on top of the mechanical map.
 
-RE-THEME BATCH G - allowlist/network settings (shadcn palette, cohere as a group):
-- [ ] feat(web/settings/webhook-allowlist): re-theme off shadcn; allowed-host chips through
-  cm inks, add/remove -> ink + --cm-danger; empty-list state -> cite caution if enforcing.
-- [ ] feat(web/settings/webhook-events-allowlist): re-theme; selected-event toggles -> accent.
-- [ ] feat(web/settings/workspace-ip-allowlist): re-theme; active CIDR rows -> cm-paper,
-  self-IP highlight -> accent chip, remove -> --cm-danger.
-- [ ] feat(web/settings/workspace-origin-allowlist): re-theme; origin rows + add/remove inks.
-- [ ] feat(web/settings/sign-in-geofence): re-theme; allowed/blocked country states ->
-  --cm-success / --cm-danger, the rich list page.
+RE-THEME BATCH G - allowlist/network settings (shadcn palette) - DONE 2026-06-27 22:59 PDT:
+- [x] feat(web/settings/webhook-allowlist): SHIPPED b5ff671 - re-theme off shadcn; NEW
+  enforcement-posture banner (enforced/gap/off); INPUT_CLS; Remove -> --cm-danger; ink Save.
+- [x] feat(web/settings/webhook-events-allowlist): SHIPPED c943561 - re-theme; NEW
+  sensitive-event data-exposure banner; approved rows wash + Sensitive/Approved chips.
+- [x] feat(web/settings/workspace-ip-allowlist): SHIPPED c3734b2 - re-theme + raw emerald/
+  amber; NEW lockdown posture banner; active-row wash; self-lockout confirm -> cite gold.
+- [x] feat(web/settings/workspace-origin-allowlist): SHIPPED c63ae1a - re-theme; NEW
+  additive-CORS posture banner (additive/baseline/off); active-row wash; ink Save.
+- [x] feat(web/settings/sign-in-geofence): SHIPPED 5e39cbf - re-theme + raw emerald/amber;
+  country chips state-driven by mode (success allow / danger block); probe decision pills.
 
 RE-THEME BATCH H - access/trust settings (shadcn palette, cohere as a group):
 - [ ] feat(web/settings/role-elevation): re-theme; pending elevation requests -> cite caution,
