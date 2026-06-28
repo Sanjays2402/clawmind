@@ -72,7 +72,15 @@ export default async function RelatedPage({ searchParams }: { searchParams: SP }
             {data.count} matches across {data.sourceChunkCount} source chunks
           </div>
           <ul className="mt-3 cm-card divide-y divide-cm-border">
-            {data.items.map((it) => (
+            {data.items.map((it) => {
+              // Similarity strength bar, scaled to the closest match in the
+              // set so the nearest neighbour is full-width and the rest read
+              // proportionally against it. Embedding scores are abstract
+              // numbers; the bar turns "how related is this, really?" into a
+              // shape the reader can rank by eye before deciding where to hop.
+              const topScore = data.items[0]?.score || 1;
+              const pct = Math.max(4, Math.round((it.score / topScore) * 100));
+              return (
               <li key={it.path} className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
@@ -90,6 +98,18 @@ export default async function RelatedPage({ searchParams }: { searchParams: SP }
                     >
                       {it.path}
                     </Link>
+                    {/* Closeness bar in the citation gold so it reads as a
+                        retrieval signal, distinct from the orange action accent. */}
+                    <div
+                      className="mt-2 h-1 w-full max-w-sm overflow-hidden rounded-full bg-cm-subtle"
+                      role="img"
+                      aria-label={`similarity ${it.score.toFixed(3)}`}
+                    >
+                      <div
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{ width: `${pct}%`, background: 'var(--cm-cite)' }}
+                      />
+                    </div>
                     <p className="mt-2 line-clamp-3 text-sm text-cm-muted">{it.excerpt}</p>
                   </div>
                   <Link
@@ -101,7 +121,8 @@ export default async function RelatedPage({ searchParams }: { searchParams: SP }
                   </Link>
                 </div>
               </li>
-            ))}
+              );
+            })}
           </ul>
         </>
       )}
