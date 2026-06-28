@@ -37,6 +37,66 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-28 10:53 PDT - TOP-LEVEL PAGES batch I: re-theme + data-viz (5 slices)
+
+Started the post-/settings cluster: top-level pages outside /settings. The queued
+plan was webhooks/usage/stats/shares/stale, but I AUDITED each before touching it
+(grep for drift tokens + confirm against the compiled palette) rather than trusting
+the queue - and found the queue was partly stale: usage and stats are ALREADY fully
+on cm-* (0 drift tokens; usage's lone text-white sits on bg-cm-accent, the house CTA
+pattern used 32x app-wide, NOT drift). Re-theming them would have been padding. So I
+shipped the 2 pages with GENUINE drift, upgraded stale (cm-themed already) with real
+data-viz, and pivoted the 2 freed slots to two more genuine data-viz upgrades on
+adjacent top-level pages - 5 real slices, 0 filler.
+
+CONFIRMED-REAL drift finding (same class as every prior re-theme tick, verified by
+grep against tokens.css + the @theme bridge, not guessed): bg-cm-panel and bg-cm-bg-soft
+are DEAD tokens - defined NOWHERE in the app (only --cm-* ships in tokens.css + the
+--color-cm-* bridge in globals.css). webhooks leaned on bg-cm-panel for all 5 surfaces;
+shares on bg-cm-bg-soft for every row - so they rendered with no surface fill on broken
+fallback. Both also carried hand-rolled raw status colors (webhooks: emerald/amber/rose
+for the active dot, failing count, rotate dialog, redeliver errors, delivery table;
+shares: red-200/50/700 + dark: variants on the Expired badge and Revoke button) that
+ignore the brand.
+
+The 5 slices:
+- webhooks: re-theme onto bg-cm-paper; raw colors -> brand inks (active+OK -> success,
+  failing+delete+error -> danger, rotate caution -> cite gold); NEW state-driven
+  delivery-health banner (any failureCount>0 -> danger / any active -> success / all
+  paused -> muted) so a failing endpoint is caught at a glance.
+- shares: re-theme onto bg-cm-paper; Expired badge + Revoke -> --cm-danger 10%% tint;
+  NEW expiry-posture chip set (open-ended -> cite gold as most-exposed / time-boxed ->
+  success / expired -> muted) replacing the bare share/view count.
+- stale: NEW threshold-RELATIVE severity (>=4x -> severe danger / >=2x -> moderate cite /
+  else mild accent), per-row drift bars scaled to the oldest in the set, severity-inked
+  clock + age figure, and a "N severely drifted" danger summary chip.
+- tags: NEW proportional usage bars (width = count / max-count) + frequency-desc ranking,
+  turning the flat count-chip grid into a scannable frequency map.
+- related: NEW similarity-strength bars in citation gold (width = score / top-score) so
+  embedding closeness reads as a shape the reader can rank by eye before hopping.
+
+Gated ONCE for the batch: web typecheck GREEN, web build GREEN (all 5 routes compiled -
+/webhooks 4.29kB, /shares, /stale, /tags, /related), @clawmind/ui build GREEN. Batch
+diff is exactly 5 files, all under apps/web/src/app/ (webhooks, shares, stale, tags,
+related), 0 backend/packages touched, 0 telemetry (ci:verify's only red remains the
+pre-existing, unrelated @clawmind/telemetry OTel SDK version-skew, never touched this
+tick). Pushed 081f543..3c5c4c4:
+- 068d473 feat(web/webhooks): re-theme off dead bg-cm-panel + raw emerald/amber/rose;
+  NEW delivery-health banner.
+- 4ba00c6 feat(web/shares): re-theme off dead bg-cm-bg-soft + raw red; NEW expiry-posture
+  summary.
+- 36cbfb5 feat(web/stale): NEW per-source drift bars + severity coloring + severely-
+  drifted summary.
+- 98fc045 feat(web/tags): NEW proportional usage bars + frequency ranking.
+- 3c5c4c4 feat(web/related): NEW similarity-strength bars on related sources.
+
+NEXT TICK: top-level pages are now audited and effectively drift-free across the app
+(the remaining ones - sources, history, pins, saved, posture, sbom, search - are all
+cm-* already). The CHAT SURFACE per-message conversation history is now the clear
+single biggest standing product gap - PULL IT NEXT. After that, the data-viz vein
+proven this tick (proportional bars, posture chips) is a strong evergreen for the
+remaining list/dashboard pages - see the refilled DATA-VIZ VEIN queue below.
+
 ### TICK LOG 2026-06-28 05:24 PDT - RE-THEME BATCH H: access/trust settings (5 slices)
 
 Finished BATCH H - the access/trust settings cluster, completing the multi-tick
@@ -635,22 +695,53 @@ RE-THEME BATCH H - access/trust settings - DONE 2026-06-28 05:24 PDT:
 
 >>> The /settings re-theme is now COMPLETE (batches A-H). NEXT cluster = TOP-LEVEL PAGES.
 
-RE-THEME BATCH I - TOP-LEVEL PAGES (shadcn drift outside /settings; the next coherent 5):
-- [ ] feat(web/webhooks): re-theme the webhooks dashboard; delivery success/fail -> brand inks.
-- [ ] feat(web/usage): re-theme the usage page; the per-kind bars through accent.
-- [ ] feat(web/stats): re-theme the stats page; metric cards on cm-paper, deltas through inks.
-- [ ] feat(web/shares): re-theme the shares list; active -> cm-paper, expired/revoked -> muted.
-- [ ] feat(web/stale): re-theme the stale-sources page; staleness urgency through cite/danger.
+RE-THEME / POLISH BATCH I - TOP-LEVEL PAGES - DONE 2026-06-28 10:53 PDT:
+- [x] feat(web/webhooks): re-theme + NEW delivery-health banner. SHIPPED 068d473.
+  Dead bg-cm-panel (5 surfaces) -> bg-cm-paper; raw emerald/amber/rose -> brand inks;
+  state-driven failing/live/paused banner.
+- [x] feat(web/shares): re-theme + NEW expiry-posture summary. SHIPPED 4ba00c6.
+  Dead bg-cm-bg-soft -> bg-cm-paper; raw red Expired badge + Revoke -> --cm-danger;
+  open-ended/time-boxed/expired chip set.
+- [~] feat(web/usage): SKIPPED - audited clean. Already fully on cm-* (var(--cm-*)
+  bar tints, cm-card surfaces); the lone text-white sits on bg-cm-accent, which is
+  the house CTA pattern (32 uses app-wide), NOT drift. No re-theme warranted.
+- [~] feat(web/stats): SKIPPED - audited clean. 0 drift tokens; bars/cards/toggle all
+  already cm-*. No re-theme warranted.
+- [x] feat(web/stale): NEW drift bars + severity coloring. SHIPPED 36cbfb5.
+  (Page was already cm-themed, so this is a data-viz upgrade not a re-theme:
+  threshold-relative severity, per-row drift bars, severely-drifted chip.)
 
+Because usage + stats were already clean, the batch pivoted those two slots to two
+genuine data-viz upgrades on adjacent top-level pages (both were on cm-* but dumped
+raw numbers with no visual weight):
+- [x] feat(web/tags): NEW proportional usage bars + frequency ranking. SHIPPED 98fc045.
+- [x] feat(web/related): NEW similarity-strength bars. SHIPPED 3c5c4c4.
 
-CHAT SURFACE (still the biggest product gap; pull one in if a re-theme batch
-doesn't cohere):
+>>> TOP-LEVEL PAGES audited: the remaining top-level pages (sources, history, pins,
+saved, stats, usage, posture, trust, sbom, search) are ALL on cm-* already - the
+shadcn/foreign-palette drift is now effectively EXHAUSTED across the app. The CHAT
+SURFACE per-message history item (below) is the clear next highest-value gap. Pull it
+NEXT tick. After it, the data-viz pattern proven this tick (proportional bars scaled
+to a set max, state-driven posture chips) is a strong evergreen vein for the remaining
+list/dashboard pages (sources feedback boosts, history model-mix, stats already has a
+donut). A fresh queue is refilled below.
+
+CHAT SURFACE (NOW the biggest product gap; pull it in NEXT tick):
 - [ ] feat(web/chat): per-message conversation history within a thread - ChatShell
   loses the prior Q/A when a new question is asked. Vertical stack of Q/A pairs
   (newest at bottom), each with its own copy/share + a per-message collapsible
   citation rail. The single biggest chat gap; carried across many ticks.
 - [ ] feat(web/composer): drag-and-drop file pin onto the composer to pre-pin a
   source for the next question (surface a "Pinned: <path>" chip below the textarea).
+
+DATA-VIZ VEIN (evergreen; the pattern proven this tick - turn dumped numbers into
+shapes a daily user reads at a glance):
+- [ ] feat(web/sources): the per-source feedback boost (+0.40 / -0.25) is raw text;
+  turn it into a diverging signal (success right / danger left of a centre line).
+- [ ] feat(web/history): the per-day group headers show a bare count; add a tiny
+  model-mix or source-count sparkline so a busy day reads as a shape.
+- [ ] feat(web/pins): pinned sources show pinnedAt/pinnedBy as text; consider a
+  recency lane so the freshest pins are visually distinct.
 
 GLOBAL UX / POLISH (evergreen):
 - [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette,
