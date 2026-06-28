@@ -62,6 +62,22 @@ export default function SharesPage() {
 
   const totalViews = items.reduce((n, s) => n + s.views, 0);
 
+  // Expiry posture across all shares, surfaced as a one-line summary chip set
+  // so an owner can see at a glance how exposed the workspace is without
+  // reading every row. "Open" = a live link with no expiry (anyone with the
+  // URL can read it forever until revoked) — the state most worth noticing;
+  // "expiring" = live but time-boxed; "expired" = already dead links still
+  // listed for cleanup.
+  const posture = items.reduce(
+    (acc, s) => {
+      if (s.expired) acc.expired += 1;
+      else if (s.expiresAt) acc.expiring += 1;
+      else acc.open += 1;
+      return acc;
+    },
+    { open: 0, expiring: 0, expired: 0 },
+  );
+
   return (
     <main className="min-h-screen">
       <TopNav />
@@ -75,9 +91,39 @@ export default function SharesPage() {
             </p>
           </div>
           {!loading && !error && items.length > 0 && (
-            <div className="text-xs text-cm-muted">
-              {items.length} share{items.length === 1 ? '' : 's'}, {totalViews} view
-              {totalViews === 1 ? '' : 's'}
+            <div className="flex flex-col items-start gap-1.5 text-xs text-cm-muted sm:items-end">
+              <span>
+                {items.length} share{items.length === 1 ? '' : 's'}, {totalViews} view
+                {totalViews === 1 ? '' : 's'}
+              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {posture.open > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-cm-cite-line px-2 py-0.5 text-[11px] font-medium text-cm-cite"
+                    style={{ background: 'var(--cm-cite-bg)' }}
+                    title="Live links with no expiry — readable by anyone with the URL until revoked"
+                  >
+                    {posture.open} open-ended
+                  </span>
+                )}
+                {posture.expiring > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-cm-success/40 px-2 py-0.5 text-[11px] font-medium text-cm-success"
+                    style={{ background: 'rgba(47, 122, 85, 0.10)' }}
+                    title="Live links that will expire on their own"
+                  >
+                    {posture.expiring} time-boxed
+                  </span>
+                )}
+                {posture.expired > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1 rounded-full border border-cm-border px-2 py-0.5 text-[11px] font-medium text-cm-faint"
+                    title="Already expired — safe to revoke for cleanup"
+                  >
+                    {posture.expired} expired
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </header>
@@ -121,7 +167,7 @@ export default function SharesPage() {
                 return (
                   <li
                     key={item.id}
-                    className="rounded-lg border border-cm-border bg-cm-bg-soft p-4"
+                    className="rounded-lg border border-cm-border bg-cm-paper p-4"
                   >
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0 flex-1">
@@ -140,7 +186,10 @@ export default function SharesPage() {
                           <span>{item.views} view{item.views === 1 ? '' : 's'}</span>
                           <span aria-hidden>·</span>
                           {item.expired ? (
-                            <span className="inline-flex items-center rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-red-700 dark:border-red-900/40 dark:bg-red-950/30 dark:text-red-400">
+                            <span
+                              className="inline-flex items-center rounded-md border border-cm-danger/40 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider text-cm-danger"
+                              style={{ background: 'rgba(180, 66, 60, 0.10)' }}
+                            >
                               Expired
                             </span>
                           ) : item.expiresAt ? (
@@ -166,7 +215,7 @@ export default function SharesPage() {
                           type="button"
                           onClick={() => revoke(item)}
                           disabled={revoking}
-                          className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1.5 text-xs text-red-600 hover:bg-red-50 disabled:opacity-60 dark:hover:bg-red-950/30"
+                          className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1.5 text-xs text-cm-danger transition-colors hover:border-cm-danger/40 disabled:opacity-60"
                           aria-label="Revoke share"
                         >
                           {revoking ? <Spinner /> : <IconTrash size={14} />}
