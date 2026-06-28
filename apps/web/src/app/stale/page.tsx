@@ -48,6 +48,30 @@ export default function StalePage() {
 
   const items = data?.items ?? [];
 
+  // Turn the raw age numbers into a scannable shape. Severity is measured
+  // relative to the user's own threshold (not an absolute day count), so a
+  // source 4x past a 7-day threshold reads as urgently as one 4x past 90 days.
+  // The drift bar for each row is scaled to the oldest item in the current
+  // result set so the worst offender is always full-width and the rest read
+  // proportionally against it.
+  const maxAge = items.reduce((m, s) => Math.max(m, s.ageDays), 0) || 1;
+  const thr = data?.thresholdDays ?? days;
+  function severity(ageDays: number): 'mild' | 'moderate' | 'severe' {
+    const ratio = thr > 0 ? ageDays / thr : 1;
+    if (ratio >= 4) return 'severe';
+    if (ratio >= 2) return 'moderate';
+    return 'mild';
+  }
+  const sevColor: Record<'mild' | 'moderate' | 'severe', string> = {
+    mild: 'var(--cm-accent)',
+    moderate: 'var(--cm-cite)',
+    severe: 'var(--cm-danger)',
+  };
+  // Count the severely-drifted (>=4x threshold) sources for the summary chip:
+  // these are the ones most likely to be genuinely missing from the index
+  // rather than just quietly aging, so they earn a callout.
+  const severeCount = items.filter((s) => severity(s.ageDays) === 'severe').length;
+
   return (
     <main className="min-h-screen">
       <TopNav />
@@ -105,8 +129,19 @@ export default function StalePage() {
             </button>
           </div>
           {data && (
-            <p className="mt-3 text-xs text-cm-muted">
-              {data.total} match{data.total === 1 ? '' : 'es'} older than {data.thresholdDays} day{data.thresholdDays === 1 ? '' : 's'}, scanned {fmtRelative(data.asOf)}.
+            <p className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-cm-muted">
+              <span>
+                {data.total} match{data.total === 1 ? '' : 'es'} older than {data.thresholdDays} day{data.thresholdDays === 1 ? '' : 's'}, scanned {fmtRelative(data.asOf)}.
+              </span>
+              {severeCount > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full border border-cm-danger/40 px-2 py-0.5 font-medium text-cm-danger"
+                  style={{ background: 'rgba(180, 66, 60, 0.10)' }}
+                  title={`${severeCount} source${severeCount === 1 ? '' : 's'} at least 4x past the threshold — likely missing from the index, not just aging`}
+                >
+                  {severeCount} severely drifted
+                </span>
+              )}
             </p>
           )}
         </form>
@@ -127,11 +162,14 @@ export default function StalePage() {
             />
           ) : (
             <ul className="cm-card divide-y divide-cm-border">
-              {items.map((s) => (
+              {items.map((s) => {
+                const sev = severity(s.ageDays);
+                const barPct = Math.max(3, Math.round((s.ageDays / maxAge) * 100));
+                return (
                 <li key={s.path} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <IconClockCountdown size={14} className="text-cm-accent" />
+                      <IconClockCountdown size={14} style={{ color: sevColor[sev] }} />
                       <Link
                         href={{ pathname: '/sources/view', query: { path: s.path } }}
                         className="truncate font-mono text-sm hover:underline"
@@ -142,19 +180,34 @@ export default function StalePage() {
                     </div>
                     <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-cm-muted">
                       <span>last ingest {fmtRelative(s.ingestedAt)}</span>
-                      <span>{Math.round(s.ageDays)}d old</span>
+                      <span style={{ color: sevColor[sev] }}>{Math.round(s.ageDays)}d old</span>
                       <span>{s.chunkCount} chunk{s.chunkCount === 1 ? '' : 's'}</span>
                       <span>{fmtBytes(s.size)}</span>
+                    </div>
+                    {/* Drift bar: width = this source's age as a share of the
+                        oldest in the set, color = severity vs the threshold.
+                        Gives the list a left-to-right "how bad" silhouette so
+                        the worst drift is obvious without reading the numbers. */}
+                    <div
+                      className="mt-2 h-1 w-full max-w-xs overflow-hidden rounded-full bg-cm-subtle"
+                      role="img"
+                      aria-label={`${Math.round(s.ageDays)} days old, ${sev} drift`}
+                    >
+                      <div
+                        className="h-full rounded-full transition-all duration-300"
+                        style={{ width: `${barPct}%`, background: sevColor[sev] }}
+                      />
                     </div>
                   </div>
                   <Link
                     href={{ pathname: '/sources/view', query: { path: s.path } }}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg"
+                    className="inline-flex shrink-0 items-center gap-1.5 self-start rounded-md border border-cm-border px-3 py-1.5 text-sm text-cm-muted hover:text-cm-fg sm:self-center"
                   >
                     <IconArrowRight size={14} /> Open
                   </Link>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </div>
