@@ -70,6 +70,34 @@ export function TopNav() {
     else if (e.key === 'Home') { e.preventDefault(); moveFocus(0); }
     else if (e.key === 'End') { e.preventDefault(); moveFocus(primary.length - 1); }
   }
+
+  // Same roving-tabindex over the mobile scroll bar, which lists every route
+  // (primary + secondary). One stop is tabbable; arrows scrub the horizontal
+  // strip and pull the focused chip into view so it never hides off-edge.
+  const mobileRefs = useRef<Array<HTMLAnchorElement | null>>([]);
+  const activeMobileIdx = items.findIndex(
+    ({ href }) => pathname === href || pathname?.startsWith(href + '/'),
+  );
+  const [mFocusIdx, setMFocusIdx] = useState(0);
+  useEffect(() => {
+    setMFocusIdx(activeMobileIdx >= 0 ? activeMobileIdx : 0);
+  }, [activeMobileIdx]);
+
+  function moveMobile(next: number) {
+    const n = items.length;
+    const idx = ((next % n) + n) % n;
+    setMFocusIdx(idx);
+    const el = mobileRefs.current[idx];
+    el?.focus();
+    el?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }
+
+  function onMobileKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'ArrowRight') { e.preventDefault(); moveMobile(mFocusIdx + 1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); moveMobile(mFocusIdx - 1); }
+    else if (e.key === 'Home') { e.preventDefault(); moveMobile(0); }
+    else if (e.key === 'End') { e.preventDefault(); moveMobile(items.length - 1); }
+  }
   // One-shot pulse when the unread count crosses from 0 to 1+. We track the
   // previous count and a transient `pulse` flag that auto-clears so the
   // animation fires exactly once per arrival (a quiet "you have new mail"
@@ -199,13 +227,21 @@ export function TopNav() {
         </div>
       </div>
       {/* Mobile nav */}
-      <nav className="flex items-center gap-1 overflow-x-auto border-t border-cm-border px-2 py-1.5 md:hidden">
-        {items.map(({ href, label, Icon }) => {
+      <nav
+        className="flex items-center gap-1 overflow-x-auto border-t border-cm-border px-2 py-1.5 md:hidden"
+        aria-label="Primary"
+        role="toolbar"
+        aria-orientation="horizontal"
+        onKeyDown={onMobileKeyDown}
+      >
+        {items.map(({ href, label, Icon }, i) => {
           const active = pathname === href || pathname?.startsWith(href + '/');
           return (
             <Link
               key={href}
               href={href}
+              ref={(el) => { mobileRefs.current[i] = el; }}
+              tabIndex={i === mFocusIdx ? 0 : -1}
               aria-current={active ? 'page' : undefined}
               className={[
                 'flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[11.5px]',
