@@ -188,6 +188,7 @@ export default function FeedbackPage() {
                         </span>
                         <span>updated {fmtRelative(f.updatedAt)}</span>
                       </div>
+                      <VoteRatioBar ups={f.ups} downs={f.downs} />
                     </div>
                     <div className="flex shrink-0 items-center gap-2">
                       <Link
@@ -213,5 +214,38 @@ export default function FeedbackPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * A thin split mini-bar showing each source's up/down distribution at a
+ * glance: green to the left for upvotes, danger to the right for downs, sized
+ * by share. The page's three top cards and the per-row counts say how MANY
+ * votes; this turns the ratio into a shape so a dominantly-down path reads as
+ * red-heavy without parsing the numbers. Pure agreement collapses to one
+ * solid band. Skipped entirely when a row has no votes.
+ */
+function VoteRatioBar({ ups, downs }: { ups: number; downs: number }) {
+  const total = ups + downs;
+  if (total === 0) return null;
+  const upPct = Math.round((ups / total) * 100);
+  return (
+    <div className="mt-2 flex items-center gap-2">
+      <div
+        className="h-1.5 flex-1 overflow-hidden rounded-full bg-cm-bg"
+        role="img"
+        aria-label={`${ups} up, ${downs} down (${upPct}% positive)`}
+      >
+        <div className="flex h-full w-full">
+          {ups > 0 && (
+            <div className="h-full bg-emerald-500/80 transition-all duration-300" style={{ width: `${upPct}%` }} />
+          )}
+          {downs > 0 && (
+            <div className="h-full bg-cm-danger/80 transition-all duration-300" style={{ width: `${100 - upPct}%` }} />
+          )}
+        </div>
+      </div>
+      <span className="shrink-0 tabular-nums text-[11px] text-cm-muted">{upPct}%</span>
+    </div>
   );
 }
