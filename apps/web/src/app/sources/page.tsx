@@ -62,6 +62,18 @@ export default function SourcesPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Filter bar pins to the top while the long source list scrolls; once the
+  // page lifts off, the bar grows a soft shadow so it reads as floating above
+  // the rows instead of bleeding into them. Threshold > 8px avoids flicker on
+  // sub-pixel scroll. Listener is passive so it never blocks the scroll.
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
+
   const namespaces = useMemo(
     () => Array.from(new Set(items.map((i) => i.namespace))).sort(),
     [items],
@@ -117,7 +129,10 @@ export default function SourcesPage() {
           </button>
         </div>
 
-        <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div
+          className="sticky top-14 z-10 -mx-4 mt-5 flex flex-col gap-2 bg-cm-bg/90 px-4 py-2 backdrop-blur transition-shadow sm:-mx-6 sm:top-16 sm:flex-row sm:items-center sm:px-6"
+          style={scrolled ? { boxShadow: '0 6px 16px rgba(27,35,48,0.06)' } : undefined}
+        >
           <div className="relative flex-1">
             <IconSearch size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-cm-muted" />
             <input
