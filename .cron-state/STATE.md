@@ -93,16 +93,16 @@ EMPTY/LOADING/ERROR + THEMING:
 ### Refilled frontend queue (2026-06-29 03:44 PDT) - work top to bottom
 
 POLISH / INTERACTION:
-- [ ] feat(web/explain): persist alpha/lambda/k sliders to localStorage so a tuning session survives reload.
-- [ ] feat(web/settings): section anchor nav rail on long settings pages (jump to a section).
-- [ ] feat(web/tags): tag-cloud size weighting by usage count on the directory grid.
-- [ ] feat(web/collections): drag-to-reorder affordance hint + grab cursor.
-- [ ] feat(web/keys): sticky create-key bar / scroll shadow like /sources just got.
+- [x] feat(web/explain): persist alpha/lambda/k sliders to localStorage so a tuning session survives reload (1f845ae, lib/explainPrefs.ts + reset knobs).
+- [x] feat(web/settings): section anchor nav rail on long settings pages (jump to a section) (b6140b6, sticky scrollspy rail).
+- [ ] feat(web/tags): tag-cloud size weighting by usage count on the directory grid. (SKIP: page already ships a per-tag proportional usage bar; font-size weighting on top is redundant + truncation-risky.)
+- [ ] feat(web/collections): drag-to-reorder affordance hint + grab cursor. (SKIP: a hint without real reorder is cosmetic; real reorder needs an order-persistence API = out of frontend scope.)
+- [ ] feat(web/keys): sticky create-key bar / scroll shadow like /sources just got. (SKIP: the issue-key form is a large top-of-page form, not a filter bar; forcing a sticky shadow there is contrived.)
 - [ ] feat(web/usage): low-headroom toast persists a dismiss in localStorage so it stops nagging.
 
 DATA-VIZ:
 - [ ] feat(web/incidents): severity distribution lane in the list header.
-- [ ] feat(web/feedback): boosted-vs-penalized split summary chip above the table.
+- [x] feat(web/feedback): boosted-vs-penalized split summary chip above the table (fcdf684, filter-aware BoostMixBar).
 - [ ] feat(web/dashboard): namespace share donut reuse (already have NamespaceDonut) in the namespaces panel.
 - [ ] feat(web/webhooks): delivery success-rate mini-bar per endpoint row.
 
@@ -113,9 +113,89 @@ EMPTY/LOADING/ERROR:
 - [ ] feat(web/collections): skeleton cards on first load.
 
 KEYBOARD / A11Y:
-- [ ] feat(web/sources): j/k rove the source list rows, Enter opens viewer (mirror search rove).
-- [ ] feat(web/notifications): j/k rove rows, x to dismiss, e to mark read.
+- [x] feat(web/sources): j/k rove the source list rows, Enter opens viewer (mirror search rove) (0a48977).
+- [x] feat(web/notifications): j/k rove rows, x to dismiss, e to mark read (6f93436, + Enter opens).
 - [ ] feat(web/saved): keyboard rove rows with Enter to run digest.
+
+
+### Refilled frontend queue (2026-06-29 06:42 PDT) - work top to bottom
+
+DATA-VIZ (evergreen vein, dumped numbers -> shapes):
+- [ ] feat(web/webhooks): delivery success-rate mini-bar per endpoint row (deliveries vs failures share).
+- [ ] feat(web/incidents): severity distribution lane in the list header (critical/high/medium/low share).
+- [ ] feat(web/dashboard): namespace share donut reuse (NamespaceDonut already exists) in the namespaces panel.
+- [ ] feat(web/usage): per-day request sparkline strip in the period summary if the series is exposed.
+
+EMPTY/LOADING/ERROR (skeletons replacing bare spinners - proven vein, 5+ shipped):
+- [ ] feat(web/sources): skeleton list rows on first load instead of the centred spinner.
+- [ ] feat(web/stats): skeleton namespace rows instead of a bare spinner.
+- [ ] feat(web/tags): skeleton grid tiles instead of a spinner.
+- [ ] feat(web/collections): skeleton cards on first load.
+- [ ] feat(web/feedback): skeleton table rows on first load instead of the centred spinner.
+
+KEYBOARD / A11Y (the rove rail is proven on search/sources/notifications):
+- [ ] feat(web/saved): j/k rove rows with Enter to run the digest, mirror the sources rail.
+- [ ] feat(web/feedback): j/k rove rows with Enter to open the source, like sources.
+- [ ] feat(web/collections): arrow-key rove the collection rows, Enter to expand/manage.
+
+POLISH / INTERACTION:
+- [ ] feat(web/usage): low-headroom toast persists a dismiss in localStorage so it stops nagging.
+- [ ] feat(web/sources): persist the namespace + sort filters to localStorage so the view survives reload (reuse the explainPrefs pattern).
+- [ ] feat(web/stats): persist the files/chunks/bytes lens choice to localStorage.
+- [ ] feat(web/notifications): persist the All/Unread filter choice across reloads.
+- [ ] feat(web/keys): copy-secret button confirms with a checkmark swap that also announces to a live region for SR users.
+- [ ] feat(web/explain): remember the last run query in sessionStorage so a reload re-runs it.
+
+
+### TICK LOG 2026-06-29 06:42 PDT - PERSISTENCE + TWO ROVES + NAV RAIL + DATA-VIZ (5 slices)
+
+Five brand-new frontend slices, one commit each, pushed clean to main
+(6508f65..fcdf684). Worked the top of the 03:44 queue. Three queue items I
+deliberately SKIPPED as borderline-filler rather than padding to 5 (they're
+all genuinely covered, so the batch stayed at 5 strong ones): tags tag-cloud
+weighting (the page already ships a per-tag proportional usage bar), collections
+drag-to-reorder hint (a hint with no real reorder is cosmetic; real reorder
+needs an order-persistence API = backend), keys sticky create-key bar (the
+issue-key form is a big top-of-page form, not a filter bar - a sticky shadow
+there is contrived). Reasoning recorded inline in the queue.
+
+The 5 slices:
+- explain: persist alpha/lambda/k sliders across reloads. New SSR-safe
+  lib/explainPrefs.ts (pure clamp/snap/sanitize core + thin localStorage
+  wrappers, mirrors wrapPref/nsPref). Rehydrates in a mount effect to dodge a
+  hydration mismatch, persists once hydrated, + a "reset knobs" affordance.
+  Pure core verified against 16 tsx cases. 1f845ae.
+- sources: j/k + arrow rove over the rows, preview follows the ring, Enter
+  opens the viewer. Mirrors the /search rail; skips the filter inputs; only the
+  active/first row is a tab stop; j/k/enter legend in the list header. 0a48977.
+- notifications: j/k rove where the ring doubles as a command target - Enter
+  opens (+marks read), e marks read in place, x removes (ring holds the index
+  so it lands on the next row). Focus ring + aria-current + a key legend. 6f93436.
+- settings: sticky section anchor-nav rail with an IntersectionObserver
+  scrollspy (6 sections). Each Section took an optional id + scroll-mt; layout
+  widens to a 2-col grid at lg, rail hidden below lg (sections still stack). b6140b6.
+- feedback: filter-aware boost-direction split summary above the table - a
+  stacked boosted/neutral/penalized bar + count/percent legend, reusing the
+  page's emerald/danger/muted palette. fcdf684.
+
+Gate: `pnpm run ci:verify` fails ONLY on the pre-existing @clawmind/telemetry
+OTel 1.x/2.x ReadableSpan/Resource peer drift (red baseline since tick 1,
+untouched here - none of these 5 slices touch telemetry; cli/web/api all
+typecheck GREEN under ci:verify). Ran the real web gate directly: web typecheck
+GREEN and `pnpm --filter @clawmind/web build` compiled successfully in 3.6s, all
+routes generated (/explain 3.85kB, /sources 3.85kB, /notifications 2.73kB,
+/settings 8.7kB, /feedback 2.75kB). The two build lint warnings (sources useMemo
+at history-style code, stepHit in CodeView) are PRE-EXISTING in files this tick
+never touched. Pushed 6508f65..fcdf684 main -> main, verified on origin.
+
+NEXT TICK: queue refilled (06:42 block, ~18 frontend items). Top: webhooks
+success-rate mini-bar, incidents severity lane, more skeleton-row passes, and
+extend the rove rail to /saved + /feedback. Still worth flagging to Sanjay: the
+telemetry OTel typecheck red is infra/pre-existing, out of the frontend-only
+scope this loop is locked to.
+
+Identity: commits land on main directly, each signed as
+`Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
 
 
 ### TICK LOG 2026-06-29 03:44 PDT - STATS STACK + SEARCH ROVE + 3 POLISH (5 slices)
