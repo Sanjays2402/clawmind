@@ -1,6 +1,6 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { IconLink, IconCopy, IconCheck, IconWarning, Spinner } from '@clawmind/ui';
+import { IconLink, IconCopy, IconCheck, IconWarning, Spinner, useToast } from '@clawmind/ui';
 import { api, type Source } from '@/lib/api';
 
 interface Props {
@@ -50,6 +50,7 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const [ttlDays, setTtlDays] = useState<number>(DEFAULT_TTL_DAYS);
   const dialogRef = useRef<HTMLDivElement | null>(null);
+  const { toast } = useToast();
   // The dialog opens in an 'idle' state so the user can pick a TTL before
   // the API call. Create transitions the state through creating -> ready.
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -107,6 +108,13 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
         /* clipboard may be blocked; user can still copy manually */
       }
       setState({ kind: 'ready', id: res.id, url, copied, expiresAt: res.expiresAt });
+      toast({
+        tone: 'success',
+        title: copied ? 'Share link created and copied' : 'Share link created',
+        description: copied
+          ? formatExpiry(res.expiresAt)
+          : 'Copy it from the dialog \u2014 clipboard access was blocked.',
+      });
     } catch (err) {
       setState({
         kind: 'error',
@@ -120,13 +128,14 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
     try {
       await navigator.clipboard.writeText(state.url);
       setState({ ...state, copied: true });
+      toast({ tone: 'success', title: 'Link copied', description: 'Paste it anywhere to share this answer.' });
       setTimeout(() => {
         setState((cur) =>
           cur.kind === 'ready' && cur.id === state.id ? { ...cur, copied: false } : cur,
         );
       }, 1500);
     } catch {
-      /* ignore */
+      toast({ tone: 'error', title: 'Could not copy', description: 'Clipboard access was blocked. Select the field and copy manually.' });
     }
   }
 
