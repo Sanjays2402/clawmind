@@ -68,29 +68,82 @@ POLISH:
 ### Refilled frontend queue (2026-06-29 01:14 PDT) - work top to bottom
 
 POLISH / INTERACTION:
-- [ ] feat(web/conversations): per-row hover preview of the last assistant reply.
+- [ ] feat(web/conversations): per-row hover preview of the last assistant reply. (NEEDS api: list lacks last-reply text)
 - [ ] feat(web/sources/view): match-density gutter ticks while find is open (jump-to-region).
-- [ ] feat(web/search): result-row keyboard rove + Enter to open, like the rail j/k.
-- [ ] feat(web/chat): copy-button confirms with a 1.5s checkmark swap, not just a toast.
-- [ ] feat(web/notifications): mark-all-read sticky bar when unread > 0 with count.
-- [ ] feat(web/dashboard): tiny trend caret on each stat tile vs the prior period.
+- [x] feat(web/search): result-row keyboard rove + Enter to open, like the rail j/k (1862de8).
+- [x] feat(web/chat): copy-button confirms with a 1.5s checkmark swap (already shipped, CopyAnswerButton justCopied).
+- [x] feat(web/notifications): mark-all-read sticky bar when unread > 0 with count (4464c0f).
+- [ ] feat(web/dashboard): tiny trend caret on each stat tile vs the prior period. (NEEDS api: no prior-period totals)
 
 DATA-VIZ:
-- [ ] feat(web/usage): ask-vs-search split bar in the period summary header.
-- [ ] feat(web/stats): per-namespace extension treemap-lite (top 3 exts as a stacked bar).
-- [ ] feat(web/digests): +new / -removed mini-bars per digest row (set-bounds, no api).
+- [x] feat(web/usage): ask-vs-search split bar in the period summary header (already shipped, Request mix).
+- [x] feat(web/stats): per-namespace extension treemap-lite (top 3 exts as a stacked bar) (71e17c7).
+- [ ] feat(web/digests): +new / -removed mini-bars per digest row (already shipped on /saved, ChurnBar; no /digests page).
 - [ ] feat(web/incidents): severity distribution lane in the list header.
 
 EMPTY/LOADING/ERROR + THEMING:
-- [ ] feat(web/saved): skeleton rows during first load instead of a bare spinner.
+- [x] feat(web/saved): skeleton rows during first load instead of a bare spinner (d1dcab7).
 - [ ] feat(web/collections): drag-to-reorder affordance hint + grab cursor.
 - [ ] feat(web/tags): tag-cloud size weighting by usage count.
-- [ ] feat(web/sources): sticky filter bar shadow when scrolled.
+- [x] feat(web/sources): sticky filter bar shadow when scrolled (932d90c).
 - [ ] feat(web/explain): persist alpha/lambda/k sliders to localStorage.
 - [ ] feat(web/settings): section anchor nav rail on long settings pages.
 
 
-### TICK LOG 2026-06-29 01:14 PDT - A11y ROVE + 3 DATA-VIZ LANES + CHAT BADGE (5 slices)
+### Refilled frontend queue (2026-06-29 03:44 PDT) - work top to bottom
+
+POLISH / INTERACTION:
+- [ ] feat(web/explain): persist alpha/lambda/k sliders to localStorage so a tuning session survives reload.
+- [ ] feat(web/settings): section anchor nav rail on long settings pages (jump to a section).
+- [ ] feat(web/tags): tag-cloud size weighting by usage count on the directory grid.
+- [ ] feat(web/collections): drag-to-reorder affordance hint + grab cursor.
+- [ ] feat(web/keys): sticky create-key bar / scroll shadow like /sources just got.
+- [ ] feat(web/usage): low-headroom toast persists a dismiss in localStorage so it stops nagging.
+
+DATA-VIZ:
+- [ ] feat(web/incidents): severity distribution lane in the list header.
+- [ ] feat(web/feedback): boosted-vs-penalized split summary chip above the table.
+- [ ] feat(web/dashboard): namespace share donut reuse (already have NamespaceDonut) in the namespaces panel.
+- [ ] feat(web/webhooks): delivery success-rate mini-bar per endpoint row.
+
+EMPTY/LOADING/ERROR:
+- [ ] feat(web/sources): skeleton list rows on first load instead of the centred spinner.
+- [ ] feat(web/stats): skeleton namespace rows instead of a bare spinner.
+- [ ] feat(web/tags): skeleton grid tiles instead of a spinner.
+- [ ] feat(web/collections): skeleton cards on first load.
+
+KEYBOARD / A11Y:
+- [ ] feat(web/sources): j/k rove the source list rows, Enter opens viewer (mirror search rove).
+- [ ] feat(web/notifications): j/k rove rows, x to dismiss, e to mark read.
+- [ ] feat(web/saved): keyboard rove rows with Enter to run digest.
+
+
+### TICK LOG 2026-06-29 03:44 PDT - STATS STACK + SEARCH ROVE + 3 POLISH (5 slices)
+
+Five brand-new frontend slices, one commit each, pushed clean. AUDITED the
+prior queue first: usage ask-vs-search split (Request mix), chat copy 1.5s
+checkmark (CopyAnswerButton justCopied), and saved +new/-removed bars (ChurnBar)
+were ALREADY shipped, so I marked them done instead of re-doing. Conversations
+hover preview + dashboard trend caret both NEED api (no last-reply text, no
+prior-period totals) so skipped honestly under the frontend-only override. No
+filler, no fake-splitting.
+
+The 5 slices:
+- stats: top-3 extension stacked composition bar per namespace (accent/cite/
+  strong + quiet other band) so file-type mix reads as a shape. 71e17c7.
+- search: result rows are a roving-tabindex link list - j/k + arrows move the
+  ring, Enter opens at the cited line; resets on query/sort/page. 1862de8.
+- notifications: frosted sticky mark-all-read bar with live unread count. 4464c0f.
+- saved: skeleton list rows on first load instead of a bare spinner. d1dcab7.
+- sources: sticky filter bar pinned under nav, soft shadow after 8px scroll. 932d90c.
+
+Gated: web typecheck GREEN, web test GREEN, web build GREEN (/stats 3.54kB,
+/search 6.53kB, /notifications 2.2kB, /saved 3.57kB, /sources 3.46kB). Pushed
+100611d..932d90c. Telemetry OTel drift still red at baseline (untouched, infra).
+
+NEXT TICK: fresh queue refilled (17 items, frontend-only). Top: explain slider
+persistence, settings anchor nav, tag-cloud weighting. Telemetry infra red
+still worth flagging to Sanjay (out of frontend scope, pre-existing).
 
 Drained the entire remaining standing queue: More-menu arrow roving, the two
 data-viz lanes that had no api blocker, chat badge, and sources Cmd+G. AUDITED
