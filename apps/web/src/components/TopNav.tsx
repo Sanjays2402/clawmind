@@ -44,6 +44,32 @@ export function TopNav() {
   const pathname = usePathname();
   const items = [...primary, ...secondary];
   const [unread, setUnread] = useState<number>(0);
+  // Roving-tabindex over the primary desktop nav: one link is tabbable at a
+  // time, arrow keys move focus between them (ARIA toolbar pattern). Seed the
+  // tabbable index at the active route's position so Tab lands on "where you
+  // are"; otherwise the first link.
+  const navRefs = useRef<Array<HTMLAnchorElement | null>>([]);
+  const activeNavIdx = primary.findIndex(
+    ({ href }) => pathname === href || pathname?.startsWith(href + '/'),
+  );
+  const [focusIdx, setFocusIdx] = useState(0);
+  useEffect(() => {
+    setFocusIdx(activeNavIdx >= 0 ? activeNavIdx : 0);
+  }, [activeNavIdx]);
+
+  function moveFocus(next: number) {
+    const n = primary.length;
+    const idx = ((next % n) + n) % n;
+    setFocusIdx(idx);
+    navRefs.current[idx]?.focus();
+  }
+
+  function onNavKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'ArrowRight') { e.preventDefault(); moveFocus(focusIdx + 1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); moveFocus(focusIdx - 1); }
+    else if (e.key === 'Home') { e.preventDefault(); moveFocus(0); }
+    else if (e.key === 'End') { e.preventDefault(); moveFocus(primary.length - 1); }
+  }
   // One-shot pulse when the unread count crosses from 0 to 1+. We track the
   // previous count and a transient `pulse` flag that auto-clears so the
   // animation fires exactly once per arrival (a quiet "you have new mail"
@@ -101,13 +127,25 @@ export function TopNav() {
             ClawMind
           </span>
         </Link>
-        <nav className="hidden items-center gap-0.5 md:flex">
-          {primary.map(({ href, label, Icon }) => {
+        <nav
+          className="hidden items-center gap-0.5 md:flex"
+          aria-label="Primary"
+          role="toolbar"
+          aria-orientation="horizontal"
+          onKeyDown={onNavKeyDown}
+        >
+          {primary.map(({ href, label, Icon }, i) => {
             const active = pathname === href || pathname?.startsWith(href + '/');
+            // Roving tabindex: exactly one nav link is in the tab order at a
+            // time (the active one, else the first), and arrow keys move focus
+            // between siblings. Tab into the bar, then arrow across it.
+            const tabbable = i === focusIdx;
             return (
               <Link
                 key={href}
                 href={href}
+                ref={(el) => { navRefs.current[i] = el; }}
+                tabIndex={tabbable ? 0 : -1}
                 aria-current={active ? 'page' : undefined}
                 className={[
                   'flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors',
