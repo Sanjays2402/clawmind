@@ -144,6 +144,7 @@ export default function StatsPage() {
                             style={{ width: `${pct}%` }}
                           />
                         </div>
+                        <ExtStack extensions={ns.extensions} files={ns.files} />
                         <div className="mt-1.5 flex flex-wrap gap-1.5">
                           {ns.extensions.slice(0, 6).map((e) => (
                             <span key={e.ext} className="rounded bg-cm-bg px-1.5 py-0.5 text-[11px] text-cm-muted">
@@ -201,6 +202,41 @@ function MetricToggle({ metric, onChange }: { metric: Metric; onChange: (m: Metr
           </button>
         );
       })}
+    </div>
+  );
+}
+
+// Fixed three-stop ramp so the top three extensions read as distinct bands
+// without inventing per-ext colours: accent, citation gold, then a muted
+// remainder for everything past the top three. Stays inside the warm palette.
+const EXT_STOPS: string[] = ['var(--cm-accent)', 'var(--cm-cite)', 'var(--cm-border-strong)'];
+
+/**
+ * Composition strip: the namespace's top three file extensions as a single
+ * stacked bar, with whatever is left lumped into a quiet "other" band. The
+ * row already carries a chunk count and an ext-chip list; this turns the chip
+ * counts into a shape so you can see at a glance whether a namespace is mostly
+ * markdown vs a long tail of mixed types, before reading any numbers.
+ */
+function ExtStack({ extensions, files }: { extensions: { ext: string; count: number }[]; files: number }) {
+  const segments = useMemo(() => {
+    const total = extensions.reduce((s, e) => s + e.count, 0) || files || 1;
+    const sorted = [...extensions].sort((a, b) => b.count - a.count);
+    const top = sorted.slice(0, 3);
+    const rest = sorted.slice(3).reduce((s, e) => s + e.count, 0);
+    const segs = top.map((e, i) => ({ ext: e.ext, count: e.count, color: EXT_STOPS[i]!, pct: (e.count / total) * 100 }));
+    if (rest > 0) segs.push({ ext: 'other', count: rest, color: 'var(--cm-subtle)', pct: (rest / total) * 100 });
+    return segs;
+  }, [extensions, files]);
+  if (segments.length <= 1) return null;
+  const title = segments.map((s) => `${s.ext} ${s.count}`).join(', ');
+  return (
+    <div className="mt-1.5">
+      <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-cm-bg" role="img" aria-label={`File type mix: ${title}`} title={title}>
+        {segments.map((s) => (
+          <div key={s.ext} className="h-full transition-all duration-300" style={{ width: `${Math.max(2, s.pct)}%`, background: s.color }} />
+        ))}
+      </div>
     </div>
   );
 }
