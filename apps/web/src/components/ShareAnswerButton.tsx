@@ -1,6 +1,6 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { IconLink, IconCopy, IconCheck, IconWarning, Spinner, useToast } from '@clawmind/ui';
+import { useCallback, useState } from 'react';
+import { IconLink, IconCopy, IconCheck, IconWarning, Spinner, Dialog, useToast } from '@clawmind/ui';
 import { api, type Source } from '@/lib/api';
 
 interface Props {
@@ -49,7 +49,6 @@ function formatExpiry(ts: number | null): string {
 export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
   const [state, setState] = useState<State>({ kind: 'idle' });
   const [ttlDays, setTtlDays] = useState<number>(DEFAULT_TTL_DAYS);
-  const dialogRef = useRef<HTMLDivElement | null>(null);
   const { toast } = useToast();
   // The dialog opens in an 'idle' state so the user can pick a TTL before
   // the API call. Create transitions the state through creating -> ready.
@@ -63,17 +62,6 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
     setState({ kind: 'idle' });
     setDialogOpen(false);
   }, [cancellable]);
-
-  // Close on Escape, focus the dialog when it opens.
-  useEffect(() => {
-    if (!showDialog) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') close();
-    }
-    window.addEventListener('keydown', onKey);
-    dialogRef.current?.focus();
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showDialog, close]);
 
   async function startShare() {
     if (disabled || !answer || !query) return;
@@ -152,27 +140,15 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
         Share
       </button>
 
-      {showDialog && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="share-dialog-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={close}
-        >
-          <div
-            ref={dialogRef}
-            tabIndex={-1}
-            onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md rounded-lg border border-cm-border bg-cm-paper p-5 shadow-xl outline-none"
-          >
-            <h2
-              id="share-dialog-title"
-              className="text-base font-semibold tracking-tight"
-            >
-              Share this answer
-            </h2>
-            <p className="mt-1 text-xs text-cm-muted">
+      <Dialog
+        open={showDialog}
+        onClose={close}
+        maxWidth={448}
+        title="Share this answer"
+        hideClose={!cancellable}
+      >
+        <div className="p-5">
+            <p className="text-xs text-cm-muted">
               Anyone with the link can read the question, the answer, and the cited
               sources. You can revoke it any time from the Shares page.
             </p>
@@ -304,9 +280,8 @@ export function ShareAnswerButton({ query, answer, sources, disabled }: Props) {
                 </div>
               </div>
             )}
-          </div>
         </div>
-      )}
+      </Dialog>
     </>
   );
 }
