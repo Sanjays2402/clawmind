@@ -165,7 +165,7 @@ export default function FeedbackPage() {
 
         <div className="mt-5">
           {loading && items.length === 0 ? (
-            <div className="flex justify-center py-12"><Spinner /></div>
+            <FeedbackSkeleton />
           ) : items.length === 0 ? (
             <EmptyState
               title="No feedback yet"
@@ -325,5 +325,39 @@ function VoteRatioBar({ ups, downs }: { ups: number; downs: number }) {
       </div>
       <span className="shrink-0 tabular-nums text-[11px] text-cm-muted">{upPct}%</span>
     </div>
+  );
+}
+
+/**
+ * First-load skeleton for the feedback table. The page used to show a bare
+ * centred spinner that then swapped for the full bordered list, jumping the
+ * layout. This renders the silhouette of the row list instead: each row's
+ * path line, the up/down/boost meta line, and the thin ratio mini-bar, inside
+ * the same cm-card shell the real list uses, so nothing shifts when the data
+ * arrives. Reuses the app-wide animate-pulse on cm-subtle blocks, matching the
+ * /saved and /stats first-load skeletons. Decorative, hidden from a11y.
+ */
+function FeedbackSkeleton() {
+  return (
+    <ul className="cm-card divide-y divide-cm-border" aria-busy="true" aria-label="Loading source feedback">
+      {Array.from({ length: 5 }).map((_, i) => (
+        <li key={i} className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0 flex-1">
+            <div className="h-3.5 w-3/5 animate-pulse rounded bg-cm-subtle" />
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <div className="h-3 w-8 animate-pulse rounded bg-cm-subtle" />
+              <div className="h-3 w-8 animate-pulse rounded bg-cm-subtle" />
+              <div className="h-3 w-16 animate-pulse rounded bg-cm-subtle" />
+              <div className="h-3 w-20 animate-pulse rounded bg-cm-subtle" />
+            </div>
+            <div className="mt-2 h-1.5 w-full max-w-xs animate-pulse rounded-full bg-cm-subtle" />
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="h-8 w-20 animate-pulse rounded-md bg-cm-subtle" />
+            <div className="h-8 w-9 animate-pulse rounded-md bg-cm-subtle" />
+          </div>
+        </li>
+      ))}
+    </ul>
   );
 }
