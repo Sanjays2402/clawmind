@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TopNav } from '@/components/TopNav';
 import { api, fmtBytes, fmtRelative, type StatsReport, type NamespaceStats } from '@/lib/api';
-import { EmptyState, ErrorState, Spinner, IconRefresh, IconDatabase } from '@clawmind/ui';
+import { EmptyState, ErrorState, IconRefresh, IconDatabase } from '@clawmind/ui';
 import { NamespaceDonut } from '@/components/NamespaceDonut';
 
 type Metric = 'files' | 'chunks' | 'bytes';
@@ -76,7 +76,7 @@ export default function StatsPage() {
         </div>
 
         {loading && !stats ? (
-          <div className="mt-12 flex justify-center"><Spinner /></div>
+          <StatsSkeleton />
         ) : error ? (
           <div className="mt-8"><ErrorState message={error} onRetry={load} /></div>
         ) : !stats || stats.totals.files === 0 ? (
@@ -267,5 +267,52 @@ function Stat({ label, value, active, onClick }: { label: string; value: string;
       <div className="text-xs uppercase tracking-wide text-cm-muted">{label}</div>
       <div className="mt-1 text-xl font-semibold">{value}</div>
     </button>
+  );
+}
+
+/**
+ * First-load skeleton for the stats page. Replaces the bare centred spinner
+ * with a layout-faithful placeholder: the four summary stat cards, then the
+ * "by namespace" card with a few namespace rows (label + proportional bar +
+ * value column), so the page silhouette is already in place when the real
+ * numbers stream in instead of the whole layout popping in after a spinner.
+ * The pulse reuses the app-wide animate-pulse on cm-subtle blocks, matching
+ * the /saved first-load skeleton. Decorative, hidden from the a11y tree.
+ */
+function StatsSkeleton() {
+  return (
+    <div aria-busy="true" aria-label="Loading index stats">
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="cm-card p-4">
+            <div className="h-3 w-16 animate-pulse rounded bg-cm-subtle" />
+            <div className="mt-2 h-6 w-20 animate-pulse rounded bg-cm-subtle" />
+          </div>
+        ))}
+      </div>
+      <div className="mt-6 cm-card" aria-hidden="true">
+        <div className="flex items-center justify-between border-b border-cm-border px-4 py-3">
+          <div className="h-4 w-28 animate-pulse rounded bg-cm-subtle" />
+          <div className="h-4 w-24 animate-pulse rounded bg-cm-subtle" />
+        </div>
+        <div className="divide-y divide-cm-border">
+          {[88, 64, 46, 30, 18].map((w, i) => (
+            <div key={i} className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-[1fr_2fr_auto] sm:items-center">
+              <div className="space-y-1.5">
+                <div className="h-3.5 w-32 animate-pulse rounded bg-cm-subtle" />
+                <div className="h-2.5 w-24 animate-pulse rounded bg-cm-subtle" />
+              </div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-cm-subtle">
+                <div className="h-full rounded-full bg-cm-border animate-pulse" style={{ width: `${w}%` }} />
+              </div>
+              <div className="space-y-1.5 sm:text-right">
+                <div className="h-3.5 w-16 animate-pulse rounded bg-cm-subtle sm:ml-auto" />
+                <div className="h-2.5 w-10 animate-pulse rounded bg-cm-subtle sm:ml-auto" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
