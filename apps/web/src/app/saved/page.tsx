@@ -86,6 +86,20 @@ export default function SavedPage() {
     });
   }, [rows, filterTag, filterText]);
 
+  // Strongest single churn count across the visible digests, so the +new/-removed
+  // bars share one scale and a busy search's last run reads larger than a quiet
+  // one. Min 1 so a single +1 still draws a sliver instead of dividing by zero.
+  const maxChurn = useMemo(
+    () =>
+      Math.max(
+        1,
+        ...visible.map((r) =>
+          Math.max(r.digest?.lastNewCount ?? 0, r.digest?.lastRemovedCount ?? 0),
+        ),
+      ),
+    [visible],
+  );
+
   async function create(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim() || !query.trim() || creating) return;
@@ -372,15 +386,14 @@ export default function SavedPage() {
                             </div>
                           )}
                           {digest && (
-                            <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-cm-muted">
+                            <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-cm-muted">
                               <span>last run {fmtRelative(digest.lastRunTs)}</span>
                               <span>{digest.runs} runs</span>
-                              {digest.lastNewCount > 0 && (
-                                <span className="text-cm-success">+{digest.lastNewCount} new</span>
-                              )}
-                              {digest.lastRemovedCount > 0 && (
-                                <span className="text-cm-danger">-{digest.lastRemovedCount} removed</span>
-                              )}
+                              <ChurnBar
+                                added={digest.lastNewCount}
+                                removed={digest.lastRemovedCount}
+                                max={maxChurn}
+                              />
                             </div>
                           )}
                         </div>
@@ -426,5 +439,51 @@ export default function SavedPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * Diverging new-vs-removed delta bar for a saved search's last digest run.
+ * Removed sources grow LEFT in danger, new sources grow RIGHT in success,
+ * around a centre tick; each half scales to the busiest digest in view so the
+ * relative churn of one search vs another reads as a shape, not just a number.
+ * A clean run (0/0) collapses to a quiet "no change" so the row stays honest.
+ */
+function ChurnBar({ added, removed, max }: { added: number; removed: number; max: number }) {
+  const a = Math.max(0, added);
+  const r = Math.max(0, removed);
+  if (a === 0 && r === 0) {
+    return <span className="text-cm-faint">no change last run</span>;
+  }
+  const span = Math.max(1, max);
+  return (
+    <span
+      className="inline-flex items-center gap-2"
+      title={`${a} new, ${r} removed since the previous run`}
+    >
+      <span className="flex h-2.5 w-28 items-stretch overflow-hidden rounded-full bg-cm-subtle">
+        <span className="flex w-1/2 justify-end">
+          {r > 0 && (
+            <span
+              className="h-full rounded-l-full bg-cm-danger/70 transition-all duration-300"
+              style={{ width: `${(r / span) * 100}%` }}
+            />
+          )}
+        </span>
+        <span className="flex w-1/2 justify-start">
+          {a > 0 && (
+            <span
+              className="h-full rounded-r-full bg-cm-success/70 transition-all duration-300"
+              style={{ width: `${(a / span) * 100}%` }}
+            />
+          )}
+        </span>
+      </span>
+      <span className="tabular-nums">
+        {a > 0 && <span className="text-cm-success">+{a}</span>}
+        {a > 0 && r > 0 && <span className="text-cm-faint"> / </span>}
+        {r > 0 && <span className="text-cm-danger">-{r}</span>}
+      </span>
+    </span>
   );
 }
