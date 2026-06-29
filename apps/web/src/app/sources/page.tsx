@@ -1,6 +1,7 @@
 'use client';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { TopNav } from '@/components/TopNav';
 import {
   api,
@@ -37,6 +38,7 @@ export default function SourcesPage() {
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState<SourceListItem | null>(null);
   const [feedbackMap, setFeedbackMap] = useState<Record<string, FeedbackEntry>>({});
+  const router = useRouter();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,6 +112,38 @@ export default function SourcesPage() {
     }
   }
 
+  // Keyboard rove over the source rows, mirroring the j/k rail on /search:
+  // ArrowDown/j and ArrowUp/k move a focus ring (and the preview, since each
+  // row selects on focus) through the list, Enter opens the focused file in
+  // the full viewer. Reset to the top whenever the query/filter/sort reloads
+  // the list so the ring never points at a stale row. Inner inputs are skipped
+  // so typing in the filter bar never hijacks j/k.
+  const rowRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const focusRow = useCallback((i: number) => {
+    const clamped = Math.max(0, Math.min(items.length - 1, i));
+    const el = rowRefs.current[clamped];
+    if (el) {
+      el.focus();
+      setActive(items[clamped] ?? null);
+    }
+  }, [items]);
+  function onRowsKey(e: React.KeyboardEvent) {
+    if (items.length === 0) return;
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    const idx = active ? items.findIndex((i) => i.path === active.path) : -1;
+    if (e.key === 'ArrowDown' || e.key === 'j') {
+      e.preventDefault();
+      focusRow(idx + 1);
+    } else if (e.key === 'ArrowUp' || e.key === 'k') {
+      e.preventDefault();
+      focusRow(idx <= 0 ? 0 : idx - 1);
+    } else if (e.key === 'Enter' && active) {
+      e.preventDefault();
+      router.push(`/sources/view?path=${encodeURIComponent(active.path)}`);
+    }
+  }
+
   return (
     <main className="min-h-screen">
       <TopNav />
@@ -179,16 +213,30 @@ export default function SourcesPage() {
             <div className="cm-card overflow-hidden">
               <div className="flex items-center justify-between border-b border-cm-border px-3 py-2 text-xs text-cm-muted">
                 <span>{items.length} of {total}</span>
-                <span>{namespaces.length} namespaces</span>
+                <span className="hidden items-center gap-1 sm:flex">
+                  <kbd className="rounded border border-cm-border bg-cm-bg px-1 font-mono text-[10px]">j</kbd>
+                  <kbd className="rounded border border-cm-border bg-cm-bg px-1 font-mono text-[10px]">k</kbd>
+                  to move
+                  <span className="mx-1 text-cm-border">|</span>
+                  <kbd className="rounded border border-cm-border bg-cm-bg px-1 font-mono text-[10px]">enter</kbd>
+                  opens
+                </span>
               </div>
-              <ul className="max-h-[70vh] divide-y divide-cm-border overflow-auto">
-                {items.map((it) => {
+              <ul
+                className="max-h-[70vh] divide-y divide-cm-border overflow-auto"
+                onKeyDown={onRowsKey}
+                aria-label="Sources, use j and k or the arrow keys to move and Enter to open"
+              >
+                {items.map((it, i) => {
                   const fb = feedbackMap[it.path];
                   const isActive = active?.path === it.path;
                   return (
                     <li key={it.path} className="relative">
                       <button
+                        ref={(el) => { rowRefs.current[i] = el; }}
                         onClick={() => setActive(it)}
+                        onFocus={() => setActive(it)}
+                        tabIndex={isActive || (!active && i === 0) ? 0 : -1}
                         aria-current={isActive ? 'true' : undefined}
                         className={[
                           'block w-full px-3 py-2.5 pr-10 text-left text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-cm-accent focus-visible:ring-inset',
