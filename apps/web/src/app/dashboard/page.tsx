@@ -148,15 +148,26 @@ export default async function Dashboard() {
             {!stats || stats.byNamespace.length === 0 ? (
               <EmptyHint text="No namespaces indexed yet." href="/ingest" cta="Ingest something" />
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
-                {stats.byNamespace.slice(0, 8).map((n) => (
-                  <div key={n.namespace} style={{ padding: 14, border: '1px solid var(--cm-border)', borderRadius: 10 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14 }}>{n.namespace}</div>
-                    <div style={{ ...metaText, marginTop: 4 }}>{n.files} files · {fmtNum(n.chunks)} chunks · {fmtBytes(n.bytes)}</div>
-                    <div style={{ ...metaText, marginTop: 2 }}>Updated {fmtRelative(n.newestIngestedAt)}</div>
+              (() => {
+                // Scale every namespace tile's bar to the heaviest namespace by
+                // chunks, so the relative weight of each reads as a shape before
+                // the numbers do. Min 1 avoids dividing by zero on a lone tile.
+                const topChunks = Math.max(1, ...stats.byNamespace.map((n) => n.chunks));
+                return (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+                    {stats.byNamespace.slice(0, 8).map((n) => (
+                      <div key={n.namespace} style={{ padding: 14, border: '1px solid var(--cm-border)', borderRadius: 10 }}>
+                        <div style={{ fontWeight: 600, fontSize: 14 }}>{n.namespace}</div>
+                        <div style={{ marginTop: 8, height: 5, width: '100%', borderRadius: 999, background: 'var(--cm-subtle)', overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${Math.max(4, (n.chunks / topChunks) * 100)}%`, borderRadius: 999, background: 'var(--cm-accent)' }} />
+                        </div>
+                        <div style={{ ...metaText, marginTop: 6 }}>{n.files} files · {fmtNum(n.chunks)} chunks · {fmtBytes(n.bytes)}</div>
+                        <div style={{ ...metaText, marginTop: 2 }}>Updated {fmtRelative(n.newestIngestedAt)}</div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
+                );
+              })()
             )}
           </Panel>
         </section>
