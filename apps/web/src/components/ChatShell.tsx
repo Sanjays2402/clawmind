@@ -39,6 +39,10 @@ interface Turn {
   sources: Source[];
   error: string | null;
   done: boolean;
+  // Captured when the stream finishes so the badge persists after streaming:
+  // total tokens received and wall-clock from first to last token.
+  tokens?: number;
+  elapsedMs?: number;
 }
 
 function makeTurnId(): string {
@@ -56,6 +60,19 @@ function makeTurnId(): string {
 // exchange into view by id.
 function turnAnchorId(id: string): string {
   return 'cm-turn-' + id;
+}
+
+// Compact wall-clock for the finished-answer badge: sub-second in ms, then
+// seconds with one decimal.
+function formatElapsed(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+// Tokens-per-second over the streaming window, rounded; blank for zero time.
+function formatRate(tokens: number, ms: number): string {
+  if (ms <= 0) return '';
+  return `${Math.round((tokens / ms) * 1000)} tok/s`;
 }
 
 export function ChatShell({
@@ -190,9 +207,14 @@ export function ChatShell({
       cancelRef.current = false;
       setTurns((prev) =>
         prev.map((t) =>
-          t.id === turnId ? { ...t, answer: '', sources: [], error: null, done: false } : t,
+          t.id === turnId ? { ...t, answer: '', sources: [], error: null, done: false, tokens: undefined, elapsedMs: undefined } : t,
         ),
       );
+      // First-token wall-clock anchor + a local count, so the finished badge
+      // can report total tokens and end-to-end stream time independent of the
+      // live counter state (which resets between turns).
+      let firstTokenAt: number | null = null;
+      let localTokens = 0;
       try {
         await api.stream({ q, namespaces }, (evt) => {
           if (cancelRef.current) return;
@@ -202,6 +224,8 @@ export function ChatShell({
           }
           if (evt.type === 'token') {
             const now = Date.now();
+            if (firstTokenAt === null) firstTokenAt = now;
+            localTokens += 1;
             const prev = lastTokenAtRef.current;
             if (prev !== null) setLastTokenMs(now - prev);
             lastTokenAtRef.current = now;
@@ -219,7 +243,8 @@ export function ChatShell({
         setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, error: msg } : t)));
       } finally {
         setLoading(false);
-        setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, done: true } : t)));
+        const elapsed = firstTokenAt !== null ? Date.now() - firstTokenAt : undefined;
+        setTurns((prev) => prev.map((t) => (t.id === turnId ? { ...t, done: true, tokens: localTokens, elapsedMs: elapsed } : t)));
       }
     },
     [namespaces],
@@ -480,6 +505,17 @@ function TurnBlock({
 
             {turn.done && !turn.error && (
               <div className="mt-6 flex items-center justify-end gap-2 border-t border-cm-border pt-4">
+                {turn.tokens != null && turn.tokens > 0 && (
+                  <span
+                    className="cm-mono mr-auto text-[11px] text-cm-faint"
+                    title="Tokens streamed and total stream time for this answer"
+                  >
+                    {turn.tokens.toLocaleString()} tok
+                    {turn.elapsedMs != null && turn.elapsedMs > 0
+                      ? ` \u00b7 ${formatElapsed(turn.elapsedMs)} \u00b7 ${formatRate(turn.tokens, turn.elapsedMs)}`
+                      : ''}
+                  </span>
+                )}
                 <CopyAnswerButton query={turn.question} answer={turn.answer} sources={turn.sources} />
                 <ShareAnswerButton query={turn.question} answer={turn.answer} sources={turn.sources} />
               </div>
