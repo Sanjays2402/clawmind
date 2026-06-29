@@ -124,13 +124,20 @@ export function CodeView({
   }, [path, win.cited?.start, win.cited?.end]);
 
   // Cmd/Ctrl+F opens the in-file find bar instead of the browser's native one
-  // (which can't see the cited-band rows or token spans). Esc closes + clears.
+  // (which can't see the cited-band rows or token spans). Cmd/Ctrl+G hops to
+  // the next match (Shift to go back) even while the bar is unfocused, so the
+  // browser's native find-again is preserved against our scoped matches. Esc
+  // closes + clears.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
         setFindOpen(true);
         requestAnimationFrame(() => findInputRef.current?.focus());
+      } else if ((e.metaKey || e.ctrlKey) && (e.key === 'g' || e.key === 'G')) {
+        e.preventDefault();
+        setFindOpen(true);
+        stepHit(e.shiftKey ? -1 : 1);
       } else if (e.key === 'Escape' && findOpen) {
         setFindOpen(false);
         setQuery('');
@@ -138,7 +145,7 @@ export function CodeView({
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [findOpen]);
+  }, [findOpen, hitCount, activeHit]);
 
   // Scroll the active match into view when it changes. The active hit's row
   // carries id=cm-find-active so we can target it without a ref-per-line.
@@ -154,7 +161,15 @@ export function CodeView({
 
   function stepHit(dir: 1 | -1) {
     if (hitCount === 0) return;
-    setActiveHit((a) => (a + dir + hitCount) % hitCount);
+    const next = (activeHit + dir + hitCount) % hitCount;
+    // Wrap toast: stepping past the ends loops, which is easy to miss in a
+    // long file. A brief note confirms we cycled rather than dead-ended.
+    if (hitCount > 1 && dir === 1 && next < activeHit) {
+      toast({ tone: 'info', title: `Wrapped to first of ${hitCount} matches` });
+    } else if (hitCount > 1 && dir === -1 && next > activeHit) {
+      toast({ tone: 'info', title: `Wrapped to last of ${hitCount} matches` });
+    }
+    setActiveHit(next);
   }
 
   function toggleWrap() {
