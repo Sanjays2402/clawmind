@@ -21,6 +21,7 @@ import {
   IconRefresh,
   IconArrowRight,
 } from '@clawmind/ui';
+import { readSourcesPrefs, writeSourcesPrefs, type SourcesSort } from '@/lib/sourcesPrefs';
 
 const sortLabels: Record<'recent' | 'path' | 'chunks', string> = {
   recent: 'Recently indexed',
@@ -31,7 +32,7 @@ const sortLabels: Record<'recent' | 'path' | 'chunks', string> = {
 export default function SourcesPage() {
   const [q, setQ] = useState('');
   const [namespace, setNamespace] = useState<string>('');
-  const [sort, setSort] = useState<'recent' | 'path' | 'chunks'>('recent');
+  const [sort, setSort] = useState<SourcesSort>('recent');
   const [items, setItems] = useState<SourceListItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -39,6 +40,26 @@ export default function SourcesPage() {
   const [active, setActive] = useState<SourceListItem | null>(null);
   const [feedbackMap, setFeedbackMap] = useState<Record<string, FeedbackEntry>>({});
   const router = useRouter();
+
+  // Rehydrate the namespace + sort selection from localStorage AFTER mount, so
+  // the server-rendered default ('' / 'recent') and the first client render
+  // match (no hydration mismatch); only then do we adopt any saved pair. The
+  // `hydrated` flag also gates persistence so the mount-time rehydrate write
+  // doesn't clobber a freshly stored value with the default. Namespace is only
+  // applied once it's confirmed to still exist in the loaded list (below).
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    const prefs = readSourcesPrefs();
+    setNamespace(prefs.namespace);
+    setSort(prefs.sort);
+    setHydrated(true);
+  }, []);
+  // Persist the pair whenever either changes, but only after the initial
+  // rehydrate has run so we never write the default over a saved value.
+  useEffect(() => {
+    if (!hydrated) return;
+    writeSourcesPrefs({ namespace, sort });
+  }, [hydrated, namespace, sort]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -76,10 +97,15 @@ export default function SourcesPage() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
-  const namespaces = useMemo(
-    () => Array.from(new Set(items.map((i) => i.namespace))).sort(),
-    [items],
-  );
+  const namespaces = useMemo(() => {
+    const set = new Set(items.map((i) => i.namespace));
+    // A persisted namespace that currently returns zero items (renamed or
+    // emptied since it was saved) would otherwise have no matching <option>,
+    // leaving the select visually blank with no way to read or clear it. Keep
+    // the active namespace in the list so it always shows and stays clearable.
+    if (namespace) set.add(namespace);
+    return Array.from(set).sort();
+  }, [items, namespace]);
 
   // Strongest |boost| in the current feedback set. The diverging boost bars
   // scale against it so the longest bar is always the most-nudged source and
