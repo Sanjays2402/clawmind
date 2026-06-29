@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { TopNav } from '@/components/TopNav';
 import { api, fmtRelative, type Webhook, type WebhookDelivery, type WebhookEvent } from '@/lib/api';
 import {
@@ -190,6 +190,24 @@ export default function WebhooksPage() {
   const health: 'failing' | 'healthy' | 'paused' =
     failingCount > 0 ? 'failing' : activeCount > 0 ? 'healthy' : 'paused';
 
+  // Recent delivery health per endpoint, derived from the last-N deliveries
+  // already loaded for the table below. The row meta carries a LIFETIME
+  // failureCount; this turns the RECENT delivery outcomes into a shape - the
+  // share of the last few attempts to that endpoint that actually succeeded -
+  // so an endpoint that's failing all-time but has recovered (last 8 all ok)
+  // reads differently from one that's actively degrading. Keyed by webhook id;
+  // only endpoints with at least one delivery in the window get an entry.
+  const deliveryRates = useMemo(() => {
+    const m = new Map<string, { ok: number; total: number }>();
+    for (const d of deliveries) {
+      const cur = m.get(d.webhookId) ?? { ok: 0, total: 0 };
+      cur.total += 1;
+      if (d.ok) cur.ok += 1;
+      m.set(d.webhookId, cur);
+    }
+    return m;
+  }, [deliveries]);
+
   return (
     <div className="min-h-screen bg-cm-bg text-cm-fg">
       <TopNav />
@@ -369,6 +387,10 @@ export default function WebhooksPage() {
                       <span>last delivery {fmtRelative(wh.lastDeliveryAt)}</span>
                       {wh.lastStatus !== null && <span>status {wh.lastStatus}</span>}
                       {wh.failureCount > 0 && <span className="text-cm-danger">{wh.failureCount} failing</span>}
+                      {(() => {
+                        const r = deliveryRates.get(wh.id);
+                        return r ? <DeliveryRateBar ok={r.ok} total={r.total} /> : null;
+                      })()}
                       {wh.previousSecretExpiresAt && wh.previousSecretExpiresAt > Date.now() && (
                         <span
                           className="rounded border border-cm-cite-line px-1.5 py-0.5 text-cm-cite"
@@ -554,5 +576,43 @@ export default function WebhooksPage() {
         </section>
       </main>
     </div>
+  );
+}
+
+/**
+ * Recent delivery success-rate mini-bar for a single endpoint. The row already
+ * shows a lifetime failing count; this turns the RECENT delivery window (the
+ * last-N rows loaded for the table below, scoped to this endpoint) into a
+ * shape: a thin track whose green fill is the share of those attempts that
+ * succeeded, with the danger remainder reading as the failing slice. A fully
+ * healthy window collapses to a solid green bar; a degrading endpoint shows a
+ * growing red tail. The exact "ok/total" rides alongside for the precise count.
+ */
+function DeliveryRateBar({ ok, total }: { ok: number; total: number }) {
+  if (total <= 0) return null;
+  const pct = Math.round((ok / total) * 100);
+  const allOk = ok === total;
+  return (
+    <span
+      className="inline-flex items-center gap-1.5"
+      title={`${ok} of the last ${total} ${total === 1 ? 'delivery' : 'deliveries'} succeeded (${pct}%)`}
+    >
+      <span
+        aria-hidden="true"
+        className="relative inline-block h-2 w-14 overflow-hidden rounded-full"
+        style={{ background: 'var(--cm-danger)' }}
+      >
+        <span
+          className="absolute inset-y-0 left-0 transition-all duration-300"
+          style={{ width: `${pct}%`, background: 'var(--cm-success)' }}
+        />
+      </span>
+      <span
+        className={allOk ? 'text-cm-success' : pct >= 50 ? 'text-cm-muted' : 'text-cm-danger'}
+        style={{ fontVariantNumeric: 'tabular-nums' }}
+      >
+        {ok}/{total} ok
+      </span>
+    </span>
   );
 }
