@@ -395,7 +395,47 @@ function AppearanceCard() {
         <span className="text-sm text-cm-muted">Dark or light mode</span>
         <ThemeToggle />
       </div>
+      <div className="mt-4 border-t border-cm-border pt-4">
+        <AccentSwatch />
+      </div>
     </Section>
+  );
+}
+
+// Live preview of the brand accent family, sampled from the running theme so
+// it tracks dark/light. Surfaces the four tones (accent / ink / line / soft)
+// the app paints with, applied to the same chip + dot + rail shapes used
+// across the UI, with the resolved value shown. This is the ready-made
+// surface for a future "pick your accent" control: today it just mirrors the
+// theme accent, so a reader can see exactly what the brand color does.
+function AccentSwatch() {
+  const [accent, setAccent] = useState<string>('');
+  useEffect(() => {
+    const read = () =>
+      setAccent(
+        getComputedStyle(document.documentElement).getPropertyValue('--cm-accent').trim(),
+      );
+    read();
+    // Re-sample when the theme toggles (class/data-theme flip on <html>).
+    const obs = new MutationObserver(read);
+    obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'data-theme'] });
+    return () => obs.disconnect();
+  }, []);
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <span className="text-sm text-cm-muted">Accent color</span>
+        <p className="cm-mono mt-0.5 text-[11px] uppercase tracking-wider text-cm-faint">
+          {accent || 'theme accent'}
+        </p>
+      </div>
+      <div className="flex items-center gap-1.5" aria-label="Accent preview">
+        <span className="h-5 w-5 rounded-full" style={{ background: 'var(--cm-accent)' }} title="accent" />
+        <span className="h-5 w-5 rounded-full" style={{ background: 'var(--cm-accent-ink)' }} title="ink" />
+        <span className="h-5 w-5 rounded-full" style={{ background: 'var(--cm-accent-soft)', boxShadow: 'inset 0 0 0 1px var(--cm-accent-line)' }} title="soft" />
+        <span className="inline-flex items-center rounded-md bg-cm-accent-soft px-2 py-1 text-[11px] text-cm-accent-ink" style={{ boxShadow: 'inset 2px 0 0 var(--cm-accent-line)' }}>Sample</span>
+      </div>
+    </div>
   );
 }
 
