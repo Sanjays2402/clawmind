@@ -183,6 +183,7 @@ export function CodeView({
           const lineNo = startLine + i;
           const cited = isCitedLine(win, lineNo);
           const firstCited = cited && (i === 0 || !isCitedLine(win, lineNo - 1));
+          const lastCited = cited && (i === lines.length - 1 || !isCitedLine(win, lineNo + 1));
           // Optimistic wash: rows in the just-clicked selection that aren't
           // already cited light up instantly while the nav round-trips, so a
           // plain-file line (no citation) still confirms the click.
@@ -191,7 +192,7 @@ export function CodeView({
           return (
             <div
               key={i}
-              id={firstCited ? 'cm-cited' : undefined}
+              id={firstCited ? 'cm-cited' : lastCited ? 'cm-cited-end' : undefined}
               className={cited ? 'cm-cited-line' : sel ? 'cm-selected-line' : undefined}
               style={{ display: 'flex', alignItems: 'flex-start' }}
             >

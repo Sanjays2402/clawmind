@@ -7,6 +7,7 @@ import { BackToCited } from '@/components/BackToCited';
 import { CodeView } from '@/components/CodeView';
 import { CopyCitedLines } from '@/components/CopyCitedLines';
 import { ContextStepper } from '@/components/ContextStepper';
+import { CitedLineStepper } from '@/components/CitedLineStepper';
 import { api, fmtBytes, fmtRelative } from '@/lib/api';
 import { contextWindow, citedText, CONTEXT_PAD } from '@/lib/contextWindow';
 import { langForPath, langLabelForPath } from '@/lib/highlight';
@@ -140,6 +141,9 @@ export default async function SourceView({ searchParams }: { searchParams: SP })
                   pad={pad}
                   defaultPad={CONTEXT_PAD}
                 />
+              )}
+              {win.cited && win.cited.end > win.cited.start && (
+                <CitedLineStepper span={win.cited.end - win.cited.start + 1} />
               )}
             </div>
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 12 }}>
