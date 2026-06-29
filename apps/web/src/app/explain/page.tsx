@@ -5,6 +5,11 @@ import Link from 'next/link';
 import { TopNav } from '@/components/TopNav';
 import { api, type ChunkExplanation, type ExplainResponse } from '@/lib/api';
 import {
+  DEFAULT_EXPLAIN_PREFS,
+  readExplainPrefs,
+  writeExplainPrefs,
+} from '@/lib/explainPrefs';
+import {
   Logo,
   Spinner,
   IconSpark,
@@ -129,13 +134,34 @@ function CandidateCard({ c, alpha }: { c: ChunkExplanation; alpha: number }) {
 
 export default function ExplainPage() {
   const [q, setQ] = useState('');
-  const [alpha, setAlpha] = useState(0.5);
-  const [lambda, setLambda] = useState(0.5);
-  const [k, setK] = useState(8);
+  const [alpha, setAlpha] = useState(DEFAULT_EXPLAIN_PREFS.alpha);
+  const [lambda, setLambda] = useState(DEFAULT_EXPLAIN_PREFS.lambda);
+  const [k, setK] = useState(DEFAULT_EXPLAIN_PREFS.k);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ExplainResponse | null>(null);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
+
+  // Rehydrate the tuning knobs from a previous session on mount. Kept in an
+  // effect (not lazy state init) so the first server/client render agree on the
+  // defaults and only the browser swaps in the persisted values, avoiding an
+  // SSR hydration mismatch. `hydrated` gates the persist effect below so the
+  // initial read never immediately writes the defaults back over real values.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => {
+    const p = readExplainPrefs();
+    setAlpha(p.alpha);
+    setLambda(p.lambda);
+    setK(p.k);
+    setHydrated(true);
+  }, []);
+
+  // Persist whenever a knob settles. Only after hydration so we never clobber a
+  // stored session with the pre-read defaults on the very first paint.
+  useEffect(() => {
+    if (!hydrated) return;
+    writeExplainPrefs({ alpha, lambda, k });
+  }, [hydrated, alpha, lambda, k]);
 
   async function run(query: string) {
     const trimmed = query.trim();
@@ -264,7 +290,26 @@ export default function ExplainPage() {
               />
             </div>
           </div>
-          <p className="cm-mono mt-3 text-[11px] text-cm-faint">cmd + enter to re-run</p>
+          <div className="mt-3 flex items-center justify-between gap-3">
+            <p className="cm-mono text-[11px] text-cm-faint">cmd + enter to re-run</p>
+            <button
+              type="button"
+              onClick={() => {
+                setAlpha(DEFAULT_EXPLAIN_PREFS.alpha);
+                setLambda(DEFAULT_EXPLAIN_PREFS.lambda);
+                setK(DEFAULT_EXPLAIN_PREFS.k);
+              }}
+              disabled={
+                alpha === DEFAULT_EXPLAIN_PREFS.alpha &&
+                lambda === DEFAULT_EXPLAIN_PREFS.lambda &&
+                k === DEFAULT_EXPLAIN_PREFS.k
+              }
+              className="cm-mono text-[11px] text-cm-faint underline-offset-2 transition hover:text-cm-fg hover:underline disabled:opacity-40 disabled:no-underline disabled:hover:text-cm-faint"
+              title="Reset alpha, lambda, and k to their defaults"
+            >
+              reset knobs
+            </button>
+          </div>
         </div>
       </section>
 
