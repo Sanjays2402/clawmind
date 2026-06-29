@@ -30,6 +30,7 @@ import {
   IconShield,
   IconSettings,
   Kbd,
+  Dialog,
 } from '@clawmind/ui';
 import { api } from '@/lib/api';
 import { readRecent, bestRouteHref } from '@/lib/recentPages';
@@ -296,36 +297,8 @@ export function CommandPalette() {
     }
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      onClick={() => setOpen(false)}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 50,
-        background: 'rgba(0,0,0,0.45)',
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-        padding: '12vh 16px 16px',
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%',
-          maxWidth: 560,
-          background: 'var(--cm-bg)',
-          border: '1px solid var(--cm-border)',
-          borderRadius: 12,
-          boxShadow: '0 24px 64px rgba(0,0,0,0.45)',
-          overflow: 'hidden',
-        }}
-      >
+    <Dialog open={open} onClose={() => setOpen(false)} align="start" maxWidth={560} label="Command palette">
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderBottom: '1px solid var(--cm-border)' }}>
           <IconSearch size={16} />
           <input
@@ -404,8 +377,7 @@ export function CommandPalette() {
           </div>
           <span><Kbd size="sm">⌘</Kbd> <Kbd size="sm">K</Kbd> toggle</span>
         </div>
-      </div>
-    </div>
+    </Dialog>
   );
 }
 
