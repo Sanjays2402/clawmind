@@ -49,21 +49,74 @@ A11y / KEYBOARD (the TopNav rove landed c79f320; extend the pattern):
 - [x] feat(web/a11y): roving-tabindex on the mobile TopNav scroll bar (4e35672).
 - [x] feat(web/a11y): aria-current + focus ring on /sources rows (e6bf99d) - /history,
   /pins rows use native-focus inner links already, so done.
-- [ ] feat(web/a11y): TopNav More-menu items get up/down arrow roving inside the popover.
+- [x] feat(web/a11y): TopNav More-menu items get up/down arrow roving inside the popover (e6b8d83).
 
 DATA-VIZ VEIN (evergreen, proven 8+ ticks - dumped numbers -> shapes):
-- [ ] feat(web/stats): donut/proportion of namespace share alongside the bars.
-- [ ] feat(web/feedback): up/down ratio mini-bar per source row.
-- [ ] feat(web/digests): per-digest run-history sparkline strip.
-- [ ] feat(web/audit): event-type frequency lane in the day header.
-- [ ] feat(web/keys): per-key last-used recency lane (reuse pins pattern).
+- [x] feat(web/stats): donut/proportion of namespace share alongside the bars (was already shipped, NamespaceDonut).
+- [x] feat(web/feedback): up/down ratio mini-bar per source row (ba6de82).
+- [ ] feat(web/digests): per-digest run-history sparkline strip. (NEEDS api: no per-run series exposed yet.)
+- [ ] feat(web/audit): event-type frequency lane in the day header. (NEEDS day-grouping; audit is flat-paginated.)
+- [x] feat(web/keys): per-key last-used recency lane (2dca9e2, reused pins pattern).
 
 POLISH:
-- [ ] feat(web/conversations): thread length + last-active chips per row.
-- [ ] feat(web/chat): per-turn token/timing badge persists after stream ends.
-- [ ] feat(web/sources/view): find overlay - "n of m" hop on Cmd+G / wrap toast.
-- [ ] feat(web/explain): empty-state starter buttons like /chat's.
+- [x] feat(web/conversations): thread length + last-active chips per row (was already shipped, turns + updated).
+- [x] feat(web/chat): per-turn token/timing badge persists after stream ends (c0af5ba).
+- [x] feat(web/sources/view): find overlay - "n of m" hop on Cmd+G / wrap toast (eea4869).
+- [x] feat(web/explain): empty-state starter buttons like /chat's (was already shipped, SAMPLES grid).
 
+
+### Refilled frontend queue (2026-06-29 01:14 PDT) - work top to bottom
+
+POLISH / INTERACTION:
+- [ ] feat(web/conversations): per-row hover preview of the last assistant reply.
+- [ ] feat(web/sources/view): match-density gutter ticks while find is open (jump-to-region).
+- [ ] feat(web/search): result-row keyboard rove + Enter to open, like the rail j/k.
+- [ ] feat(web/chat): copy-button confirms with a 1.5s checkmark swap, not just a toast.
+- [ ] feat(web/notifications): mark-all-read sticky bar when unread > 0 with count.
+- [ ] feat(web/dashboard): tiny trend caret on each stat tile vs the prior period.
+
+DATA-VIZ:
+- [ ] feat(web/usage): ask-vs-search split bar in the period summary header.
+- [ ] feat(web/stats): per-namespace extension treemap-lite (top 3 exts as a stacked bar).
+- [ ] feat(web/digests): +new / -removed mini-bars per digest row (set-bounds, no api).
+- [ ] feat(web/incidents): severity distribution lane in the list header.
+
+EMPTY/LOADING/ERROR + THEMING:
+- [ ] feat(web/saved): skeleton rows during first load instead of a bare spinner.
+- [ ] feat(web/collections): drag-to-reorder affordance hint + grab cursor.
+- [ ] feat(web/tags): tag-cloud size weighting by usage count.
+- [ ] feat(web/sources): sticky filter bar shadow when scrolled.
+- [ ] feat(web/explain): persist alpha/lambda/k sliders to localStorage.
+- [ ] feat(web/settings): section anchor nav rail on long settings pages.
+
+
+### TICK LOG 2026-06-29 01:14 PDT - A11y ROVE + 3 DATA-VIZ LANES + CHAT BADGE (5 slices)
+
+Drained the entire remaining standing queue: More-menu arrow roving, the two
+data-viz lanes that had no api blocker, chat badge, and sources Cmd+G. AUDITED
+before counting: stats donut (NamespaceDonut), conversations chips (turns +
+updated), and explain starters (SAMPLES grid) were ALREADY shipped, so I marked
+them done honestly instead of re-doing or padding. Digests sparkline + audit
+day-header lane both NEED backend (no per-run series / audit is flat-paginated)
+- skipped under the frontend-only override. 5 real slices, 0 filler.
+
+The 5 slices:
+- a11y: More-menu popover arrow roving. ~20 items were all tab stops; now Up/Down
+  rove within, opening focuses active route, Home/End ends, Tab closes. e6b8d83.
+- feedback: per-row up/down ratio mini-bar (emerald/danger split, percent). ba6de82.
+- keys: last-used recency lane - 30-day fill bar next to the text, green if hot,
+  dim on revoked/expired, empty+labelled if never. Reuses pins rail. 2dca9e2.
+- chat: per-turn token/timing badge persists after stream ends (N tok, elapsed,
+  tok/s) - captures first-to-last wall-clock + count on stream end. c0af5ba.
+- sources/view: Cmd+G find-again hop (Shift back) from anywhere + wrap toast. eea4869.
+
+Gated: web+ui typecheck GREEN, web+ui test GREEN, web build GREEN (compiled 3.3s;
+/chat 11kB, /keys 8.14kB, /sources/view 8.28kB, /feedback 2.34kB, /stats 3.28kB).
+Pushed aac226d..eea4869. Telemetry OTel drift still red at baseline (untouched).
+
+NEXT TICK: fresh queue refilled (16 items, frontend-only). Top: conversations
+hover preview, find-density gutter ticks, search row rove. Telemetry infra red
+still worth flagging to Sanjay (out of frontend scope).
 
 ### TICK LOG 2026-06-28 22:39 PDT - DIALOG MIGRATION FINISHED + A11y ROVE (5 slices)
 
