@@ -308,7 +308,24 @@ export default function SavedPage() {
 
         <div className="mt-5">
           {loading && rows.length === 0 ? (
-            <div className="flex justify-center py-12"><Spinner /></div>
+            <ul className="cm-card divide-y divide-cm-border" aria-busy="true" aria-label="Loading saved searches">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <li key={i} className="flex items-center justify-between gap-3 p-4">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div className="h-3.5 w-2/5 animate-pulse rounded bg-cm-subtle" />
+                    <div className="h-3 w-3/4 animate-pulse rounded bg-cm-subtle" />
+                    <div className="flex gap-1.5">
+                      <div className="h-4 w-12 animate-pulse rounded-full bg-cm-subtle" />
+                      <div className="h-4 w-10 animate-pulse rounded-full bg-cm-subtle" />
+                    </div>
+                  </div>
+                  <div className="hidden shrink-0 gap-2 sm:flex">
+                    <div className="h-8 w-20 animate-pulse rounded-md bg-cm-subtle" />
+                    <div className="h-8 w-8 animate-pulse rounded-md bg-cm-subtle" />
+                  </div>
+                </li>
+              ))}
+            </ul>
           ) : rows.length === 0 ? (
             <EmptyState
               title="No saved searches"
