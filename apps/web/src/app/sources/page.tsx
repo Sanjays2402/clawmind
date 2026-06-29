@@ -174,8 +174,9 @@ export default function SourcesPage() {
                     <li key={it.path} className="relative">
                       <button
                         onClick={() => setActive(it)}
+                        aria-current={isActive ? 'true' : undefined}
                         className={[
-                          'block w-full px-3 py-2.5 pr-10 text-left text-sm transition-colors',
+                          'block w-full px-3 py-2.5 pr-10 text-left text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-cm-accent focus-visible:ring-inset',
                           isActive ? 'bg-cm-accent-soft' : 'hover:bg-cm-bg',
                         ].join(' ')}
                       >
