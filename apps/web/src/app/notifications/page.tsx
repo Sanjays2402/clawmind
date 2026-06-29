@@ -275,6 +275,26 @@ export default function NotificationsPage() {
           )}
         </section>
       </div>
+
+      {unread > 0 && (
+        <div className="sticky bottom-0 z-20 border-t border-cm-border bg-cm-bg/85 backdrop-blur">
+          <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 px-4 py-2.5 sm:px-6">
+            <span className="inline-flex items-center gap-2 text-sm text-cm-muted">
+              <span className="inline-flex h-1.5 w-1.5 shrink-0 rounded-full bg-cm-accent" aria-hidden="true" />
+              {unread} unread notification{unread === 1 ? '' : 's'}
+            </span>
+            <button
+              type="button"
+              onClick={markAll}
+              disabled={busy === 'all'}
+              className="inline-flex items-center gap-1.5 rounded-md bg-cm-accent px-3 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {busy === 'all' ? <Spinner size={14} /> : <IconCheck size={14} />}
+              Mark all read
+            </button>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
