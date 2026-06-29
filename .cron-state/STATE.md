@@ -37,6 +37,69 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### Refilled frontend queue (2026-06-28 20:08 PDT) - work top to bottom
+
+DIALOG MIGRATION (the primitive shipped c8e0e81; finish standardizing):
+- [ ] feat(web/ui): convert CommandPalette onto the shared Dialog (drop its
+  bespoke backdrop/Esc/scroll-lock; keep its list nav). align="start".
+- [ ] feat(web/ui): convert ShareAnswerButton's modal onto Dialog (center).
+- [ ] feat(web/ui): variant prop on Dialog for a titled header slot so callers
+  stop re-rolling the header strip; adopt in all three modals.
+
+A11y / KEYBOARD (the TopNav rove landed c79f320; extend the pattern):
+- [ ] feat(web/a11y): roving-tabindex on the mobile TopNav scroll bar too.
+- [ ] feat(web/a11y): aria-current + visible focus ring audit on /sources, /history,
+  /pins list rows (rail j/k moves but focus ring is faint).
+- [ ] feat(web/a11y): TopNav More-menu items get up/down arrow roving inside the popover.
+
+DATA-VIZ VEIN (evergreen, proven 8+ ticks - dumped numbers -> shapes):
+- [ ] feat(web/stats): donut/proportion of namespace share alongside the bars.
+- [ ] feat(web/feedback): up/down ratio mini-bar per source row.
+- [ ] feat(web/digests): per-digest run-history sparkline strip.
+- [ ] feat(web/audit): event-type frequency lane in the day header.
+- [ ] feat(web/keys): per-key last-used recency lane (reuse pins pattern).
+
+POLISH:
+- [ ] feat(web/conversations): thread length + last-active chips per row.
+- [ ] feat(web/chat): per-turn token/timing badge persists after stream ends.
+- [ ] feat(web/sources/view): find overlay - "n of m" hop on Cmd+G / wrap toast.
+- [ ] feat(web/explain): empty-state starter buttons like /chat's.
+
+
+### TICK LOG 2026-06-28 20:08 PDT - CHAT/VIEWER/A11y/UI FOUNDATIONS (5 slices)
+
+Data-viz vein and chat multi-turn are both drained, so I pulled the strongest
+remaining standing items: the source-viewer in-file find (last reading gap), the
+last two GLOBAL UX items (Dialog primitive + TopNav a11y), the copy/share toast,
+and the accent-swatch surface. AUDITED before touching: every chat-companion queue
+item (starter prompts, scroll-to-bottom, "/" focus, recent pages) was ALREADY
+shipped (verified in ChatShell/Composer/RecentPagesRecorder), so I did NOT pad with
+them - 5 real slices, 0 filler.
+
+The 5 slices:
+- sources/view: in-file find. Browser native find skips token-split + cited-band
+  rows; added a dependency-free Cmd/Ctrl+F bar that walks raw lines, marks every
+  case-insensitive hit, shows a live count, Enter/Shift+Enter + steppers cycle the
+  active match centred, active mark reads hotter accent vs gold hits. SHIPPED bd75cf7.
+- TopNav: roving-tabindex. 7 primary links were all tab stops; now one is tabbable,
+  Left/Right/Home/End arrow across (toolbar pattern), Tab lands on active route.
+  SHIPPED c79f320.
+- chat/share: ShareAnswerButton copied silently; routed create+copy, copy-again,
+  blocked-clipboard through the global toast w/ expiry. SHIPPED 8f4227b.
+- ui: shared Dialog primitive in @clawmind/ui (scroll-lock, focus trap, Esc+backdrop,
+  fade-in, center/start). Converted ShortcutHelp onto it, dropping ~40 dup lines +
+  its hand-rolled Esc effect. SHIPPED c8e0e81.
+- settings: accent preview swatch in Appearance (accent/ink/line/soft chips sampled
+  live, re-samples on theme flip) - surface for a future pick-your-accent. SHIPPED 054605b.
+
+Gated ONCE: ui+web typecheck GREEN, ui build GREEN, web build GREEN (102 routes;
+/sources/view 8.2kB w/ find, /chat 10.9kB). Lone history L624 warning is PRE-EXISTING.
+Pushed 3dd3510..054605b.
+
+NEXT TICK: Dialog primitive exists - convert CommandPalette + ShareAnswerButton onto
+it next (each still hand-rolls its shell). Then mine the data-viz/posture-chip vein on
+remaining list pages. See refilled GLOBAL UX + DATA-VIZ queues below.
+
 ### TICK LOG 2026-06-28 17:33 PDT - DATA-VIZ VEIN + SOURCE-VIEWER reading (5 slices)
 
 Drained the two top-of-queue veins: 3 DATA-VIZ bars (saved/collections/dashboard)
@@ -871,12 +934,20 @@ mix strips, recency lanes, posture chips):
   chunk-weight bar scaled to heaviest namespace.
 
 GLOBAL UX / POLISH (evergreen):
-- [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette,
-  ShareAnswerButton, ShortcutHelp) on a single <Dialog> primitive in @clawmind/ui
-  (focus trap, Esc, backdrop, scroll-lock) so future modals don't drift.
-- [ ] feat(web/a11y): roving-tabindex on the TopNav primary nav (ARIA menubar
-  pattern) for keyboard arrow-key movement.
-- [x] feat(web/welcome): finish the welcome guide visually. DROPPED - welcome/page.tsx
+- [~] feat(web/ui): standardize the modal/dialog shell. Dialog primitive SHIPPED
+  c8e0e81 + ShortcutHelp converted; STILL TODO: convert CommandPalette +
+  ShareAnswerButton (+ ShortcutHelp's `?`-collision-free useHotkey) onto it.
+- [x] feat(web/a11y): roving-tabindex on the TopNav primary nav. SHIPPED c79f320 -
+  toolbar pattern, Left/Right/Home/End, Tab lands on active route.
+- [x] feat(web/chat): toast on share-copy success. SHIPPED 8f4227b - create/copy/
+  blocked all routed through useToast.
+- [x] feat(web/sources/view): in-file find overlay. SHIPPED bd75cf7 - Cmd/F bar,
+  raw-line walk, count + Enter/steppers, active hotter mark.
+- [x] feat(web/settings): accent-color preview swatch. SHIPPED 054605b - accent/ink/
+  line/soft chips sampled live, re-samples on theme flip.
+- [ ] feat(web/ui): convert CommandPalette + ShareAnswerButton onto the new Dialog
+  primitive (both still hand-roll backdrop/Esc/scroll-lock).
+- [ ] feat(web/welcome): finish the welcome guide visually. DROPPED - welcome/page.tsx
   is already a complete real 3-step action flow (ingest/ask/configure with live
   progress, seed button, dismiss/reset), not a stub. Building a separate tour would
   be padding.
@@ -929,9 +1000,8 @@ CHAT SURFACE (still the biggest product gap):
 SOURCE VIEWER + READING:
 - [x] feat(web/sources/view): "jump to next/prev cited line" stepper. SHIPPED
   3402b22 - CitedLineStepper, cm-cited <-> cm-cited-end, only when band > 85vh.
-- [ ] feat(web/sources/view): in-file find (cmd+F-style overlay scoped to the
-  viewer) highlighting matches in the rendered code, dependency-free, reusing the
-  highlight token walk (native find doesn't see the token spans well).
+- [x] feat(web/sources/view): in-file find (cmd+F-style overlay scoped to the
+  viewer). SHIPPED bd75cf7 - dependency-free raw-line walk, live count, active mark.
 - [x] feat(web/sources/view): line-permalink selection wash on plain (non-cited)
   lines. SHIPPED 0e39b4e - optimistic .cm-selected-line accent wash on click.
 
