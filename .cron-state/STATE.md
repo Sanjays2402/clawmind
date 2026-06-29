@@ -37,6 +37,52 @@ finished and intentional, not stamped.
 
 Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single tick).
 
+### TICK LOG 2026-06-28 17:33 PDT - DATA-VIZ VEIN + SOURCE-VIEWER reading (5 slices)
+
+Drained the two top-of-queue veins: 3 DATA-VIZ bars (saved/collections/dashboard)
++ 2 SOURCE-VIEWER reading slices. AUDITED before touching: the queued usage
+ask-vs-search bar was ALREADY shipped (c6fd748 mix bar + MixLegend already live on
+/usage), so I dropped it as done and pulled a dashboard tile audit instead - 5 real
+slices, 0 filler, 0 padding-with-a-done-item.
+
+The 5 slices:
+- saved: digest rows showed last-run churn as bare "+N new / -N removed" text;
+  replaced with a DIVERGING delta bar (removed grows left in danger, new right in
+  success, around a centre tick, each half scaled to maxChurn across visible
+  digests). Clean 0/0 collapses to a quiet "no change last run" so the row stays
+  honest. SHIPPED d0cb67d.
+- collections: item count was a bare "N saved" chip; added a proportional size bar
+  under each name, scaled to the largest collection (maxItems), tinted by each
+  folder's accent dot, 6% floor for tiny ones, empty draws nothing. SHIPPED 7d56c32.
+- dashboard: namespace tiles dumped files/chunks/bytes raw; added a chunk-weight bar
+  scaled to the heaviest namespace (same pattern stats page proves), 4% floor.
+  SHIPPED 0542218.
+- sources/view: line permalinks only washed the cited band; a plain-file gutter
+  click had NO feedback until the nav round-tripped. Added optimistic
+  .cm-selected-line (softer accent rail than gold cited) on the clicked rows +
+  accent gutter number, cleared when cited band resolves. SHIPPED 0e39b4e.
+- sources/view: tall cited bands lost their bottom when scrolled to top; tagged the
+  last cited row id=cm-cited-end + new CitedLineStepper pill jumps first<->last,
+  only renders when band > 85vh and spans >1 line, reduced-motion aware. SHIPPED
+  3402b22.
+
+Gated ONCE: web typecheck GREEN, web build GREEN (all 102 routes, incl. /saved,
+/collections, /dashboard, /sources/view now 7.13kB w/ both steppers). Diff is 6
+files under apps/web/src (saved/collections/dashboard pages, CodeView, sources/view
+page, globals.css) + 1 new component (CitedLineStepper.tsx), 0 backend/packages.
+Pushed d552fd1..3402b22:
+- d0cb67d feat(web/saved): diverging new-vs-removed churn bar.
+- 7d56c32 feat(web/collections): proportional size bar per collection.
+- 0542218 feat(web/dashboard): proportional bar on namespace tiles.
+- 0e39b4e feat(web/sources/view): instant selection wash on clicked lines.
+- 3402b22 feat(web/sources/view): jump-to-first/last stepper for tall cited bands.
+
+NEXT TICK: data-viz vein is mostly drained (saved/usage/collections/dashboard all
+done). The remaining strong items: the chat composer drag-and-drop pin (needs a tiny
+/pins->ask API touch, last chat-surface gap), sources/view in-file find overlay,
+GLOBAL UX (Dialog primitive standardization, TopNav roving-tabindex). Pull from the
+DATA-VIZ VEIN + SOURCE VIEWER + GLOBAL UX queues below.
+
 ### TICK LOG 2026-06-28 14:37 PDT - CHAT MULTI-TURN + data-viz vein (5 slices)
 
 Pulled the CHAT SURFACE per-message conversation history - the single biggest
@@ -814,15 +860,15 @@ mix strips, recency lanes, posture chips):
 - [x] feat(web/sources): diverging feedback-boost signal bar. SHIPPED 9884478.
 - [x] feat(web/history): per-day model-mix segmented strip. SHIPPED ea6c876.
 - [x] feat(web/pins): per-row recency lane + newest badge. SHIPPED e74ccca.
-- [ ] feat(web/saved): the saved-search rows show run counts as text; a tiny
-  new-vs-removed delta bar per saved search would read as a shape (DigestSummary
-  carries lastNewCount/lastRemovedCount).
-- [ ] feat(web/usage): the byKind ask/search split is two numbers; a single
-  proportional ask-vs-search bar would show the workload mix at a glance.
-- [ ] feat(web/collections): item counts per collection are bare; a proportional
-  bar scaled to the largest collection turns the grid into a size map.
-- [ ] feat(web/dashboard): audit/scan whether any dashboard tiles dump raw numbers
-  that would read better as the proven bar/posture-chip patterns.
+- [x] feat(web/saved): the saved-search rows show run counts as text; a tiny
+  new-vs-removed delta bar per saved search. SHIPPED d0cb67d - diverging churn
+  bar, removed left/danger, new right/success, scaled to busiest digest.
+- [x] feat(web/usage): proportional ask-vs-search bar. ALREADY SHIPPED (mix bar
+  c6fd748 + MixLegend) - dropped, was already done.
+- [x] feat(web/collections): item counts per collection are bare; a proportional
+  bar scaled to the largest collection. SHIPPED 7d56c32 - accent-tinted size bar.
+- [x] feat(web/dashboard): proportional bar on namespace tiles. SHIPPED 0542218 -
+  chunk-weight bar scaled to heaviest namespace.
 
 GLOBAL UX / POLISH (evergreen):
 - [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette,
@@ -881,16 +927,13 @@ CHAT SURFACE (still the biggest product gap):
   chip below the textarea submitted with the question).
 
 SOURCE VIEWER + READING:
-- [ ] feat(web/sources/view): "jump to next/prev cited line" stepper when the cited
-  band spans more rows than fit on screen - reuses id=cm-cited (add per-row ids).
+- [x] feat(web/sources/view): "jump to next/prev cited line" stepper. SHIPPED
+  3402b22 - CitedLineStepper, cm-cited <-> cm-cited-end, only when band > 85vh.
 - [ ] feat(web/sources/view): in-file find (cmd+F-style overlay scoped to the
   viewer) highlighting matches in the rendered code, dependency-free, reusing the
   highlight token walk (native find doesn't see the token spans well).
-- [ ] feat(web/sources/view): the new line-permalink (3e7648c) should show a brief
-  selection wash on the clicked line even when it's OUTSIDE the cited band, so a
-  plain-file open (no citation) still gives visual feedback on which line you
-  linked. Today only the cited band gets .cm-cited-line; a plain selection has no
-  highlight until the round-trip re-renders.
+- [x] feat(web/sources/view): line-permalink selection wash on plain (non-cited)
+  lines. SHIPPED 0e39b4e - optimistic .cm-selected-line accent wash on click.
 
 GLOBAL UX / POLISH:
 - [ ] feat(web/ui): standardize the modal/dialog shell (CommandPalette,
