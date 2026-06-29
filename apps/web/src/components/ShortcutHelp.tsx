@@ -81,38 +81,18 @@ export function ShortcutHelp() {
   const close = useCallback(() => setOpen(false), []);
 
   return (
-    <Dialog open={open} onClose={close} align="start" maxWidth={560} labelledBy="shortcut-help-title">
-        <header
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            justifyContent: 'space-between',
-            padding: '14px 18px',
-            borderBottom: '1px solid var(--cm-border)',
-            background: 'var(--cm-subtle)',
-          }}
-        >
-          <h2
-            id="shortcut-help-title"
-            className="cm-serif"
-            style={{
-              margin: 0,
-              fontSize: 17,
-              fontWeight: 500,
-              color: 'var(--cm-fg)',
-              letterSpacing: -0.005,
-            }}
-          >
-            Keyboard shortcuts
-          </h2>
-          <span
-            className="cm-mono"
-            style={{ fontSize: 11, color: 'var(--cm-faint)' }}
-          >
-            press <Kbd>?</Kbd> to toggle
-          </span>
-        </header>
-
+    <Dialog
+      open={open}
+      onClose={close}
+      align="start"
+      maxWidth={560}
+      title="Keyboard shortcuts"
+      titleRight={
+        <span className="cm-mono" style={{ fontSize: 11, color: 'var(--cm-faint)' }}>
+          press <Kbd>?</Kbd> to toggle
+        </span>
+      }
+    >
         <div style={{ padding: '8px 8px 12px' }}>
           {GROUPS.map((group) => (
             <section key={group.title} style={{ padding: '10px 10px 6px' }}>
