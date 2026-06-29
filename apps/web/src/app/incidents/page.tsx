@@ -64,9 +64,24 @@ function duration(startedAt: number, resolvedAt: number | null): string {
   return hh ? `${d}d ${hh}h` : `${d}d`;
 }
 
+// Severity order, worst-first, so the distribution lane always reads
+// critical -> high -> medium -> low left to right regardless of disclosure order.
+const SEV_ORDER: IncidentPublic['severity'][] = ['critical', 'high', 'medium', 'low'];
+
+// Tally how many incidents fall in each severity bucket. Returns the buckets
+// in worst-first order, dropping empties so the lane never shows a zero-width
+// sliver, plus the total for share math.
+function severityBuckets(incidents: IncidentPublic[]): { items: { sev: IncidentPublic['severity']; n: number }[]; total: number } {
+  const counts = new Map<IncidentPublic['severity'], number>();
+  for (const inc of incidents) counts.set(inc.severity, (counts.get(inc.severity) ?? 0) + 1);
+  const items = SEV_ORDER.map((sev) => ({ sev, n: counts.get(sev) ?? 0 })).filter((b) => b.n > 0);
+  return { items, total: incidents.length };
+}
+
 export default async function IncidentsPage() {
   const data = await fetchList();
   const incidents = data?.incidents ?? [];
+  const sev = severityBuckets(incidents);
 
   return (
     <main style={{ maxWidth: 880, margin: '60px auto', padding: '0 24px', lineHeight: 1.6 }}>
@@ -78,6 +93,36 @@ export default async function IncidentsPage() {
         <p style={{ marginTop: 12, color: 'var(--cm-muted)', maxWidth: 640 }}>
           Past security incidents affecting this workspace, with severity, customer data impact, and resolution timeline. Updated by the workspace owner.
         </p>
+
+        {sev.total > 0 && (
+          <div style={{ marginTop: 20 }} aria-label="Severity distribution">
+            <div
+              role="img"
+              aria-label={sev.items.map((b) => `${b.n} ${sevLabel(b.sev)}`).join(', ')}
+              style={{ display: 'flex', height: 8, width: '100%', borderRadius: 999, overflow: 'hidden', background: 'var(--cm-border, #e5e7eb)' }}
+            >
+              {sev.items.map((b) => (
+                <div
+                  key={b.sev}
+                  title={`${b.n} ${sevLabel(b.sev)} (${Math.round((b.n / sev.total) * 100)}%)`}
+                  style={{ width: `${(b.n / sev.total) * 100}%`, background: sevColor(b.sev) }}
+                />
+              ))}
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 16px', marginTop: 10, fontSize: 12, color: 'var(--cm-muted)' }}>
+              {sev.items.map((b) => (
+                <span key={b.sev} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 999, background: sevColor(b.sev) }} />
+                  <span style={{ color: 'var(--cm-fg)', fontVariantNumeric: 'tabular-nums' }}>{b.n}</span>
+                  {sevLabel(b.sev)}
+                </span>
+              ))}
+              <span style={{ marginLeft: 'auto', fontVariantNumeric: 'tabular-nums' }}>
+                {sev.total} total
+              </span>
+            </div>
+          </div>
+        )}
       </header>
 
       {!data && (
