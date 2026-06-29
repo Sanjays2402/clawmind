@@ -121,17 +121,17 @@ KEYBOARD / A11Y:
 ### Refilled frontend queue (2026-06-29 06:42 PDT) - work top to bottom
 
 DATA-VIZ (evergreen vein, dumped numbers -> shapes):
-- [ ] feat(web/webhooks): delivery success-rate mini-bar per endpoint row (deliveries vs failures share).
-- [ ] feat(web/incidents): severity distribution lane in the list header (critical/high/medium/low share).
+- [x] feat(web/webhooks): delivery success-rate mini-bar per endpoint row (7272cfe, recent-window ok/total green split).
+- [x] feat(web/incidents): severity distribution lane in the list header (8ccd586, worst-first stacked share bar + legend).
 - [ ] feat(web/dashboard): namespace share donut reuse (NamespaceDonut already exists) in the namespaces panel.
 - [ ] feat(web/usage): per-day request sparkline strip in the period summary if the series is exposed.
 
 EMPTY/LOADING/ERROR (skeletons replacing bare spinners - proven vein, 5+ shipped):
 - [ ] feat(web/sources): skeleton list rows on first load instead of the centred spinner.
-- [ ] feat(web/stats): skeleton namespace rows instead of a bare spinner.
+- [x] feat(web/stats): skeleton namespace rows instead of a bare spinner (b6e4392).
 - [ ] feat(web/tags): skeleton grid tiles instead of a spinner.
 - [ ] feat(web/collections): skeleton cards on first load.
-- [ ] feat(web/feedback): skeleton table rows on first load instead of the centred spinner.
+- [x] feat(web/feedback): skeleton table rows on first load instead of the centred spinner (b2e50b5).
 
 KEYBOARD / A11Y (the rove rail is proven on search/sources/notifications):
 - [ ] feat(web/saved): j/k rove rows with Enter to run the digest, mirror the sources rail.
@@ -140,12 +140,67 @@ KEYBOARD / A11Y (the rove rail is proven on search/sources/notifications):
 
 POLISH / INTERACTION:
 - [ ] feat(web/usage): low-headroom toast persists a dismiss in localStorage so it stops nagging.
-- [ ] feat(web/sources): persist the namespace + sort filters to localStorage so the view survives reload (reuse the explainPrefs pattern).
+- [x] feat(web/sources): persist the namespace + sort filters to localStorage so the view survives reload (2b5acb2, lib/sourcesPrefs.ts).
 - [ ] feat(web/stats): persist the files/chunks/bytes lens choice to localStorage.
 - [ ] feat(web/notifications): persist the All/Unread filter choice across reloads.
 - [ ] feat(web/keys): copy-secret button confirms with a checkmark swap that also announces to a live region for SR users.
 - [ ] feat(web/explain): remember the last run query in sessionStorage so a reload re-runs it.
 
+
+### TICK LOG 2026-06-29 10:18 PDT - TWO DATA-VIZ + PERSISTENCE + TWO SKELETONS (5 slices)
+
+Five brand-new frontend slices, one commit each, pushed clean to main
+(700c4a8..b2e50b5). Worked the top of the 06:42 queue straight down. AUDITED
+each candidate against the live source before touching it (read webhooks /
+incidents / sources / stats / feedback pages + the api types in full) so no
+slice re-did already-shipped work. No filler, no fake-splitting; all 5 are
+distinct and demo-able.
+
+The 5 slices:
+- webhooks: per-endpoint RECENT delivery success-rate mini-bar. The row already
+  shows a lifetime failureCount; this derives a recent ok/total from the
+  last-N deliveries already loaded for the table (keyed by webhookId, useMemo)
+  and renders a green/danger split bar so a recovered-but-historically-failing
+  endpoint reads solid green while a degrading one grows a red tail. Pure
+  presentation, no api touch. 7272cfe.
+- incidents: severity distribution lane in the public log header. New
+  severityBuckets() tallies critical/high/medium/low worst-first, dropping
+  empties, into a stacked share bar (reusing the page's sevColor) + count/label
+  legend + total. Server component, inline-style consistent with the rest of
+  the page. 8ccd586.
+- sources: persist the namespace + sort pair across reloads. New SSR-safe
+  lib/sourcesPrefs.ts (pure sanitize/parse core + thin localStorage wrappers,
+  mirrors explainPrefs/nsPref): sort allow-listed to the 3 keys, namespace
+  bounded-string sanitized (server-defined, not enumerable). Rehydrates in a
+  mount effect (no hydration mismatch), persists once hydrated, and a stale
+  persisted namespace that now returns 0 items is kept in the select options so
+  it stays visible + clearable. Pure core verified against 10 cases. 2b5acb2.
+- stats: skeleton namespace rows on first load. Replaced the bare centred
+  spinner with a layout-faithful skeleton (4 stat cards + the by-namespace card
+  with placeholder label/bar/value rows on the real grid), reusing the
+  app-wide animate-pulse on cm-subtle. b6e4392.
+- feedback: skeleton table rows on first load. Same pattern inside the real
+  cm-card shell - path line, up/down/boost meta, ratio mini-bar, action
+  buttons - so nothing shifts when the data arrives. b2e50b5.
+
+Gate: `pnpm run ci:verify` fails ONLY on the pre-existing @clawmind/telemetry
+OTel 1.x/2.x ReadableSpan/Resource peer drift (red baseline since tick 1,
+untouched here - none of these 5 slices touch telemetry). Ran the real web gate
+directly: web typecheck GREEN and `pnpm --filter @clawmind/web build` compiled
+in 3.7s, all routes generated (/webhooks 4.67kB, /incidents, /sources 4.15kB,
+/stats 3.76kB, /feedback 2.9kB). The two build lint warnings (history L624
+sources useMemo, CodeView L148 stepHit) are PRE-EXISTING in files this tick
+never touched. Pushed 700c4a8..b2e50b5 main -> main, verified on origin.
+
+NEXT TICK: queue still has the dashboard donut-reuse + usage sparkline data-viz,
+three more skeleton passes (sources/tags/collections), the rove-rail extensions
+(saved/feedback/collections), and several more persistence items (stats lens,
+notifications filter). Still worth flagging to Sanjay: the telemetry OTel
+typecheck red is infra/pre-existing, out of the frontend-only scope this loop
+is locked to.
+
+Identity: commits land on main directly, each signed as
+`Cake (cron) <51058514+Sanjays2402@users.noreply.github.com>`.
 
 ### TICK LOG 2026-06-29 06:42 PDT - PERSISTENCE + TWO ROVES + NAV RAIL + DATA-VIZ (5 slices)
 
