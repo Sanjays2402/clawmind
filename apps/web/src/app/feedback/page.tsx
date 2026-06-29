@@ -77,6 +77,22 @@ export default function FeedbackPage() {
     return { ups, downs };
   }, [items]);
 
+  // How the boost SIGN is distributed across tracked paths: boosted (lifted in
+  // retrieval), penalized (pushed down), or neutral (votes cancel to zero
+  // boost). The three count cards above say how many votes exist; this says how
+  // many paths the votes actually move, and in which direction - the shape an
+  // operator reads to gauge whether ranking is being nudged up, down, or just
+  // churning to a wash. Filter-aware so it summarizes exactly what's in view.
+  const boostMix = useMemo(() => {
+    let boosted = 0, penalized = 0, neutral = 0;
+    for (const it of filtered) {
+      if (it.boost > 0) boosted++;
+      else if (it.boost < 0) penalized++;
+      else neutral++;
+    }
+    return { boosted, penalized, neutral, total: filtered.length };
+  }, [filtered]);
+
   return (
     <main className="min-h-screen">
       <TopNav />
@@ -144,6 +160,8 @@ export default function FeedbackPage() {
             <ErrorState message={error} onRetry={() => setError(null)} retryLabel="Dismiss" />
           </div>
         )}
+
+        {!loading && boostMix.total > 0 && <BoostMixBar mix={boostMix} />}
 
         <div className="mt-5">
           {loading && items.length === 0 ? (
@@ -214,6 +232,66 @@ export default function FeedbackPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+/**
+ * A one-line summary of how the boost SIGN splits across the paths in view:
+ * a stacked bar (green boosted | muted neutral | danger penalized) sized by
+ * share, with a compact count legend. The per-row VoteRatioBar shows one
+ * path's up/down split; this rolls the whole table up into a single shape so
+ * an operator can tell at a glance whether feedback is mostly lifting sources,
+ * mostly burying them, or washing out to neutral. Segments with a zero count
+ * collapse to nothing so the bar never shows an empty sliver.
+ */
+function BoostMixBar({
+  mix,
+}: {
+  mix: { boosted: number; penalized: number; neutral: number; total: number };
+}) {
+  const { boosted, penalized, neutral, total } = mix;
+  const pct = (n: number) => (total > 0 ? (n / total) * 100 : 0);
+  const seg: Array<{ key: string; n: number; cls: string; label: string }> = [
+    { key: 'boosted', n: boosted, cls: 'bg-emerald-500/80', label: 'boosted' },
+    { key: 'neutral', n: neutral, cls: 'bg-cm-border', label: 'neutral' },
+    { key: 'penalized', n: penalized, cls: 'bg-cm-danger/80', label: 'penalized' },
+  ];
+  return (
+    <div className="mt-5 cm-card p-4">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-xs font-medium uppercase tracking-wide text-cm-muted">
+          Boost direction
+        </span>
+        <span className="text-xs text-cm-muted">
+          {total} path{total === 1 ? '' : 's'} in view
+        </span>
+      </div>
+      <div
+        className="mt-3 flex h-2.5 w-full overflow-hidden rounded-full bg-cm-bg"
+        role="img"
+        aria-label={`${boosted} boosted, ${neutral} neutral, ${penalized} penalized of ${total} paths`}
+      >
+        {seg.map((s) =>
+          s.n > 0 ? (
+            <div
+              key={s.key}
+              className={`h-full ${s.cls} transition-all duration-300`}
+              style={{ width: `${pct(s.n)}%` }}
+            />
+          ) : null,
+        )}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs">
+        {seg.map((s) => (
+          <span key={s.key} className="inline-flex items-center gap-1.5 text-cm-muted">
+            <span className={`inline-block h-2 w-2 rounded-full ${s.cls}`} aria-hidden />
+            <span className="text-cm-fg tabular-nums">{s.n}</span>
+            {s.label}
+            <span className="text-cm-faint tabular-nums">({Math.round(pct(s.n))}%)</span>
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
