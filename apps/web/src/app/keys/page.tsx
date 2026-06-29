@@ -632,9 +632,9 @@ function KeyRow({
           )}
         </div>
         <div className="mt-1 font-mono text-xs text-cm-muted">{k.id}</div>
-        <div className="mt-1.5 flex flex-wrap gap-3 text-xs text-cm-muted">
+        <div className="mt-1.5 flex flex-wrap items-center gap-3 text-xs text-cm-muted">
           <span>created {fmtRelative(k.createdAt)}</span>
-          <span>last used {fmtRelative(k.lastUsedAt)}</span>
+          <RecencyLane lastUsedAt={k.lastUsedAt} dim={status !== 'active'} />
           {k.rotatedAt && <span>rotated {fmtRelative(k.rotatedAt)}</span>}
           {k.expiresAt && <span>expires {fmtRelative(k.expiresAt)}</span>}
           {k.revokedAt && <span>revoked {fmtRelative(k.revokedAt)}</span>}
@@ -1031,6 +1031,37 @@ function KeyRow({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * Last-used recency lane. "last used <relative>" was the only liveness signal;
+ * scanning a long key list for stale credentials meant reading every label.
+ * This pairs the text with a short bar whose fill maps recency within a 30-day
+ * window: used minutes ago fills the lane in the success accent, near a month
+ * cold reads as a sliver, never-used shows an empty rail labelled accordingly.
+ * Revoked/expired rows dim it. A quick visual sweep now surfaces idle keys.
+ */
+function RecencyLane({ lastUsedAt, dim }: { lastUsedAt: number | null; dim?: boolean }) {
+  const WINDOW = 30 * 24 * 60 * 60 * 1000; // 30 days
+  const used = lastUsedAt != null && lastUsedAt > 0;
+  const age = used ? Math.max(0, Date.now() - lastUsedAt) : WINDOW;
+  const frac = used ? Math.max(0.08, 1 - Math.min(1, age / WINDOW)) : 0;
+  const hot = frac > 0.66;
+  return (
+    <span className="inline-flex items-center gap-1.5" title={used ? 'Recency within the last 30 days' : 'Never used'}>
+      <span>last used {used ? fmtRelative(lastUsedAt) : 'never'}</span>
+      <span
+        aria-hidden="true"
+        className="relative h-1.5 w-12 overflow-hidden rounded-full"
+        style={{ background: 'var(--cm-subtle)', opacity: dim ? 0.45 : 1 }}
+      >
+        <span
+          className="absolute inset-y-0 left-0 rounded-full transition-all duration-300"
+          style={{ width: `${frac * 100}%`, background: hot ? 'var(--cm-success)' : 'var(--cm-accent-line)' }}
+        />
+      </span>
+    </span>
   );
 }
 
