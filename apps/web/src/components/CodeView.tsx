@@ -63,6 +63,15 @@ export function CodeView({
     setWrap(readWrapPref(path));
   }, [path]);
 
+  // Optimistic selection: the gutter click navigates, but the server round-trip
+  // takes a beat before the new cited band re-renders. Wash the clicked rows
+  // immediately so a click ANYWHERE (not just the cited band) gives instant
+  // feedback. Cleared when the path/cited band changes (i.e. nav resolved).
+  const [pending, setPending] = useState<{ start: number; end: number } | null>(null);
+  useEffect(() => {
+    setPending(null);
+  }, [path, win.cited?.start, win.cited?.end]);
+
   function toggleWrap() {
     setWrap((w) => {
       const next = !w;
@@ -81,6 +90,7 @@ export function CodeView({
   // toast (the URL bar still reflects the selection).
   function selectLine(lineNo: number, shift: boolean) {
     const sel = lineSelection(lineNo, win.cited, shift);
+    setPending(sel);
     router.push(lineLinkHref(path, sel), { scroll: false });
     if (typeof navigator !== 'undefined' && navigator.clipboard && typeof window !== 'undefined') {
       const url = linePermalink(window.location.origin, path, sel);
@@ -173,12 +183,16 @@ export function CodeView({
           const lineNo = startLine + i;
           const cited = isCitedLine(win, lineNo);
           const firstCited = cited && (i === 0 || !isCitedLine(win, lineNo - 1));
+          // Optimistic wash: rows in the just-clicked selection that aren't
+          // already cited light up instantly while the nav round-trips, so a
+          // plain-file line (no citation) still confirms the click.
+          const sel = !cited && pending && lineNo >= pending.start && lineNo <= pending.end;
           const tokens = highlighted?.[i];
           return (
             <div
               key={i}
               id={firstCited ? 'cm-cited' : undefined}
-              className={cited ? 'cm-cited-line' : undefined}
+              className={cited ? 'cm-cited-line' : sel ? 'cm-selected-line' : undefined}
               style={{ display: 'flex', alignItems: 'flex-start' }}
             >
               <button
@@ -195,7 +209,7 @@ export function CodeView({
                   background: 'transparent',
                   font: 'inherit',
                   cursor: 'pointer',
-                  color: cited ? 'var(--cm-cite)' : 'var(--cm-muted)',
+                  color: cited ? 'var(--cm-cite)' : sel ? 'var(--cm-accent)' : 'var(--cm-muted)',
                   userSelect: 'none',
                 }}
               >
