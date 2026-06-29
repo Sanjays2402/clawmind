@@ -204,6 +204,14 @@ export default function CollectionsPage() {
     );
   }, [savedAll, memberFilter]);
 
+  // Largest collection's member count, so the per-row size bars share one
+  // scale and the biggest folder fills the rail. Min 1 keeps a lone 1-item
+  // collection drawing a sliver instead of dividing by zero.
+  const maxItems = useMemo(
+    () => Math.max(1, ...items.map((c) => c.itemCount ?? 0)),
+    [items],
+  );
+
   return (
     <main className="min-h-screen">
       <TopNav />
@@ -347,6 +355,18 @@ export default function CollectionsPage() {
                                 {c.itemCount ?? 0} saved
                               </span>
                             </span>
+                            {(c.itemCount ?? 0) > 0 && (
+                              <span
+                                className="mt-1.5 block h-1.5 w-full max-w-[180px] overflow-hidden rounded-full bg-cm-subtle"
+                                aria-hidden
+                                title={`${c.itemCount} of ${maxItems} in the largest collection`}
+                              >
+                                <span
+                                  className={`block h-full rounded-full ${COLOR_CLASS[c.color].dot} transition-all duration-300`}
+                                  style={{ width: `${Math.max(6, ((c.itemCount ?? 0) / maxItems) * 100)}%` }}
+                                />
+                              </span>
+                            )}
                             {c.description && (
                               <span className="mt-0.5 line-clamp-2 block text-sm text-cm-muted">
                                 {c.description}
