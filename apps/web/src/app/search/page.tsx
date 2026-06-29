@@ -249,6 +249,30 @@ export default function SearchPage() {
   const safePage = Math.min(page, pageCount);
   const pageHits = sortedHits.slice((safePage - 1) * pageSize, safePage * pageSize);
 
+  // Keyboard rove over the visible result rows, mirroring the j/k rail used
+  // elsewhere: ArrowDown/j and ArrowUp/k move a focus ring through results,
+  // Enter opens the focused source. Reset whenever the result set or page
+  // changes so the ring never points at a stale row.
+  const [activeRow, setActiveRow] = useState(0);
+  const rowRefs = useRef<(HTMLAnchorElement | null)[]>([]);
+  useEffect(() => { setActiveRow(0); }, [hits, safePage, sort]);
+  function rowHref(h: Source): string {
+    const params = new URLSearchParams({ path: h.path, start: String(h.startLine), end: String(h.startLine) });
+    return `/sources/view?${params.toString()}`;
+  }
+  function onRowsKey(e: React.KeyboardEvent) {
+    if (pageHits.length === 0) return;
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (e.key === 'ArrowDown' || e.key === 'j') {
+      e.preventDefault();
+      setActiveRow((i) => { const n = Math.min(pageHits.length - 1, i + 1); rowRefs.current[n]?.focus(); return n; });
+    } else if (e.key === 'ArrowUp' || e.key === 'k') {
+      e.preventDefault();
+      setActiveRow((i) => { const n = Math.max(0, i - 1); rowRefs.current[n]?.focus(); return n; });
+    }
+  }
+
   return (
     <main className="min-h-screen">
       <TopNav />
@@ -559,25 +583,37 @@ export default function SearchPage() {
             />
           ) : (
             <>
-              <ul className="cm-card divide-y divide-cm-border">
+              <ul
+                className="cm-card divide-y divide-cm-border"
+                onKeyDown={onRowsKey}
+                aria-label="Search results, use arrow keys to move and Enter to open"
+              >
                 {pageHits.map((h, i) => (
-                  <li key={h.id + '-' + i} className="p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 text-xs text-cm-muted">
-                        <IconFolder size={14} />
-                        <span className="font-mono">
-                          {h.displayPath ?? h.path}:{h.startLine}
-                        </span>
+                  <li key={h.id + '-' + i}>
+                    <Link
+                      ref={(el) => { rowRefs.current[i] = el; }}
+                      href={rowHref(h)}
+                      tabIndex={i === activeRow ? 0 : -1}
+                      onFocus={() => setActiveRow(i)}
+                      className="block p-4 outline-none transition-colors hover:bg-cm-accent-soft focus-visible:bg-cm-accent-soft focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cm-accent"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-xs text-cm-muted">
+                          <IconFolder size={14} />
+                          <span className="font-mono">
+                            {h.displayPath ?? h.path}:{h.startLine}
+                          </span>
+                        </div>
+                        <span className="text-xs text-cm-muted">score {h.score.toFixed(3)}</span>
                       </div>
-                      <span className="text-xs text-cm-muted">score {h.score.toFixed(3)}</span>
-                    </div>
-                    <div className="mt-2 text-sm leading-relaxed">
-                      {h.snippet && h.snippet.text ? (
-                        <HighlightedText text={h.snippet.text} spans={h.snippet.spans} />
-                      ) : (
-                        h.excerpt
-                      )}
-                    </div>
+                      <div className="mt-2 text-sm leading-relaxed">
+                        {h.snippet && h.snippet.text ? (
+                          <HighlightedText text={h.snippet.text} spans={h.snippet.spans} />
+                        ) : (
+                          h.excerpt
+                        )}
+                      </div>
+                    </Link>
                   </li>
                 ))}
               </ul>
