@@ -1,6 +1,7 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { TopNav } from '@/components/TopNav';
 import { api, fmtRelative, type NotificationItem, type NotificationKind } from '@/lib/api';
 import {
@@ -41,6 +42,7 @@ export default function NotificationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'unread'>('all');
   const [busy, setBusy] = useState<string | null>(null);
+  const router = useRouter();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -113,6 +115,49 @@ export default function NotificationsPage() {
     }
   }
 
+  // Keyboard rove over the inbox rows. The j/k rail moves a focus ring like
+  // /search and /sources, but notifications carry per-row actions so the ring
+  // doubles as a command target: Enter opens the row's link (and marks it
+  // read), e marks the focused row read, x removes it. Reset to the top when
+  // the filter reloads the list so the ring never points at a stale row, and
+  // skip events from the header controls so the filter/clear buttons keep
+  // their own keys.
+  const [activeRow, setActiveRow] = useState(0);
+  const rowRefs = useRef<(HTMLLIElement | null)[]>([]);
+  useEffect(() => { setActiveRow(0); }, [filter, items.length]);
+  function focusRow(i: number) {
+    const n = Math.max(0, Math.min(items.length - 1, i));
+    rowRefs.current[n]?.focus();
+    setActiveRow(n);
+  }
+  function onRowsKey(e: React.KeyboardEvent) {
+    if (items.length === 0) return;
+    const tag = (e.target as HTMLElement).tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    const item = items[activeRow];
+    if (e.key === 'ArrowDown' || e.key === 'j') {
+      e.preventDefault();
+      focusRow(activeRow + 1);
+    } else if (e.key === 'ArrowUp' || e.key === 'k') {
+      e.preventDefault();
+      focusRow(activeRow - 1);
+    } else if (e.key === 'Enter' && item) {
+      if (!item.href) return;
+      e.preventDefault();
+      void markOneRead(item);
+      router.push(item.href as string);
+    } else if ((e.key === 'e' || e.key === 'E') && item) {
+      e.preventDefault();
+      void markOneRead(item);
+    } else if ((e.key === 'x' || e.key === 'X') && item) {
+      e.preventDefault();
+      void removeOne(item);
+      // The removed row drops out; keep the ring on the same index, which now
+      // holds the next row down (clamped by focusRow on the next keypress).
+      setActiveRow((i) => Math.max(0, Math.min(items.length - 2, i)));
+    }
+  }
+
   return (
     <main className="min-h-screen">
       <TopNav />
@@ -130,6 +175,19 @@ export default function NotificationsPage() {
               </Link>
               .
             </p>
+            {items.length > 0 && (
+              <p className="mt-1.5 hidden items-center gap-1.5 text-[11px] text-cm-muted sm:flex">
+                <kbd className="rounded border border-cm-border bg-cm-bg px-1 font-mono">j</kbd>
+                <kbd className="rounded border border-cm-border bg-cm-bg px-1 font-mono">k</kbd>
+                move
+                <kbd className="ml-1.5 rounded border border-cm-border bg-cm-bg px-1 font-mono">enter</kbd>
+                open
+                <kbd className="ml-1.5 rounded border border-cm-border bg-cm-bg px-1 font-mono">e</kbd>
+                read
+                <kbd className="ml-1.5 rounded border border-cm-border bg-cm-bg px-1 font-mono">x</kbd>
+                remove
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2 text-xs">
             <div className="inline-flex overflow-hidden rounded-md border border-cm-border">
@@ -200,15 +258,24 @@ export default function NotificationsPage() {
             />
           )}
           {!loading && !error && items.length > 0 && (
-            <ul className="divide-y divide-cm-border rounded-lg border border-cm-border">
-              {items.map((item) => {
+            <ul
+              className="divide-y divide-cm-border rounded-lg border border-cm-border"
+              onKeyDown={onRowsKey}
+              aria-label="Notifications. Use j and k to move, Enter to open, e to mark read, x to remove."
+            >
+              {items.map((item, i) => {
                 const Icon = kindIcon(item.kind);
                 const isUnread = item.readAt === null;
                 return (
                   <li
                     key={item.id}
+                    ref={(el) => { rowRefs.current[i] = el; }}
+                    tabIndex={i === activeRow ? 0 : -1}
+                    onFocus={() => setActiveRow(i)}
+                    aria-current={i === activeRow ? 'true' : undefined}
                     className={[
-                      'flex items-start gap-3 px-4 py-3 transition-colors',
+                      'flex items-start gap-3 px-4 py-3 outline-none transition-colors',
+                      'focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cm-accent',
                       isUnread ? 'bg-cm-accent-soft/40' : '',
                     ].join(' ')}
                   >
