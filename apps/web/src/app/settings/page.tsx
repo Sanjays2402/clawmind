@@ -33,6 +33,91 @@ interface HealthSummary {
   chunks: number;
 }
 
+// Section anchors for the jump rail. Order matches the render order below so
+// the scrollspy highlight tracks the page top-to-bottom. Each id is mirrored
+// on the wrapping <section> with a scroll-margin so the sticky TopNav never
+// hides a heading when you jump to it.
+const SETTINGS_SECTIONS: ReadonlyArray<{ id: string; label: string }> = [
+  { id: 'profile', label: 'Profile' },
+  { id: 'usage', label: 'Usage' },
+  { id: 'appearance', label: 'Appearance' },
+  { id: 'system', label: 'System status' },
+  { id: 'controls', label: 'Account controls' },
+  { id: 'data', label: 'Your data' },
+];
+
+/**
+ * Sticky left rail that jumps to each settings section and highlights the one
+ * currently in view. The active id comes from an IntersectionObserver watching
+ * every section: whichever heading sits nearest the top of the viewport (below
+ * the sticky nav) wins, so the marker tracks the page as you scroll, not only
+ * when you click. Hidden below lg where there is no room beside the cards; on
+ * narrow screens the sections simply stack as before. Smooth-scrolls on click
+ * and keeps the chosen id active immediately so the marker never lags the jump.
+ */
+function SettingsNav() {
+  const [active, setActive] = useState<string>(SETTINGS_SECTIONS[0]!.id);
+  useEffect(() => {
+    const sections = SETTINGS_SECTIONS
+      .map((s) => document.getElementById(s.id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (sections.length === 0) return;
+    // Bias the viewport box upward so a section counts as "current" once its
+    // top crosses the area just under the sticky nav, matching the eye.
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (visible[0]) setActive(visible[0].target.id);
+      },
+      { rootMargin: '-96px 0px -55% 0px', threshold: 0 },
+    );
+    sections.forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+  }, []);
+
+  const jump = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    const el = document.getElementById(id);
+    if (!el) return;
+    setActive(id);
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  return (
+    <nav aria-label="Settings sections" className="hidden lg:block">
+      <div className="sticky top-24">
+        <p className="cm-mono mb-2 px-2 text-[10px] uppercase tracking-[0.14em] text-cm-faint">
+          On this page
+        </p>
+        <ul className="space-y-0.5">
+          {SETTINGS_SECTIONS.map((s) => {
+            const isActive = active === s.id;
+            return (
+              <li key={s.id}>
+                <a
+                  href={`#${s.id}`}
+                  onClick={(e) => jump(e, s.id)}
+                  aria-current={isActive ? 'true' : undefined}
+                  className={[
+                    'flex items-center gap-2 rounded-md border-l-2 px-2 py-1.5 text-sm transition-colors',
+                    isActive
+                      ? 'border-cm-accent bg-cm-accent-soft text-cm-fg'
+                      : 'border-transparent text-cm-muted hover:border-cm-border hover:text-cm-fg',
+                  ].join(' ')}
+                >
+                  {s.label}
+                </a>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </nav>
+  );
+}
+
 function fmtResetDate(resetsAt: number): string {
   return new Date(resetsAt).toLocaleDateString(undefined, {
     year: 'numeric',
@@ -73,7 +158,7 @@ export default function SettingsPage() {
   return (
     <div className="min-h-screen bg-cm-bg">
       <TopNav />
-      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6 sm:py-10">
+      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 sm:py-10">
         <div className="mb-6 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <IconSettings size={22} />
@@ -99,18 +184,21 @@ export default function SettingsPage() {
         ) : error ? (
           <ErrorState title="Could not load settings" message={error} onRetry={load} />
         ) : (
-          <div className="grid gap-6">
-            <ProfileCard
-              userId={usage?.userId ?? 'local'}
-              plan={usage?.plan ?? 'free'}
-              profile={profile}
-              onSaved={(next) => setProfile(next)}
-            />
-            <UsageCard usage={usage} />
-            <AppearanceCard />
-            <SystemCard health={health} />
-            <ShortcutsCard />
-            <DataCard onChanged={load} />
+          <div className="grid gap-8 lg:grid-cols-[180px_1fr]">
+            <SettingsNav />
+            <div className="grid gap-6">
+              <ProfileCard
+                userId={usage?.userId ?? 'local'}
+                plan={usage?.plan ?? 'free'}
+                profile={profile}
+                onSaved={(next) => setProfile(next)}
+              />
+              <UsageCard usage={usage} />
+              <AppearanceCard />
+              <SystemCard health={health} />
+              <ShortcutsCard />
+              <DataCard onChanged={load} />
+            </div>
           </div>
         )}
       </main>
@@ -121,14 +209,19 @@ export default function SettingsPage() {
 function Section({
   title,
   description,
+  id,
   children,
 }: {
   title: string;
   description?: string;
+  id?: string;
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-cm-border bg-cm-paper p-5">
+    <section
+      id={id}
+      className="scroll-mt-24 rounded-xl border border-cm-border bg-cm-paper p-5"
+    >
       <div className="mb-3">
         <h2 className="text-sm font-semibold text-cm-fg">{title}</h2>
         {description ? (
@@ -204,6 +297,7 @@ function ProfileCard({
 
   return (
     <Section
+      id="profile"
       title="Profile"
       description="The account every saved item, conversation, and API key is attached to."
     >
@@ -332,7 +426,7 @@ function ProfileCard({
 function UsageCard({ usage }: { usage: UsageSummary | null }) {
   if (!usage) {
     return (
-      <Section title="Usage" description="Free-tier quota for the current month.">
+      <Section id="usage" title="Usage" description="Free-tier quota for the current month.">
         <EmptyState
           icon={<IconChartBar size={20} />}
           title="No usage yet"
@@ -349,6 +443,7 @@ function UsageCard({ usage }: { usage: UsageSummary | null }) {
   const barColor = over ? 'var(--cm-danger)' : near ? 'var(--cm-cite)' : 'var(--cm-accent)';
   return (
     <Section
+      id="usage"
       title="Usage"
       description={`${usage.used.toLocaleString()} of ${usage.limit.toLocaleString()} requests used, resets ${fmtResetDate(
         usage.resetsAt,
@@ -390,7 +485,7 @@ function UsageCard({ usage }: { usage: UsageSummary | null }) {
 
 function AppearanceCard() {
   return (
-    <Section title="Appearance" description="Theme preference stored locally in your browser.">
+    <Section id="appearance" title="Appearance" description="Theme preference stored locally in your browser.">
       <div className="flex items-center justify-between">
         <span className="text-sm text-cm-muted">Dark or light mode</span>
         <ThemeToggle />
@@ -441,7 +536,7 @@ function AccentSwatch() {
 
 function SystemCard({ health }: { health: HealthSummary | null }) {
   return (
-    <Section title="System status" description="Health of the providers powering this instance.">
+    <Section id="system" title="System status" description="Health of the providers powering this instance.">
       <dl className="grid gap-2 text-sm">
         <Row label="Embed provider">
           <Status ok={!!health?.embed} />
@@ -519,7 +614,7 @@ function ShortcutsCard() {
     { href: '/settings/data-residency', label: 'Data residency', description: 'Restrict mutating writes to a chosen set of regions. Reads are unaffected. Returned on every response as x-clawmind-region.', Icon: IconShield },
   ];
   return (
-    <Section title="Account controls" description="Manage how this account talks to the outside world.">
+    <Section id="controls" title="Account controls" description="Manage how this account talks to the outside world.">
       <ul className="grid gap-1">
         {links.map(({ href, label, description, Icon }) => (
           <li key={href}>
@@ -605,6 +700,7 @@ function DataCard({ onChanged }: { onChanged: () => void }) {
 
   return (
     <Section
+      id="data"
       title="Your data"
       description="Export everything tied to this account, or erase it. Both actions are written to the server audit log."
     >
