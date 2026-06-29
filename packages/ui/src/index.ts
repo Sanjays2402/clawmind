@@ -12,6 +12,7 @@ export * from './components/Logo';
 export * from './components/ThemeToggle';
 export * from './components/NamespacePicker';
 export * from './components/Toast';
+export * from './components/Dialog';
 export * from './components/Skeleton';
 export * from './icons/index';
 export * from './hooks/useDebounced';

@@ -1,6 +1,6 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
-import { useHotkey, Kbd } from '@clawmind/ui';
+import { useCallback, useState } from 'react';
+import { useHotkey, Kbd, Dialog } from '@clawmind/ui';
 
 interface Shortcut {
   keys: string[]; // e.g. ['⌘', 'K'] — rendered as separate <kbd> chips
@@ -76,53 +76,12 @@ export function ShortcutHelp() {
     setOpen((v) => !v);
   });
 
-  // Plumbing: close on Escape (useHotkey treats Esc as a global so we'd
-  // collide with the palette; the dialog-level handler scopes neatly).
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        setOpen(false);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
-
+  // Plumbing: close on Escape is handled by the shared Dialog primitive
+  // (which also traps focus, locks scroll, and closes on backdrop click).
   const close = useCallback(() => setOpen(false), []);
 
-  if (!open) return null;
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="shortcut-help-title"
-      onClick={close}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 55,
-        background: 'rgba(0,0,0,0.45)',
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-        padding: '10vh 16px 16px',
-      }}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          width: '100%',
-          maxWidth: 560,
-          background: 'var(--cm-paper)',
-          border: '1px solid var(--cm-border)',
-          borderRadius: 12,
-          boxShadow: '0 24px 64px rgba(0,0,0,0.35)',
-          overflow: 'hidden',
-        }}
-      >
+    <Dialog open={open} onClose={close} align="start" maxWidth={560} labelledBy="shortcut-help-title">
         <header
           style={{
             display: 'flex',
@@ -261,7 +220,6 @@ export function ShortcutHelp() {
             Close
           </button>
         </footer>
-      </div>
-    </div>
+    </Dialog>
   );
 }
