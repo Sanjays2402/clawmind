@@ -281,6 +281,7 @@ export function TopNav() {
 function MoreMenu({ pathname }: { pathname: string | null }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<Array<HTMLAnchorElement | null>>([]);
 
   const isInSecondary = secondary.some(
     ({ href }) => pathname === href || pathname?.startsWith(href + '/'),
@@ -305,6 +306,30 @@ function MoreMenu({ pathname }: { pathname: string | null }) {
     };
   }, [open]);
 
+  // When the popover opens, drop focus onto the active item (else the first)
+  // so the keyboard lands inside the menu, not stranded on the trigger.
+  useEffect(() => {
+    if (!open) return;
+    const start = Math.max(0, secondary.findIndex(
+      ({ href }) => pathname === href || pathname?.startsWith(href + '/'),
+    ));
+    requestAnimationFrame(() => itemRefs.current[start]?.focus());
+  }, [open, pathname]);
+
+  // Up/Down arrow roving inside the open popover (ARIA menu pattern). Items
+  // are laid out two-per-row but read as one vertical list; Home/End jump to
+  // the ends, Tab closes so focus continues past the nav as expected.
+  function onMenuKeyDown(e: React.KeyboardEvent) {
+    const n = secondary.length;
+    const cur = itemRefs.current.findIndex((el) => el === document.activeElement);
+    const focusAt = (i: number) => itemRefs.current[((i % n) + n) % n]?.focus();
+    if (e.key === 'ArrowDown') { e.preventDefault(); focusAt(cur + 1); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); focusAt(cur - 1); }
+    else if (e.key === 'Home') { e.preventDefault(); focusAt(0); }
+    else if (e.key === 'End') { e.preventDefault(); focusAt(n - 1); }
+    else if (e.key === 'Tab') { setOpen(false); }
+  }
+
   return (
     <div ref={wrapRef} className="relative">
       <button
@@ -325,15 +350,18 @@ function MoreMenu({ pathname }: { pathname: string | null }) {
         <div
           role="menu"
           aria-label="More pages"
+          onKeyDown={onMenuKeyDown}
           className="absolute right-0 top-[calc(100%+8px)] z-30 w-[440px] rounded-xl border border-cm-border bg-cm-paper p-2 shadow-xl"
         >
           <div className="grid grid-cols-2 gap-0.5">
-            {secondary.map(({ href, label, Icon }) => {
+            {secondary.map(({ href, label, Icon }, i) => {
               const active = pathname === href || pathname?.startsWith(href + '/');
               return (
                 <Link
                   key={href}
                   href={href}
+                  ref={(el) => { itemRefs.current[i] = el; }}
+                  tabIndex={-1}
                   role="menuitem"
                   aria-current={active ? 'page' : undefined}
                   onClick={() => setOpen(false)}
