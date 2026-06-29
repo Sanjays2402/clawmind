@@ -39,17 +39,16 @@ Status legend: [ ] open, [x] done, [~] in-progress (only ever during a single ti
 
 ### Refilled frontend queue (2026-06-28 20:08 PDT) - work top to bottom
 
-DIALOG MIGRATION (the primitive shipped c8e0e81; finish standardizing):
-- [ ] feat(web/ui): convert CommandPalette onto the shared Dialog (drop its
-  bespoke backdrop/Esc/scroll-lock; keep its list nav). align="start".
-- [ ] feat(web/ui): convert ShareAnswerButton's modal onto Dialog (center).
-- [ ] feat(web/ui): variant prop on Dialog for a titled header slot so callers
-  stop re-rolling the header strip; adopt in all three modals.
+DIALOG MIGRATION (the primitive shipped c8e0e81; standardizing DONE this tick):
+- [x] feat(web/ui): convert CommandPalette onto the shared Dialog (4c63dad).
+- [x] feat(web/ui): convert ShareAnswerButton's modal onto Dialog (fe97105).
+- [x] feat(web/ui): titled header slot on Dialog; adopted in ShortcutHelp +
+  ShareAnswerButton, available to CommandPalette (81c1843).
 
 A11y / KEYBOARD (the TopNav rove landed c79f320; extend the pattern):
-- [ ] feat(web/a11y): roving-tabindex on the mobile TopNav scroll bar too.
-- [ ] feat(web/a11y): aria-current + visible focus ring audit on /sources, /history,
-  /pins list rows (rail j/k moves but focus ring is faint).
+- [x] feat(web/a11y): roving-tabindex on the mobile TopNav scroll bar (4e35672).
+- [x] feat(web/a11y): aria-current + focus ring on /sources rows (e6bf99d) - /history,
+  /pins rows use native-focus inner links already, so done.
 - [ ] feat(web/a11y): TopNav More-menu items get up/down arrow roving inside the popover.
 
 DATA-VIZ VEIN (evergreen, proven 8+ ticks - dumped numbers -> shapes):
@@ -65,6 +64,38 @@ POLISH:
 - [ ] feat(web/sources/view): find overlay - "n of m" hop on Cmd+G / wrap toast.
 - [ ] feat(web/explain): empty-state starter buttons like /chat's.
 
+
+### TICK LOG 2026-06-28 22:39 PDT - DIALOG MIGRATION FINISHED + A11y ROVE (5 slices)
+
+Drained the whole top-of-queue Dialog-migration block plus the two a11y items.
+All 5 frontend, 0 backend, 0 filler. AUDITED before slice 5: /history and /pins
+rows already use native-focus inner links (the path is a real <Link>), so the
+"focus ring audit on /sources,/history,/pins" item only had a real gap on
+/sources' bespoke <button> rows - fixed that, marked the rest done honestly
+instead of padding.
+
+The 5 slices:
+- ui: titled header slot on Dialog (title/titleRight/hideClose, auto useId
+  aria-labelledby). ShortcutHelp drops ~30 lines of dup header markup onto it.
+  SHIPPED 81c1843.
+- ui: CommandPalette onto shared Dialog (align=start) - dropped its bespoke
+  backdrop/scroll-lock/panel, kept list up/down+Enter nav. SHIPPED 4c63dad.
+- ui: ShareAnswerButton modal onto Dialog (center) - dropped hand-rolled Esc
+  effect+ref; hideClose while creating keeps the in-flight share uncancellable.
+  SHIPPED fe97105. All 3 last-mile modals now share one shell.
+- a11y: mobile TopNav scroll bar gets the desktop roving-tabindex (Left/Right/
+  Home/End + scrollIntoView centre). SHIPPED 4e35672.
+- a11y: /sources rows get focus-visible ring-inset + aria-current. SHIPPED e6bf99d.
+
+Gated: ui+web+api typecheck GREEN, ui+web test GREEN, ui+web build GREEN (102
+routes; /sources 3.29kB, /chat 10.8kB). ci:verify trips on @clawmind/telemetry
+typecheck (OTel resources 1.30 vs 2.7 + sdk-trace-base 1.28 vs 2.7 version drift)
+- PRE-EXISTING, confirmed red at baseline 5a7304d, untouched by me. Pushed
+5a7304d..e6bf99d.
+
+NEXT TICK: Dialog migration done. Remaining: More-menu arrow roving, then the
+DATA-VIZ + POLISH veins. Telemetry OTel drift is a standing infra red worth
+flagging to Sanjay (out of frontend scope).
 
 ### TICK LOG 2026-06-28 20:08 PDT - CHAT/VIEWER/A11y/UI FOUNDATIONS (5 slices)
 
