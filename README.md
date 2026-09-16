@@ -1218,6 +1218,8 @@ pnpm clawmind ask "what did I decide about the embed model last week?"
 
 The web UI is at <http://127.0.0.1:7412>. The API listens on <http://127.0.0.1:7410>. Data (LanceDB, BM25 index, manifest, audit log) is written to `CLAWMIND_DATA_DIR` (default `./data`).
 
+The full CLI reference — all 18 commands with their subcommands and key flags — is in [docs/cli.md](docs/cli.md).
+
 Or check the live SSO configuration the API has loaded. Use this for a procurement / IT review when you need to prove that `CLAWMIND_AUTH_MODE=oidc` is enforced and that the deployment is pointed at the right issuer and allowed domains. The endpoint never returns the client secret:
 
 ```bash
