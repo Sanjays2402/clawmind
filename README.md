@@ -30,7 +30,7 @@ Your workspace already knows the answer: it is in a session log from last Tuesda
 | | |
 | --- | --- |
 | **Two-column reading layout** | Wide answer column with a sticky source rail. `[` `]` step through citations, `j` `k` move through the rail, `/` focuses the composer. |
-| **Threads that stick around** | Ask follow-ups in one running thread. The thread and any half-typed question are restored after a reload. Download the whole thread as Markdown with per-exchange citations using **Export .md**. |
+| **Threads that stick around** | Ask follow-ups in one running thread, regenerate any answer, or remove an exchange. The thread and any half-typed question are restored after a reload. Download the whole thread as Markdown with per-exchange citations using **Export .md**. |
 | **Explain view** | `/explain` shows why each chunk was picked: raw BM25, dense cosine, the normalised blend, rerank, and MMR rank, stage by stage. |
 | **Namespaces** | Files are bucketed into `memory`, `sessions`, `projects`, `docs`, and `misc` by path, so you can scope a question to one corner of the workspace. |
 | **Watch mode** | `clawmind watch` keeps the index fresh as files change. Unchanged files are skipped by content hash. |

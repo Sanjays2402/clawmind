@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { TopNav } from '@/components/TopNav';
-import { NamespacePicker, type Ns, ChatAnswerSkeleton, SourcesRailSkeleton, IconArrowRight } from '@clawmind/ui';
+import { NamespacePicker, type Ns, ChatAnswerSkeleton, SourcesRailSkeleton, IconArrowRight, IconRefresh, IconTrash } from '@clawmind/ui';
 import { ChatStream } from './ChatStream';
 import { SourcesPane } from './SourcesPane';
 import { Composer } from './Composer';
@@ -318,6 +318,19 @@ export function ChatShell({
     void runStream(id, turn.question);
   }
 
+  // Remove one exchange from the thread. Only the on-screen/persisted copy is
+  // dropped (history still keeps the answer server-side). If it was the turn
+  // the rail was tracking, fall back to the next-newest remaining turn.
+  function removeTurn(id: string) {
+    if (loading) return;
+    const remaining = turns.filter((t) => t.id !== id);
+    setTurns(remaining);
+    if (activeTurnId === id) {
+      setActiveTurnId(remaining[0]?.id ?? null);
+      setActiveSource(null);
+    }
+  }
+
   // Drop a turn's question back into the composer so the reader can tweak it
   // and ask again (which starts a fresh turn). Clears nothing on the existing
   // turn — editing is non-destructive.
@@ -448,6 +461,8 @@ export function ChatShell({
                     }}
                     onRetry={() => retryTurn(turn.id)}
                     onEdit={() => editTurn(turn.question)}
+                    onRemove={() => removeTurn(turn.id)}
+                    busy={loading}
                   />
                 ))}
               </div>
@@ -501,6 +516,8 @@ function TurnBlock({
   onFocusTurn,
   onRetry,
   onEdit,
+  onRemove,
+  busy,
 }: {
   turn: Turn;
   anchorId: string;
@@ -514,6 +531,8 @@ function TurnBlock({
   onFocusTurn: () => void;
   onRetry: () => void;
   onEdit: () => void;
+  onRemove: () => void;
+  busy: boolean;
 }) {
   const showSkeleton = streaming && turn.answer === '' && !turn.error;
   return (
@@ -574,8 +593,29 @@ function TurnBlock({
                       : ''}
                   </span>
                 )}
+                <button
+                  type="button"
+                  onClick={onRetry}
+                  disabled={busy}
+                  aria-label="Regenerate this answer"
+                  title="Ask the same question again and replace this answer"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1.5 text-xs text-cm-fg-soft hover:bg-cm-accent-soft hover:text-cm-fg disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <IconRefresh size={14} />
+                  Regenerate
+                </button>
                 <CopyAnswerButton query={turn.question} answer={turn.answer} sources={turn.sources} />
                 <ShareAnswerButton query={turn.question} answer={turn.answer} sources={turn.sources} />
+                <button
+                  type="button"
+                  onClick={onRemove}
+                  disabled={busy}
+                  aria-label="Remove this exchange from the thread"
+                  title="Remove from this thread (history keeps it)"
+                  className="inline-flex items-center rounded-md border border-cm-border px-2 py-1.5 text-cm-faint hover:bg-cm-accent-soft hover:text-cm-fg disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <IconTrash size={14} />
+                </button>
               </div>
             )}
           </>
