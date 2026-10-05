@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hybridMerge } from '../src/hybrid.js';
+import { hybridMerge, normalizeScores } from '../src/hybrid.js';
 import type { RetrievedChunk } from '@clawmind/types';
 
 const mk = (id: string, s: number, kind: 'bm' | 'de'): RetrievedChunk => ({
@@ -15,5 +15,16 @@ describe('hybridMerge', () => {
     const out = hybridMerge(bm, de, { alpha: 0.5 });
     expect(out.map((h) => h.id).sort()).toEqual(['a', 'b', 'c']);
     expect(out[0]?.id).toBe('b');
+  });
+});
+
+describe('normalizeScores', () => {
+  it('scales by the max and keeps the weakest hit above zero', () => {
+    expect(normalizeScores([10, 5])).toEqual([1, 0.5]);
+  });
+  it('clamps negatives and handles all-zero input', () => {
+    expect(normalizeScores([0.5, -0.2])).toEqual([1, 0]);
+    expect(normalizeScores([0, 0])).toEqual([0, 0]);
+    expect(normalizeScores([])).toEqual([]);
   });
 });

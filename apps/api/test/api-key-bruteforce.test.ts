@@ -54,12 +54,14 @@ describe('api-key brute-force throttle', () => {
   });
 
   it('expires the lock naturally once lockoutMs has elapsed', async () => {
-    configure({ maxFails: 2, windowMs: 60_000, lockoutMs: 1 });
+    // 1 ms used to race the two awaits above under a loaded test run; 100 ms
+    // leaves headroom for the "still locked" check without slowing the suite.
+    configure({ maxFails: 2, windowMs: 60_000, lockoutMs: 100 });
     const ip = '198.51.100.2';
     await recordFailure(dir, ip, 'unknown');
     await recordFailure(dir, ip, 'unknown');
     expect(status(ip).locked).toBe(true);
-    await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 150));
     expect(status(ip).locked).toBe(false);
   });
 
