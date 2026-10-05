@@ -8,7 +8,7 @@
     "start": "next start --port 7412",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
-    "test": "echo ok",
+    "test": "vitest run --dir test",
     "e2e": "playwright test"
   },
   "dependencies": {

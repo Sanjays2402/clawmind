@@ -12,10 +12,12 @@ import { ChatError } from './ChatError';
 import { StreamProgress } from './StreamProgress';
 import { JumpToLatest } from './JumpToLatest';
 import { ThreadOutline } from './ThreadOutline';
+import { ExportThreadButton } from './ExportThreadButton';
 import { api } from '@/lib/api';
 import { revealSourceCard } from '@/lib/sourceNav';
 import { citedOrder, citePillId } from '@/lib/citations';
 import { readNsPref, writeNsPref } from '@/lib/nsPref';
+import { readThread, writeThread, readDraft, writeDraft } from '@/lib/threadStore';
 
 interface Source {
   id: string;
@@ -105,6 +107,11 @@ export function ChatShell({
   const cancelRef = useRef<boolean>(false);
   const searchParams = useSearchParams();
   const prefillRef = useRef<string | null>(null);
+  // Persistence is gated on this flag so the empty first render never
+  // overwrites a saved thread/draft before the mount effect restores it.
+  const hydratedRef = useRef(false);
+  const turnsRef = useRef<Turn[]>([]);
+  turnsRef.current = turns;
 
   const activeTurn = turns.find((t) => t.id === activeTurnId) ?? null;
 
@@ -123,6 +130,46 @@ export function ChatShell({
     const saved = readNsPref();
     if (saved) setNamespaces(saved);
   }, []);
+
+  // Restore the last thread and any unsent draft on mount, so a reload or a
+  // quick trip to another page no longer wipes the conversation. A `?q=`
+  // deep link wins over the saved draft. Turns that were mid-stream when the
+  // page went away come back closed with an "interrupted" error + Retry.
+  useEffect(() => {
+    const savedTurns = readThread();
+    if (savedTurns && savedTurns.length > 0) {
+      setTurns(savedTurns);
+      setActiveTurnId(savedTurns[0]?.id ?? null);
+    }
+    if (!searchParams.get('q')) {
+      const draft = readDraft();
+      if (draft) setQuestion(draft);
+    }
+    hydratedRef.current = true;
+    // Mount-only: searchParams is read once to decide draft vs deep link.
+  }, []);
+
+  // Persist the thread whenever it settles. Skipped while a turn streams so
+  // we are not serialising the whole thread on every token; pagehide below
+  // catches a reload that lands mid-stream.
+  useEffect(() => {
+    if (!hydratedRef.current || loading) return;
+    writeThread(turns);
+  }, [turns, loading]);
+
+  useEffect(() => {
+    function onHide() {
+      if (hydratedRef.current) writeThread(turnsRef.current);
+    }
+    window.addEventListener('pagehide', onHide);
+    return () => window.removeEventListener('pagehide', onHide);
+  }, []);
+
+  // Keep the unsent composer text so an accidental reload doesn't eat it.
+  useEffect(() => {
+    if (!hydratedRef.current) return;
+    writeDraft(question);
+  }, [question]);
 
   // Wrap setNamespaces so every toggle in the breadcrumb picker persists the
   // new selection. Kept out of the picker's render path so the component stays
@@ -351,14 +398,25 @@ export function ChatShell({
               <span className="cm-mono text-[11px] uppercase tracking-[0.12em] text-cm-faint">
                 {turns.length} {turns.length === 1 ? 'exchange' : 'exchanges'} in this thread
               </span>
-              <button
-                type="button"
-                onClick={newThread}
-                disabled={loading}
-                className="cm-mono inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1 text-[11px] text-cm-fg-soft transition-colors hover:bg-cm-accent-soft hover:text-cm-fg disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                New thread
-              </button>
+              <div className="flex items-center gap-2">
+                <ExportThreadButton
+                  disabled={loading}
+                  turns={[...turns].reverse().map((t) => ({
+                    question: t.question,
+                    answer: t.answer,
+                    sources: t.sources,
+                    error: t.error,
+                  }))}
+                />
+                <button
+                  type="button"
+                  onClick={newThread}
+                  disabled={loading}
+                  className="cm-mono inline-flex items-center gap-1.5 rounded-md border border-cm-border px-2.5 py-1 text-[11px] text-cm-fg-soft transition-colors hover:bg-cm-accent-soft hover:text-cm-fg disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  New thread
+                </button>
+              </div>
             </div>
           )}
 
