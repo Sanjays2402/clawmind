@@ -1,12 +1,15 @@
 import type { RetrievedChunk } from '@clawmind/types';
 
-// Normalize a score list to [0,1] via min-max so we can blend BM25 with cosine.
-function minMax(scores: number[]): number[] {
+// Normalize a score list to [0,1] by dividing by the max so BM25 and cosine
+// can be blended. Min-max was used previously, but it pins the weakest hit in
+// each list to 0, so a chunk ranked by both retrievers could score no better
+// than one ranked by only one of them. Negative scores clamp to 0.
+export function normalizeScores(scores: number[]): number[] {
   if (scores.length === 0) return [];
-  let min = Infinity, max = -Infinity;
-  for (const s of scores) { if (s < min) min = s; if (s > max) max = s; }
-  if (max === min) return scores.map(() => (max > 0 ? 1 : 0));
-  return scores.map((s) => (s - min) / (max - min));
+  let max = 0;
+  for (const s of scores) if (s > max) max = s;
+  if (max <= 0) return scores.map(() => 0);
+  return scores.map((s) => Math.max(0, s) / max);
 }
 
 export interface HybridOptions {
@@ -19,8 +22,8 @@ export function hybridMerge(
   opts: HybridOptions = {},
 ): RetrievedChunk[] {
   const alpha = opts.alpha ?? 0.5;
-  const bm25Norm = minMax(bm25Hits.map((h) => h.bm25Score ?? h.score));
-  const denseNorm = minMax(denseHits.map((h) => h.denseScore ?? h.score));
+  const bm25Norm = normalizeScores(bm25Hits.map((h) => h.bm25Score ?? h.score));
+  const denseNorm = normalizeScores(denseHits.map((h) => h.denseScore ?? h.score));
   const map = new Map<string, RetrievedChunk & { _bm: number; _de: number }>();
 
   bm25Hits.forEach((h, i) => {

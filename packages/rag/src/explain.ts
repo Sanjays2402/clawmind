@@ -1,5 +1,6 @@
 import type { Query, RetrievedChunk } from '@clawmind/types';
 import type { RagDeps } from './pipeline.js';
+import { normalizeScores } from './hybrid.js';
 import { mmrRerank } from './mmr.js';
 import { lexicalRerank } from './rerank.js';
 import { expandQuery, vocabFromIndex } from './expand.js';
@@ -55,14 +56,6 @@ export interface RetrieveExplainResult {
   };
 }
 
-function minMax(scores: number[]): number[] {
-  if (scores.length === 0) return [];
-  let min = Infinity, max = -Infinity;
-  for (const s of scores) { if (s < min) min = s; if (s > max) max = s; }
-  if (max === min) return scores.map(() => (max > 0 ? 1 : 0));
-  return scores.map((s) => (s - min) / (max - min));
-}
-
 function excerptOf(text: string, n = 240): string {
   const flat = text.replace(/\s+/g, ' ').trim();
   return flat.length <= n ? flat : flat.slice(0, n - 1) + '…';
@@ -88,8 +81,8 @@ export async function retrieveExplain(
   ]);
 
   const alpha = q.hybridAlpha ?? 0.5;
-  const bm25Norm = minMax(bm25Hits.map((h) => h.bm25Score ?? h.score));
-  const denseNorm = minMax(denseHits.map((h) => h.denseScore ?? h.score));
+  const bm25Norm = normalizeScores(bm25Hits.map((h) => h.bm25Score ?? h.score));
+  const denseNorm = normalizeScores(denseHits.map((h) => h.denseScore ?? h.score));
 
   const map = new Map<string, {
     chunk: RetrievedChunk;
