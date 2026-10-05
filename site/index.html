@@ -1,0 +1,372 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ClawMind · A quiet study for one mind</title>
+<meta name="description" content="Local-first RAG over your notes, sessions, and project files. Ask in plain words, get answers with every claim cited back to the line it came from." />
+<meta property="og:title" content="ClawMind" />
+<meta property="og:description" content="Local-first RAG with inline, line-level citations. Nothing leaves your machine." />
+<meta property="og:type" content="website" />
+<meta property="og:url" content="https://sanjays2402.github.io/clawmind/" />
+<meta property="og:image" content="https://sanjays2402.github.io/clawmind/landing.png" />
+<meta name="theme-color" content="#F7F5F0" />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,400;1,9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  /* Tokens mirror packages/ui/src/styles/tokens.css so the site and the app
+     read as one product. */
+  :root {
+    --bg: #F7F5F0; --paper: #FBFAF6; --subtle: #EFEBE2;
+    --border: #E2DCCE; --border-strong: #C9C1AE;
+    --fg: #1B2330; --fg-soft: #2E3848; --muted: #6B7283; --faint: #9098A8;
+    --accent: #E8743B; --accent-ink: #B0501F; --accent-soft: rgba(232,116,59,.12); --accent-line: rgba(232,116,59,.32);
+    --cite: #B98A1A; --cite-bg: rgba(185,138,26,.10); --cite-line: rgba(185,138,26,.40);
+    --success: #2F7A55;
+    --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+    --sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+    --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #161A22; --paper: #1B2030; --subtle: #20283A;
+      --border: #2A3346; --border-strong: #3B4660;
+      --fg: #ECE7DA; --fg-soft: #C8CBD4; --muted: #8A92A4; --faint: #5D6479;
+      --accent: #F0915E; --accent-ink: #F4A87E; --accent-soft: rgba(240,145,94,.16); --accent-line: rgba(240,145,94,.40);
+      --cite: #D4B05A; --cite-bg: rgba(212,176,90,.14); --cite-line: rgba(212,176,90,.40);
+      --success: #62B68F;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #161A22; --paper: #1B2030; --subtle: #20283A;
+    --border: #2A3346; --border-strong: #3B4660;
+    --fg: #ECE7DA; --fg-soft: #C8CBD4; --muted: #8A92A4; --faint: #5D6479;
+    --accent: #F0915E; --accent-ink: #F4A87E; --accent-soft: rgba(240,145,94,.16); --accent-line: rgba(240,145,94,.40);
+    --cite: #D4B05A; --cite-bg: rgba(212,176,90,.14); --cite-line: rgba(212,176,90,.40);
+    --success: #62B68F;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { animation: none !important; transition: none !important; } }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  ::selection { background: var(--accent-soft); }
+  a { color: inherit; }
+  .wrap { width: 100%; max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+  .mono { font-family: var(--mono); }
+  .eyebrow { font: 500 11px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+
+  /* Nav */
+  header.nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
+  .nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font: 600 19px/1 var(--serif); letter-spacing: -.01em; }
+  .brand-mark { width: 24px; height: 24px; border-radius: 6px; background: var(--accent-soft); display: grid; place-items: center; }
+  .nav nav { display: flex; gap: 24px; align-items: center; }
+  .nav nav a { text-decoration: none; font-size: 14px; color: var(--muted); }
+  .nav nav a:hover { color: var(--fg); }
+  .theme-btn { border: 1px solid var(--border); background: transparent; color: var(--muted); width: 32px; height: 32px; border-radius: 8px; cursor: pointer; display: grid; place-items: center; }
+  .theme-btn:hover { color: var(--fg); background: var(--accent-soft); }
+  @media (max-width: 640px) { .nav nav a.hide-sm { display: none; } .nav nav { gap: 16px; } }
+
+  /* Hero */
+  .hero { padding: 88px 0 56px; }
+  .status { display: inline-flex; align-items: center; gap: 8px; font: 12px/1 var(--mono); color: var(--muted); }
+  .status i { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 18%, transparent); }
+  h1 { font: 500 clamp(48px, 9vw, 96px)/.98 var(--serif); letter-spacing: -.035em; margin: 22px 0 0; }
+  h1 em { color: var(--accent); font-style: italic; font-weight: 400; }
+  h1 .dot { color: var(--faint); }
+  .lede { max-width: 620px; margin: 28px 0 0; font-size: 18px; color: var(--fg-soft); }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 34px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 8px; font-weight: 500; font-size: 15px; text-decoration: none; border: 1px solid var(--border); transition: background .15s, transform .15s; }
+  .btn:hover { transform: translateY(-1px); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
+  .btn.ghost { background: var(--paper); color: var(--fg); }
+  .btn.ghost:hover { background: var(--accent-soft); }
+
+  /* Product mock: the two-column reading layout, drawn in HTML */
+  .mock { margin-top: 64px; border: 1px solid var(--border); border-radius: 14px; background: var(--paper); overflow: hidden; box-shadow: 0 1px 0 var(--border), 0 30px 60px -30px rgba(27,35,48,.25); }
+  .mock-bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--bg); }
+  .mock-bar span { width: 10px; height: 10px; border-radius: 50%; background: var(--border-strong); }
+  .mock-bar .crumbs { margin-left: 12px; font: 11px/1 var(--mono); color: var(--faint); }
+  .mock-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 36px; padding: 32px 36px 36px; }
+  @media (max-width: 860px) { .mock-body { grid-template-columns: 1fr; padding: 24px 20px; } }
+  .composer { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; color: var(--fg-soft); background: var(--bg); font-size: 15px; display: flex; justify-content: space-between; gap: 12px; }
+  .composer .k { font: 11px/1.6 var(--mono); color: var(--faint); white-space: nowrap; }
+  .q { display: flex; gap: 12px; margin-top: 28px; }
+  .q .tick { width: 3px; border-radius: 3px; background: var(--accent-line); flex-shrink: 0; }
+  .q h3 { font: 500 21px/1.35 var(--serif); margin: 2px 0 0; letter-spacing: -.01em; }
+  .answer { margin-top: 16px; font-size: 15.5px; line-height: 1.75; color: var(--fg-soft); }
+  .answer p { margin: 0 0 12px; }
+  .cite { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; margin: 0 1px; border-radius: 5px; font: 500 11px/1 var(--mono); color: var(--cite); background: var(--cite-bg); border: 1px solid var(--cite-line); vertical-align: 2px; cursor: pointer; transition: background .15s, color .15s; }
+  .cite:hover, .cite.on { background: var(--cite); color: var(--paper); }
+  .caret { display: inline-block; width: 7px; height: 17px; background: var(--accent); vertical-align: -3px; animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .rail .eyebrow { margin-bottom: 12px; display: block; }
+  .src { border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; background: var(--bg); transition: border-color .2s, box-shadow .2s; }
+  .src.on { border-color: var(--cite-line); box-shadow: 0 0 0 3px var(--cite-bg); }
+  .src .path { font: 12px/1.4 var(--mono); color: var(--fg); display: flex; gap: 8px; }
+  .src .path b { color: var(--cite); font-weight: 500; }
+  .src .path small { color: var(--faint); margin-left: auto; }
+  .src p { margin: 6px 0 0; font-size: 13px; line-height: 1.55; color: var(--muted); }
+  .src mark { background: var(--accent-soft); color: var(--fg); border-radius: 3px; padding: 0 2px; }
+
+  /* Sections */
+  section.block { padding: 96px 0 0; }
+  h2 { font: 500 clamp(32px, 5vw, 46px)/1.08 var(--serif); letter-spacing: -.025em; margin: 14px 0 0; max-width: 720px; }
+  h2 em { color: var(--accent); font-style: italic; font-weight: 400; }
+  .sub { color: var(--muted); max-width: 620px; margin: 16px 0 0; font-size: 17px; }
+
+  .pillars { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; margin-top: 48px; background: var(--border); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+  @media (max-width: 860px) { .pillars { grid-template-columns: 1fr; } }
+  .pillar { background: var(--paper); padding: 28px; }
+  .pillar .num { font: 500 12px/1 var(--mono); color: var(--accent); }
+  .pillar h3 { font: 500 22px/1.25 var(--serif); margin: 14px 0 8px; letter-spacing: -.01em; }
+  .pillar p { margin: 0; color: var(--muted); font-size: 15px; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 16px; margin-top: 44px; }
+  .card { border: 1px solid var(--border); border-radius: 12px; padding: 22px; background: var(--paper); transition: border-color .2s, transform .2s; }
+  .card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+  .card h4 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+  .card p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.55; }
+  .card .k { display: inline-block; margin-top: 12px; font: 11px/1 var(--mono); color: var(--faint); }
+  kbd { font: 11px/1 var(--mono); border: 1px solid var(--border-strong); border-bottom-width: 2px; border-radius: 4px; padding: 2px 5px; background: var(--bg); color: var(--fg-soft); }
+
+  /* Pipeline */
+  .pipe { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 48px; counter-reset: step; }
+  @media (max-width: 860px) { .pipe { grid-template-columns: 1fr; } }
+  .step { position: relative; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--paper); counter-increment: step; }
+  .step::before { content: "0" counter(step); font: 500 11px/1 var(--mono); color: var(--accent); }
+  .step h4 { margin: 10px 0 6px; font: 500 18px/1.2 var(--serif); }
+  .step p { margin: 0; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+  .step code { font: 12px var(--mono); color: var(--fg-soft); }
+  @media (min-width: 861px) { .step:not(:last-child)::after { content: ""; position: absolute; top: 50%; right: -9px; width: 6px; height: 6px; border-top: 1.5px solid var(--border-strong); border-right: 1.5px solid var(--border-strong); transform: translateY(-50%) rotate(45deg); } }
+
+  /* Code */
+  .code { position: relative; margin-top: 40px; border-radius: 12px; background: #1B2330; color: #ECE7DA; border: 1px solid var(--border); overflow: hidden; }
+  .code-head { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; border-bottom: 1px solid #2A3346; font: 11px/1 var(--mono); color: #8A92A4; }
+  .copy { font: 11px/1 var(--mono); background: transparent; color: #C8CBD4; border: 1px solid #3B4660; border-radius: 6px; padding: 6px 10px; cursor: pointer; }
+  .copy:hover { background: #2A3346; }
+  pre { margin: 0; padding: 20px; overflow-x: auto; font: 13.5px/1.75 var(--mono); }
+  pre .c { color: #8A92A4; }
+  pre .p { color: #F0915E; user-select: none; }
+
+  .stack { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+  .chip { font: 12px/1 var(--mono); padding: 8px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--paper); color: var(--fg-soft); }
+
+  footer { margin-top: 112px; border-top: 1px solid var(--border); padding: 36px 0 48px; color: var(--muted); font-size: 14px; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center; }
+  footer nav { display: flex; gap: 20px; flex-wrap: wrap; }
+  footer a { text-decoration: none; }
+  footer a:hover { color: var(--fg); }
+
+  .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
+  .reveal.in { opacity: 1; transform: none; }
+  .no-js .reveal { opacity: 1; transform: none; }
+</style>
+</head>
+<body class="no-js">
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="ClawMind home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg width="12" height="14" viewBox="0 0 12 14" fill="none"><path d="M6 1 10.5 13H8.2L6 6.6 3.8 13H1.5L6 1Z" fill="currentColor" style="color:var(--accent)"/></svg>
+      </span>
+      ClawMind
+    </a>
+    <nav aria-label="Primary">
+      <a class="hide-sm" href="#features">Features</a>
+      <a class="hide-sm" href="#how">How it works</a>
+      <a href="#start">Get started</a>
+      <a href="https://github.com/Sanjays2402/clawmind">GitHub</a>
+      <button class="theme-btn" id="theme" type="button" aria-label="Toggle dark mode">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+      </button>
+    </nav>
+  </div>
+</header>
+
+<main id="top">
+  <section class="hero">
+    <div class="wrap">
+      <span class="status"><i></i>local index · nothing leaves this machine</span>
+      <h1>A quiet study <em>for one mind</em><span class="dot">.</span></h1>
+      <p class="lede">ClawMind reads your notes, session logs, and projects, then answers questions about them in plain prose. Every claim carries a numbered mark that points back to the exact file and line it came from.</p>
+      <div class="cta">
+        <a class="btn primary" href="#start">Get started
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </a>
+        <a class="btn ghost" href="https://github.com/Sanjays2402/clawmind">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.56-.29-5.25-1.28-5.25-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.7 5.4-5.27 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+          View on GitHub
+        </a>
+      </div>
+
+      <div class="mock reveal" aria-label="Illustration of the ClawMind reading layout">
+        <div class="mock-bar"><span></span><span></span><span></span><div class="crumbs">workspace / memory · projects · sessions</div></div>
+        <div class="mock-body">
+          <div>
+            <div class="composer"><span>why did we pick LanceDB over pgvector?</span><span class="k">⌘ ↵ to ask</span></div>
+            <div class="q"><div class="tick"></div><div><div class="eyebrow">Asked</div><h3>Why did we pick LanceDB over pgvector?</h3></div></div>
+            <div class="answer">
+              <p>You chose LanceDB because it runs embedded in the API process, so there's no separate database to manage on a laptop <span class="cite" data-src="1">1</span>. The decision note also mentions that its on-disk columnar format made re-indexing a 40k-chunk workspace fast enough to run on every save <span class="cite" data-src="2">2</span>.</p>
+              <p>pgvector stayed on the list as an optional backend for teams that already run Postgres <span class="cite" data-src="3">3</span><span class="caret" aria-hidden="true"></span></p>
+            </div>
+          </div>
+          <aside class="rail">
+            <span class="eyebrow">Sources · 3</span>
+            <div class="src" id="src-1"><div class="path"><b>1</b>memory/decisions.md<small>:14–22</small></div><p>Going with <mark>LanceDB</mark>: embedded, zero ops, the file is the database.</p></div>
+            <div class="src" id="src-2"><div class="path"><b>2</b>sessions/2026-06-12.md<small>:88</small></div><p>full reindex of 40k chunks took 31s, so we can <mark>re-index on save</mark></p></div>
+            <div class="src" id="src-3"><div class="path"><b>3</b>docs/roadmap.md<small>:9</small></div><p>Optional <mark>Postgres backend</mark> for history and saved items.</p></div>
+          </aside>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block">
+    <div class="wrap">
+      <span class="eyebrow">Principles</span>
+      <h2>Answers you can <em>check</em>, from files you already have.</h2>
+      <div class="pillars reveal">
+        <div class="pillar"><span class="num">01</span><h3>Local by default</h3><p>Embeddings run on a local MLX model, vectors live in LanceDB on disk, and the default LLM is local too. Remote models are opt-in.</p></div>
+        <div class="pillar"><span class="num">02</span><h3>Cited to the line</h3><p>Every claim links to <span class="mono">path:start–end</span>. Step through citations with <kbd>[</kbd> <kbd>]</kbd> and watch the matching source light up.</p></div>
+        <div class="pillar"><span class="num">03</span><h3>Made for reading</h3><p>A two-column layout with prose on the left and sources on the right, instead of chat bubbles. Calm type, warm paper, no clutter.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="features">
+    <div class="wrap">
+      <span class="eyebrow">Features</span>
+      <h2>Everything a daily notebook <em>needs</em>.</h2>
+      <p class="sub">Built to be used every session, from the keyboard, without thinking about it.</p>
+      <div class="grid reveal">
+        <div class="card"><h4>Hybrid retrieval</h4><p>BM25 for exact terms and dense vectors for meaning, blended, reranked, and diversified with MMR.</p><span class="k">packages/rag</span></div>
+        <div class="card"><h4>Threads that stick around</h4><p>Ask follow-ups in one thread. It survives a reload, and so does a half-typed question.</p><span class="k">new</span></div>
+        <div class="card"><h4>Export to Markdown</h4><p>Download a whole thread, with per-exchange citations and source lists, for your notes or a PR.</p><span class="k">new</span></div>
+        <div class="card"><h4>Explain view</h4><p>See why each chunk was picked: raw BM25, cosine, the normalised blend, rerank, and MMR rank.</p><span class="k">/explain</span></div>
+        <div class="card"><h4>Namespaces</h4><p>Files are bucketed into memory, sessions, projects, docs, and misc by path. Scope any question to one of them.</p><span class="k">auto-bucketed</span></div>
+        <div class="card"><h4>Watch mode</h4><p>The index stays fresh as you write. Unchanged files are skipped by content hash.</p><span class="k">clawmind watch</span></div>
+        <div class="card"><h4>History and pins</h4><p>Search every past question, tag it, pin it, group answers into collections, or share a read-only link.</p><span class="k">/history · /pins</span></div>
+        <div class="card"><h4>Keyboard first</h4><p><kbd>/</kbd> focus, <kbd>⌘</kbd><kbd>↵</kbd> ask, <kbd>[</kbd><kbd>]</kbd> citations, <kbd>j</kbd><kbd>k</kbd> rail, <kbd>⌘</kbd><kbd>K</kbd> command palette.</p><span class="k">?</span></div>
+        <div class="card"><h4>A real CLI</h4><p>18 commands, including ask, search, ingest, related, stale, digest, and doctor. Scriptable and pipe-friendly.</p><span class="k">apps/cli</span></div>
+        <div class="card"><h4>Ready for teams</h4><p>OIDC SSO, SCIM, scoped API keys, MFA step-up, a tamper-evident audit log, data residency, and GDPR tooling.</p><span class="k">docs/features.md</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="how">
+    <div class="wrap">
+      <span class="eyebrow">How it works</span>
+      <h2>From files on disk to a <em>cited</em> answer.</h2>
+      <div class="pipe reveal">
+        <div class="step"><h4>Ingest</h4><p>Walks the workspace with a gitignore filter, skips unchanged files by hash, and loads markdown, code, JSON, PDF, and HTML.</p></div>
+        <div class="step"><h4>Embed</h4><p>Chunks go to a local MLX sidecar running <code>bge-small-en-v1.5</code>, with an OpenAI-compatible fallback.</p></div>
+        <div class="step"><h4>Store</h4><p>Vectors go to LanceDB and tokens go to a BM25 index, both on your disk.</p></div>
+        <div class="step"><h4>Retrieve</h4><p>Lexical and dense search run in parallel, then are blended, reranked, and diversified to fit a token budget.</p></div>
+        <div class="step"><h4>Answer</h4><p>The LLM streams prose over SSE, and each <code>[n]</code> mark resolves to a file and line range.</p></div>
+      </div>
+      <div class="stack">
+        <span class="chip">TypeScript</span><span class="chip">Fastify 5</span><span class="chip">Next.js 15</span><span class="chip">React 19</span><span class="chip">Tailwind v4</span><span class="chip">LanceDB</span><span class="chip">BM25</span><span class="chip">Apple MLX</span><span class="chip">Turborepo</span><span class="chip">vitest</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="block" id="start">
+    <div class="wrap">
+      <span class="eyebrow">Get started</span>
+      <h2>Running in <em>about five minutes</em>.</h2>
+      <p class="sub">You need Node 20.10+, pnpm 9, Python 3.11+, and an OpenAI-compatible chat endpoint, which can be a local one.</p>
+      <div class="code reveal">
+        <div class="code-head"><span>terminal</span><button class="copy" type="button" data-copy="quickstart">Copy</button></div>
+<pre id="quickstart"><span class="p">$ </span>git clone https://github.com/Sanjays2402/clawmind.git && cd clawmind
+<span class="p">$ </span>pnpm install && cp .env.example .env
+<span class="c"># start the embedding sidecar (port 7411)</span>
+<span class="p">$ </span>(cd packages/embed/python && pip install -r requirements.txt && python server.py) &
+<span class="c"># API on 7410, web UI on 7412</span>
+<span class="p">$ </span>pnpm dev
+<span class="c"># in another shell: index the samples and ask</span>
+<span class="p">$ </span>pnpm clawmind ingest ./samples
+<span class="p">$ </span>pnpm clawmind ask "where did I first sketch the citation rail idea?"</pre>
+      </div>
+      <div class="cta">
+        <a class="btn primary" href="https://github.com/Sanjays2402/clawmind#quick-start">Read the full guide</a>
+        <a class="btn ghost" href="https://github.com/Sanjays2402/clawmind/blob/main/docs/features.md">Browse every feature</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>ClawMind · MIT licensed · © 2026 Sanjay Santhanam</span>
+    <nav aria-label="Footer">
+      <a href="https://github.com/Sanjays2402/clawmind">GitHub</a>
+      <a href="https://github.com/Sanjays2402/clawmind/blob/main/docs/cli.md">CLI</a>
+      <a href="https://github.com/Sanjays2402/clawmind/blob/main/docs/api-reference.md">API</a>
+      <a href="https://github.com/Sanjays2402/clawmind/blob/main/docs/security.md">Security</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  document.body.classList.remove('no-js');
+
+  // Theme toggle: system by default, explicit choice remembered per browser.
+  (function () {
+    var root = document.documentElement;
+    try { var saved = localStorage.getItem('cm-site-theme'); if (saved) root.dataset.theme = saved; } catch (e) {}
+    document.getElementById('theme').addEventListener('click', function () {
+      var dark = root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+      root.dataset.theme = dark ? 'light' : 'dark';
+      try { localStorage.setItem('cm-site-theme', root.dataset.theme); } catch (e) {}
+    });
+  })();
+
+  // Citation pills light up their source card, like the real app.
+  document.querySelectorAll('.cite').forEach(function (pill) {
+    var card = document.getElementById('src-' + pill.dataset.src);
+    function on() { pill.classList.add('on'); card && card.classList.add('on'); }
+    function off() { pill.classList.remove('on'); card && card.classList.remove('on'); }
+    pill.addEventListener('mouseenter', on);
+    pill.addEventListener('mouseleave', off);
+    pill.addEventListener('focus', on);
+    pill.addEventListener('blur', off);
+    pill.tabIndex = 0;
+  });
+
+  // Copy the quick start without the prompt glyphs.
+  document.querySelectorAll('.copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var el = document.getElementById(btn.dataset.copy);
+      var text = Array.prototype.map.call(el.childNodes, function (n) {
+        return n.nodeType === 1 && n.classList.contains('p') ? '' : n.textContent;
+      }).join('');
+      navigator.clipboard.writeText(text).then(function () {
+        btn.textContent = 'Copied';
+        setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
+      });
+    });
+  });
+
+  // Gentle reveal on scroll.
+  if ('IntersectionObserver' in window) {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach(function (el) { io.observe(el); });
+  } else {
+    document.querySelectorAll('.reveal').forEach(function (el) { el.classList.add('in'); });
+  }
+</script>
+</body>
+</html>
